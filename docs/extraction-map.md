@@ -9,7 +9,7 @@ Reference source: `refference/meta_webui_demo`, `wire-in-cli` at
 | `applications/evolver/backend/src/.../evolver_controller.py` and `evolver_control/` | `evolver-server` | central controller/action/sync tests | copied; compatibility imports retained |
 | `.../evolver_edge/` | `evolver-controller` | EdgeStore, sync, lifecycle, installer, simulator tests | copied nearly unchanged |
 | `.../evolver_edge/{hardware,hardware_ipc,hardware_service,identity,store}.py` | `evolver-hardware` | hardware IPC/read-only/simulator tests | bounded extraction copied |
-| `tools/metactl.py`, `metactl_transport.py` | `metactl` | `test_metactl.py`, transport tests | copied; catalog adapter pending standalone catalog |
+| `tools/metactl.py`, `metactl_transport.py` | `metactl` | `test_metactl.py`, transport tests | catalog-driven transport; canonical eVOLVER action contract in `applications/evolver/actions.json` |
 | `tools/build_evolver_*.py`, `validate_evolver_release.py` | Meta Ball `tools/` | release-builder tests | copied authoritative implementation |
 | BAL assembled schema selection | Meta Ball `private-schema/` | focused selector tests | implemented without private source |
 | `.devcontainer/common`, `.codex`, `.vscode` | Meta Ball root | devcontainer contract tests pending | adapted from reference |

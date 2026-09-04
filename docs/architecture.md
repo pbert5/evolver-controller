@@ -9,6 +9,33 @@ it has no PostgreSQL or catalog dependency. `metactl` is an operator API client.
 `evolver-protocol` is reserved for contracts that genuinely need an independent
 lifecycle. `evolver-arduino` remains the existing firmware source repository.
 
+The eVOLVER operator action catalog is the declarative source of truth for
+externally exposed capabilities. It lives at
+`metactl/applications/evolver/actions.json`; its validated `api` projection
+contains the method/path contract. `metactl` projects that contract into CLI
+transport, while `evolver-server` resolves it only through a trusted Python
+adapter registry. Catalog registry bindings are labels, never import paths.
+
+| Action / surface | Contract source | Runtime owner |
+|---|---|---|
+| controllers.list / runs.pause | action catalog | evolver-server |
+| release.build | action catalog | trusted release adapter |
+| controller sync | machine protocol | evolver-server/controller |
+| health, action manifest | infrastructure/resource route | evolver-server |
+| release artifacts | resource endpoint | release serving |
+| hardware serial | local protocol | evolver-hardware |
+
+Machine sync, health, telemetry/event exchange, artifact downloads, and local
+hardware IPC remain separate protocols/resources; they are not forced into the
+operator action abstraction.
+
+`evolver-protocol` remains intentionally uncreated. Reconnaissance found no
+shared public package, independent protocol release lifecycle, or existing
+cross-repository dependency: the catalog is currently owned by `metactl` and
+consumed by the integrated server projection. Revisit this decision when a
+second independently versioned consumer requires the same public parser or
+wire contract. No private BAL schema or lab data is part of the catalog.
+
 Central is future/operator intent; edge is physical/current reality. ACKs are
 not physical observations. Controller communication is controller-initiated,
 authenticated, and generation fenced. Meta WebUI and BAL catalog code remain
