@@ -31,7 +31,7 @@ def test_zsh_widget_is_safe_and_both_profiles_wire_it():
     assert "LBUFFER=$selected" in widget
     assert "zle -N meta-ball-navi-accept-line" in widget
 
-    for profile in ("common", "evolver-edge"):
-        zshrc = (ROOT / f".devcontainer/{profile}/dotfiles/.zshrc").read_text()
+    for profile in ("server", "evolver-edge"):
+        zshrc = (ROOT / ".devcontainer/dotfiles/.zshrc").read_text()
         assert "NAVI_PATH=\"${NAVI_PATH:-/workspaces/meta_bal/docs/navi/generated}\"" in zshrc
         assert "tools/navi-widget.zsh" in zshrc

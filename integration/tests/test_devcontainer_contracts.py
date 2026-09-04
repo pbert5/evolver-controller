@@ -11,9 +11,10 @@ pytestmark = pytest.mark.integration
 ROOT = Path(__file__).parents[2]
 
 
-def test_common_container_is_meta_ball_and_safe():
-    config = json.loads((ROOT / ".devcontainer/common/devcontainer.json").read_text())
-    assert config["name"] == "Meta Ball Common Toolchain"
+def test_server_container_is_canonical_and_safe():
+    config = json.loads((ROOT / ".devcontainer/server/devcontainer.json").read_text())
+    assert config["name"] == "Meta Ball Server"
+    assert config["build"]["target"] == "server"
     assert config["forwardPorts"] == [18086]
     assert config["containerEnv"]["META_BAL_DEV_BIND_ADDRESS"].endswith("127.0.0.1}")
     assert any("docker-outside-of-docker" in feature for feature in config["features"])
@@ -24,7 +25,7 @@ def test_common_container_is_meta_ball_and_safe():
 
 def test_stale_webui_and_browser_tooling_are_absent():
     text = "\n".join(
-        p.read_text() for p in [ROOT / ".devcontainer/common/Dockerfile", ROOT / ".devcontainer/common/devcontainer.json"]
+        p.read_text() for p in [ROOT / ".devcontainer/Dockerfile", ROOT / ".devcontainer/server/devcontainer.json"]
     )
     for stale in ("meta-webui", "META_WEBUI", "PLAYWRIGHT", "npm", "nodejs", "chromium"):
         assert stale.lower() not in text.lower()
@@ -40,8 +41,8 @@ def test_workspace_members_and_contract_scripts_exist():
         assert (ROOT / script).stat().st_mode & 0o111
 
 
-@pytest.mark.parametrize("argv", [("common", "check"), ("check", "common")])
-def test_dev_env_accepts_canonical_and_legacy_profile_order(argv):
+@pytest.mark.parametrize("argv", [("server", "check"), ("check", "server")])
+def test_dev_env_accepts_canonical_and_legacy_server_order(argv):
     result = subprocess.run([str(ROOT / "tools/dev-env"), *argv], cwd=ROOT,
                             capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
@@ -61,6 +62,27 @@ def test_dev_env_smoke_covers_shared_and_edge_contracts():
         assert f"{command}" in source
     assert 'import yaml' in source
     assert 'test -d /run/evolver-controller' in source
+
+
+def test_shared_dockerfile_owns_stages_and_tool_versions():
+    dockerfile = (ROOT / ".devcontainer/Dockerfile").read_text()
+    assert "FROM mcr.microsoft.com/vscode/devcontainers/python:1-3.12-bookworm AS base" in dockerfile
+    assert "FROM base AS server" in dockerfile
+    assert "FROM base AS evolver-edge" in dockerfile
+    for arg in ("UV_VERSION=0.8.14", "RTK_VERSION=v0.47.0", "NAVI_VERSION=v2.24.0"):
+        assert dockerfile.count(f"ARG {arg}") == 1
+    assert not (ROOT / ".devcontainer/common").exists()
+
+
+def test_cache_contract_is_worktree_scoped_and_edge_runtime_is_stable():
+    server = json.loads((ROOT / ".devcontainer/server/devcontainer.json").read_text())
+    edge = json.loads((ROOT / ".devcontainer/evolver-edge/devcontainer.json").read_text())
+    server_mounts = "\n".join(server["mounts"])
+    edge_mounts = "\n".join(edge["mounts"])
+    assert "meta-ball-${localEnv:META_BALL_WORKTREE_ID}-uv-cache" in server_mounts
+    assert "meta-ball-${localEnv:META_BALL_WORKTREE_ID}-uv-cache" in edge_mounts
+    assert "evolver-edge-runtime,target=/run/evolver-controller" in edge_mounts
+    assert "evolver-edge-runtime,target=/run/evolver-controller" not in server_mounts
 
 
 def test_evolver_edge_devcontainer_is_source_backed_and_has_docker_without_serial():

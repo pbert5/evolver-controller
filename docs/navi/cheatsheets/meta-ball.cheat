@@ -14,11 +14,11 @@ tools/test integration
 tools/test component <component>
   component: controller, hardware, server, metactl, or root
 
-# Start the Common Toolchain Dev Container
-tools/dev-env up common
+# Start the Server Dev Container
+tools/dev-env up server
 
-# Open a shell in the Common Toolchain Dev Container
-tools/dev-env common exec zsh
+# Open a shell in the Server Dev Container
+tools/dev-env server exec zsh
 
 # Start the eVOLVER Edge Dev Container
 tools/dev-env up evolver-edge

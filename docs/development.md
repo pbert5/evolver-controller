@@ -1,7 +1,7 @@
 # Development
 
 Clone with `git clone --recurse-submodules` and open the root in its Dev
-Container. The Common Toolchain uses a worktree-local `.venv`, a persistent
+Container. The Server profile uses a worktree-local `.venv`, a persistent
 worktree-scoped uv cache, and a root uv workspace containing all four Python
 components. Bootstrap runs `uv sync --all-packages --all-extras`; no Node.js or
 npm installation is required. The image also includes the standalone Codex CLI;
@@ -10,9 +10,9 @@ configuration persist in the shared `meta-ball-codex` volume mounted at
 `/home/vscode/.codex`; no credentials are included in the image. Outside the
 container, use `tools/dev-env`.
 The helper uses the canonical profile-first form:
-`tools/dev-env common exec <command...>` (Common Toolchain is the default
-profile). The older action-first form, such as `tools/dev-env exec common
-<command...>`, remains accepted for compatibility. Use `tools/dev-env common
+`tools/dev-env server exec <command...>` (Server is the default
+profile). The older action-first form, such as `tools/dev-env exec server
+<command...>`, remains accepted for compatibility. Use `tools/dev-env server
 smoke` to verify shared container tools and `tools/check-locks` to verify the
 root `uv.lock` and both Dev Container feature locks. Pass `--relock` only for
 an intentional dependency refresh.
@@ -40,7 +40,7 @@ uses strict marker checking, so new lane-specific tests should use
 `@pytest.mark.integration`, `@pytest.mark.simulator`, or
 `@pytest.mark.serial` explicitly.
 
-The Common container forwards port 18086 as `Meta Ball API`. Services launched
+The Server container forwards port 18086 as `Meta Ball API`. Services launched
 through the host Docker daemon should use `META_BAL_DEV_BIND_ADDRESS` and
 `META_BAL_DEV_PORT`; the default bind is loopback. To make a service reachable
 from a controller, explicitly set the bind address to a host LAN or Tailscale

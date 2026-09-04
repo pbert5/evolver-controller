@@ -9,16 +9,16 @@ Do not treat missing host-level `python`, `pytest`, or `uv` as a blocker in this
 Use the repository helper to enter the appropriate container and run tests there. For example:
 
 ```bash
-rtk tools/dev-env common up
-rtk tools/dev-env common exec rtk tools/test all
+rtk tools/dev-env server up
+rtk tools/dev-env server exec rtk tools/test all
 rtk tools/check-locks
 ```
 
-The Common Toolchain currently provides Python 3.12, `uv`, `pytest`, `pytest-xdist`, `pytest-cov`, PyYAML/component dependencies, Docker/Compose access, and RTK. Prefer repository-owned container tooling over installing Python or test dependencies onto the host.
+The Server profile currently provides Python 3.12, `uv`, `pytest`, `pytest-xdist`, `pytest-cov`, PyYAML/component dependencies, Docker/Compose access, and RTK. Prefer repository-owned container tooling over installing Python or test dependencies onto the host.
 
 Use `rtk` as the shell command prefix for repository commands, including
 commands run inside a Dev Container. `tools/dev-env` accepts the legacy
-action-first spelling (`tools/dev-env up common`) for compatibility, but
+action-first spelling (`tools/dev-env up server`) for compatibility, but
 profile-first is canonical. Run `tools/check-locks --relock` only when
 deliberately refreshing `uv.lock`; review the resulting diff before committing.
 

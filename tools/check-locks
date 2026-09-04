@@ -13,7 +13,7 @@ esac
 cd "$ROOT"
 if (( relock )); then uv lock; else uv lock --check; fi
 
-for profile in common evolver-edge; do
+for profile in server evolver-edge; do
   config=".devcontainer/$profile/devcontainer.json"
   lock=".devcontainer/$profile/devcontainer-lock.json"
   config_features=$(jq -S -c '.features // {} | keys' "$config")

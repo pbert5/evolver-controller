@@ -12,4 +12,4 @@ Reference source: `refference/meta_webui_demo`, `wire-in-cli` at
 | `tools/metactl.py`, `metactl_transport.py` | `metactl` | `test_metactl.py`, transport tests | catalog-driven transport; canonical eVOLVER action contract in `applications/evolver/actions.json` |
 | `tools/build_evolver_*.py`, `validate_evolver_release.py` | Meta Ball `tools/` | release-builder tests | copied authoritative implementation |
 | BAL assembled schema selection | Meta Ball `private-schema/` | focused selector tests | implemented without private source |
-| `.devcontainer/common`, `.codex`, `.vscode` | Meta Ball root | devcontainer contract tests pending | adapted from reference |
+| `.devcontainer/server`, `.devcontainer/evolver-edge`, `.codex`, `.vscode` | Meta Ball root | devcontainer contract tests | adapted from reference |

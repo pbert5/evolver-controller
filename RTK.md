@@ -36,13 +36,13 @@ which rtk
 Use RTK for repository shell commands:
 
 ```bash
-rtk tools/dev-env common check
-rtk tools/dev-env common smoke
+rtk tools/dev-env server check
+rtk tools/dev-env server smoke
 rtk tools/check-locks
 rtk tools/test fast
 ```
 
 The Dev Containers install the pinned RTK release and shared toolchain. When a
-host command is unavailable, enter the Common Toolchain before installing
-anything locally. The older action-first `tools/dev-env check common` form is
+host command is unavailable, enter the Server profile before installing
+anything locally. The older action-first `tools/dev-env check server` form is
 accepted, but profile-first is canonical.

@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 ROOT=$(git -C "$(dirname "${BASH_SOURCE[0]}")/.." rev-parse --show-toplevel)
-profile=common
+profile=server
 action=''
 declare -a action_args=()
 # Canonical: tools/dev-env [profile] action [args...]. Accept action-first
 # spelling for compatibility with older checkouts and scripts.
-if [[ "${1:-}" == common || "${1:-}" == evolver-edge ]]; then
+if [[ "${1:-}" == server || "${1:-}" == evolver-edge ]]; then
   profile=$1; shift
   action=${1:-}; shift || true
 else
   action=${1:-}; shift || true
-  if [[ "${1:-}" == common || "${1:-}" == evolver-edge ]]; then
+  if [[ "${1:-}" == server || "${1:-}" == evolver-edge ]]; then
     profile=$1; shift
   fi
 fi
@@ -24,16 +24,16 @@ id="${slug:-worktree}-${hash}"
 name="meta-ball-${id}-${profile}"
 config="$ROOT/.devcontainer/${profile}/devcontainer.json"
 cd "$ROOT"
-usage() { echo 'usage: tools/dev-env [common|evolver-edge] {identity|check|status|network|smoke|up|exec <command...>|rebuild|down|build}'; }
+usage() { echo 'usage: tools/dev-env [server|evolver-edge] {identity|check|status|network|smoke|up|exec <command...>|rebuild|down|build}'; }
 container_id() { docker ps -aq --filter "label=devcontainer.local_folder=$ROOT" --filter "label=devcontainer.config_file=$config" | head -1; }
 state() { local id; id=$(container_id); [[ -n "$id" ]] && docker inspect --format '{{.State.Status}}' "$id" || echo absent; }
 case "$action" in
   identity) printf '%s\n' "$id" ;;
-  check) command -v jq >/dev/null || { echo 'check requires jq' >&2; exit 2; }; jq empty "$config"; if [[ "$profile" == common ]]; then rg -q 'Meta Ball Common Toolchain' "$config"; else rg -q 'Meta Ball eVOLVER Edge' "$config"; fi; ! rg -qi 'META_WEBUI|meta-webui|npm-cache|PLAYWRIGHT|Chromium' "$config" "$ROOT/.devcontainer/${profile}/Dockerfile" .vscode; test ! -e .env.local; echo "configuration valid: $id" ;;
+  check) command -v jq >/dev/null || { echo 'check requires jq' >&2; exit 2; }; jq empty "$config"; if [[ "$profile" == server ]]; then rg -q 'Meta Ball Server' "$config"; else rg -q 'Meta Ball eVOLVER Edge' "$config"; fi; ! rg -qi 'META_WEBUI|meta-webui|npm-cache|PLAYWRIGHT|Chromium' "$config" "$ROOT/.devcontainer/Dockerfile" .vscode; test ! -e .env.local; echo "configuration valid: $id" ;;
   status) echo "worktree: $ROOT"; echo "identity: $id"; echo "container: $name"; echo "state: $(state)"; command -v devcontainer >/dev/null && devcontainer --version || echo 'devcontainer: unavailable'; [[ -S /var/run/docker.sock ]] && echo 'host Docker socket: available' || echo 'host Docker socket: unavailable' ;;
   network) echo "bind address: ${META_BAL_DEV_BIND_ADDRESS:-127.0.0.1}"; echo "port: ${META_BAL_DEV_PORT:-18086}"; if command -v tailscale >/dev/null; then tailscale ip -4 | sed 's#^#Tailscale IPv4: #' || true; fi; hostname -I 2>/dev/null | tr ' ' '\n' | awk -F. 'NF == 4 {print "LAN candidate: " $0}'; echo "Controller URL (when explicitly bound): http://${META_BAL_DEV_BIND_ADDRESS:-127.0.0.1}:${META_BAL_DEV_PORT:-18086}" ;;
   build) export META_BALL_WORKTREE_ID="$id"; devcontainer build --workspace-folder "$ROOT" --config "$config" ;;
-  smoke) export META_BALL_WORKTREE_ID="$id"; if [[ "$profile" == common ]]; then smoke='command -v rtk uv python pytest navi codex docker >/dev/null; uv run --project /workspaces/meta_bal python -c "import yaml"; uv run --project /workspaces/meta_bal/evolver/evolver-controller evoctl --help >/dev/null; uv run --project /workspaces/meta_bal/metactl metactl --help >/dev/null; navi --version >/dev/null; codex --version >/dev/null; docker --version >/dev/null'; else smoke='command -v rtk uv python navi codex docker >/dev/null; uv run --project /workspaces/meta_bal/evolver/evolver-controller evoctl --help >/dev/null; test -d /run/evolver-controller'; fi; devcontainer exec --workspace-folder "$ROOT" --config "$config" bash -lc "set -euo pipefail; $smoke; echo \"$profile smoke checks passed\"" ;;
+  smoke) export META_BALL_WORKTREE_ID="$id"; if [[ "$profile" == server ]]; then smoke='command -v rtk uv python pytest navi codex docker >/dev/null; uv run --project /workspaces/meta_bal python -c "import yaml"; uv run --project /workspaces/meta_bal/evolver/evolver-controller evoctl --help >/dev/null; uv run --project /workspaces/meta_bal/metactl metactl --help >/dev/null; navi --version >/dev/null; codex --version >/dev/null; docker --version >/dev/null'; else smoke='command -v rtk uv python navi codex docker >/dev/null; uv run --project /workspaces/meta_bal/evolver/evolver-controller evoctl --help >/dev/null; test -d /run/evolver-controller'; fi; devcontainer exec --workspace-folder "$ROOT" --config "$config" bash -lc "set -euo pipefail; $smoke; echo \"$profile smoke checks passed\"" ;;
   up|rebuild) export META_BALL_WORKTREE_ID="$id"; if [[ "$action" == rebuild ]]; then old=$(container_id); [[ -z "$old" ]] || docker rm -f "$old" >/dev/null; fi; devcontainer up --workspace-folder "$ROOT" --config "$config" ;;
   exec) [[ ${#action_args[@]} -gt 0 ]] || { usage; exit 2; }; export META_BALL_WORKTREE_ID="$id"; devcontainer exec --workspace-folder "$ROOT" --config "$config" "${action_args[@]}" ;;
   down) old=$(container_id); [[ -z "$old" ]] || docker rm -f "$old" ;;
