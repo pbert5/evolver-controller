@@ -49,10 +49,10 @@ USER vscode
 ENV PATH="/home/vscode/.local/bin:/opt/meta-ball/bin:${PATH}"
 
 FROM base AS evolver-edge
+USER root
 COPY .devcontainer/evolver-edge/scripts/ /opt/meta-ball-edge/bin/
 RUN chmod +x /opt/meta-ball-edge/bin/* \
     && for script in /opt/meta-ball-edge/bin/*; do ln -sf "$script" "/usr/local/bin/$(basename "$script")"; done
-USER root
 RUN mkdir -p /home/vscode/.cache/uv && chown -R vscode:vscode /home/vscode/.cache
 USER vscode
 ENV PATH="/home/vscode/.local/bin:/opt/meta-ball-edge/bin:${PATH}"

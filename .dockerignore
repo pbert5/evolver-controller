@@ -1,0 +1,21 @@
+.git
+.worktrees
+.venv
+**/__pycache__
+**/.pytest_cache
+.coverage
+coverage.xml
+htmlcov
+*.log
+*.sqlite*
+.env*
+.vscode
+
+# The shared Dev Container image only needs its own sources.
+evolver
+metactl
+refference
+private-schema
+applications
+integration
+uv.lock

@@ -79,3 +79,11 @@ Release builds invoke the preserved scripts in `tools/`, especially
 in the release manifest. BAL artifacts are assembled privately and selected by
 `BAL_SCHEMA_VERSION`; `latest` uses numeric semantic-version ordering. This
 project does not use `.env.local`.
+
+## Parent repository portability
+
+The root `.gitmodules` uses exact relative sibling URLs (for example,
+`../evolver-controller.git`). Git resolves these against the parent remote, so
+the same history works from the GitHub or GitPub mirror namespace when sibling
+repositories retain that layout. Run `git submodule sync --recursive` after
+updating an existing clone, then `git submodule update --init --recursive`.
