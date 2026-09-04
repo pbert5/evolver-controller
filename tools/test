@@ -141,8 +141,11 @@ case "$mode" in
   # process in order, so an unmarked legacy shared-resource test cannot be
   # accidentally omitted. Tests carrying the serial marker are also included.
   serial) run_all_serial 0 '' '' "$@" ;;
-  integration) run_all_parallel "$workers" integration '' "$@" ;;
-  simulator) run_all_parallel "$workers" simulator '' "$@" ;;
+  # These are root-owned cross-repository lanes. Component processes have no
+  # marked tests yet; invoking them would turn a valid empty lane into pytest
+  # exit code 5. Keep the lane ready for future component integration suites.
+  integration) run_suite root "$workers" integration '' "$@" ;;
+  simulator) run_suite root "$workers" 'simulator or integration' '' "$@" ;;
   coverage)
     coverage_dir=$(mktemp -d "${TMPDIR:-/tmp}/meta-bal-coverage.XXXXXX")
     cleanup_coverage() { rm -rf -- "$coverage_dir"; }

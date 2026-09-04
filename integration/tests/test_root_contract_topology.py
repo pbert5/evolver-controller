@@ -15,6 +15,7 @@ from framework.action_catalog import load_action_catalog
 
 
 ROOT = Path(__file__).parents[2]
+pytestmark = pytest.mark.integration
 CONTRACT = json.loads((ROOT / "integration/artifacts/root-contract-topology.json").read_text(encoding="utf-8"))
 INDEX = ROOT / CONTRACT["action_catalog_index"]
 

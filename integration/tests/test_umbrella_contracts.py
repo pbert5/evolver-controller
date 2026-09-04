@@ -8,8 +8,11 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).parents[2]
+pytestmark = pytest.mark.integration
 CATALOG = ROOT / "metactl/applications/evolver/actions.json"
 TEST_ROOTS = (
     "private-schema/tests",
