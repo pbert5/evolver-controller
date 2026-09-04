@@ -100,7 +100,7 @@ run_all_parallel() {
 }
 
 run_all_serial() {
-  local workers=$1 marker=$2 coverage_dir=$3
+  local workers=${1:-0} marker=${2:-} coverage_dir=${3:-}
   shift 3
   local component coverage_file
   for component in "${COMPONENTS[@]}"; do
