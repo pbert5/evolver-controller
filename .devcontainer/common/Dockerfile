@@ -19,6 +19,9 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
     && mv /root/.local/bin/uvx /usr/local/bin/uvx \
     && curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | PATH=/root/.local/bin:$PATH RTK_VERSION=${RTK_VERSION} sh \
     && install -m 0755 /root/.local/bin/rtk /usr/local/bin/rtk \
+    && install -d -m 0755 /opt/codex \
+    && curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_HOME=/opt/codex CODEX_INSTALL_DIR=/usr/local/bin CODEX_NON_INTERACTIVE=1 sh \
+    && codex --version \
     && mkdir -p /opt/meta-ball/bin /workspaces \
     && chown -R vscode:vscode /opt/meta-ball /workspaces
 COPY scripts/ /opt/meta-ball/bin/

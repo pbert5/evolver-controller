@@ -39,7 +39,8 @@
   },
   "mounts": [
     "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
-    "source=meta-ball-${localEnv:META_BALL_WORKTREE_ID}-uv-cache,target=/home/vscode/.cache/uv,type=volume"
+    "source=meta-ball-${localEnv:META_BALL_WORKTREE_ID}-uv-cache,target=/home/vscode/.cache/uv,type=volume",
+    "source=meta-ball-codex,target=/home/vscode/.codex,type=volume"
   ],
   "postCreateCommand": "bootstrap-devcontainer"
 }

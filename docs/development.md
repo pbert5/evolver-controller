@@ -4,7 +4,11 @@ Clone with `git clone --recurse-submodules` and open the root in its Dev
 Container. The Common Toolchain uses a worktree-local `.venv`, a persistent
 worktree-scoped uv cache, and a root uv workspace containing all four Python
 components. Bootstrap runs `uv sync --all-packages --all-extras`; no Node.js or
-npm installation is required. Outside the container, use `tools/dev-env`.
+npm installation is required. The image also includes the standalone Codex CLI;
+verify it with `command -v codex` and `codex --version`. Codex login state and
+configuration persist in the shared `meta-ball-codex` volume mounted at
+`/home/vscode/.codex`; no credentials are included in the image. Outside the
+container, use `tools/dev-env`.
 The three setuptools-based components are editable workspace members. `metactl`
 is intentionally kept as a checkout-path component because its pinned child
 metadata is not buildable by setuptools; its tests and imports remain available
