@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from meta_webui_application_backend.evolver_edge import EdgeStore, UpdateManager, UpdatePolicy
+from meta_webui_application_backend.evolver_edge import EdgeStore, UpdateManager, UpdatePolicy, canonical_digest
 from meta_webui_application_backend.evolver_edge.install import (
     hardware_systemd_unit,
     inspect_installation,
@@ -20,7 +20,7 @@ from meta_webui_application_backend.evolver_edge.update import (
 
 
 def _bundle() -> dict[str, object]:
-    return {
+    bundle: dict[str, object] = {
         "id": "bundle",
         "name": "bundle",
         "purpose": "test_fixture",
@@ -32,6 +32,8 @@ def _bundle() -> dict[str, object]:
         "runtime_parameters": [],
         "source_metadata": [],
     }
+    bundle["digest"] = canonical_digest(bundle)
+    return bundle
 
 
 class RecordingBackend:
