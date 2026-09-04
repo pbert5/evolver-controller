@@ -2,6 +2,7 @@ name: evolver-edge
 
 volumes:
   evolver-edge-runtime:
+    name: evolver-edge-runtime
 
 services:
   evolver-hardware:
@@ -44,7 +45,7 @@ services:
     stop_grace_period: 30s
     depends_on:
       evolver-hardware:
-        condition: service_started
+        condition: service_healthy
     environment:
       EVOLVER_STATE_ROOT: /var/lib/evolver-controller
       EVOLVER_OPERATOR_SOCKET: /run/evolver-controller/operator.sock
