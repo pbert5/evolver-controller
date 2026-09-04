@@ -16,6 +16,8 @@ from .identity import (ALIAS_SCHEME, canonical_samd21_usb_serial,
                        validate_usb_match)
 from .actuator import (DeviceCommandSink, HardwareDeviceCommandSink, ManualCommandExecutor, RunActuatorExecutor,
                        SimulatorDeviceCommandSink, compile_device_command)
+from .operator import (ALLOWED_OPERATIONS, DEFAULT_SOCKET as DEFAULT_OPERATOR_SOCKET,
+                       OperatorClient, OperatorError, OperatorProtocolError, OperatorServer, OperatorUnavailable)
 
 __all__ = ["BundleResolutionError", "CalibrationPreflightError", "calibration_artifact_digest", "CommandInProgressError", "EdgeStore", "EdgeStoreError", "ImmutableBundleError", "LeaseValidationError",
            "StaleGenerationError", "StaleRevisionError", "SyncClient", "SyncResult", "canonical_digest", "resolve_bundle",
@@ -26,4 +28,5 @@ __all__ = ["BundleResolutionError", "CalibrationPreflightError", "calibration_ar
                      "ALIAS_SCHEME", "canonical_samd21_usb_serial", "firmware_alias_for_usb_serial",
                      "samd21_hardware_fingerprint", "validate_usb_match",
                      "DeviceCommandSink", "HardwareDeviceCommandSink", "ManualCommandExecutor", "RunActuatorExecutor", "SimulatorDeviceCommandSink",
-                     "compile_device_command"]
+                     "compile_device_command", "ALLOWED_OPERATIONS", "DEFAULT_OPERATOR_SOCKET",
+                     "OperatorClient", "OperatorError", "OperatorProtocolError", "OperatorServer", "OperatorUnavailable"]

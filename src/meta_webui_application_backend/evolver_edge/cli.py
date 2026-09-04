@@ -16,6 +16,7 @@ from .install import (detect_backend, inspect_installation, repair_installation,
 from .lifecycle import plan_lifecycle
 from .update import NativePackageBackend, NixUpdateBackend, OCIUpdateBackend, UpdateManager, UpdatePolicy, record_installed_release
 from .doctor import doctor_report
+from .operator import DEFAULT_SOCKET as DEFAULT_OPERATOR_SOCKET, OperatorUnavailable, request as operator_request
 
 
 def _root(value: str | None) -> Path:
@@ -85,6 +86,10 @@ def _compatibility_argv(argv: list[str]) -> list[str]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="evolverctl", description="eVOLVER controller local operator CLI")
     parser.add_argument("--state-root", help="persistent controller state directory")
+    parser.add_argument("--offline", action="store_true",
+                        help="read directly from the durable store without contacting the operator service")
+    parser.add_argument("--operator-socket", default=os.environ.get("EVOLVER_OPERATOR_SOCKET", DEFAULT_OPERATOR_SOCKET),
+                        help="private Unix socket for the local read-only operator service")
     commands = parser.add_subparsers(dest="command", required=True)
     enroll = commands.add_parser("enroll"); enroll.add_argument("--server", required=True); enroll.add_argument("--token", required=True)
     enroll.add_argument("--mode", choices=("repair", "live_handoff", "forced_adoption"),
@@ -195,6 +200,22 @@ def main(argv: list[str] | None = None) -> int:
         raw_arguments = raw_arguments[2:]
     arguments = [*prefix, *_compatibility_argv(raw_arguments)]
     args = build_parser().parse_args(arguments)
+    # Inspection normally goes through the controller-owned operator service.
+    # Falling back preserves the historical CLI when invoked during startup or
+    # on an intentionally stopped service; --offline makes that choice explicit.
+    offline_read = args.offline
+    if args.command in {"status", "runs", "instruments", "doctor"} and not offline_read:
+        try:
+            result = operator_request(args.command, args.operator_socket)
+            _emit(result)
+            if args.command == "doctor" and result.get("summary", {}).get("FAIL"):
+                return 2
+            return 0
+        except OperatorUnavailable:
+            # Startup and container shutdown can briefly leave the socket
+            # unavailable.  Retain the legacy direct-store read, explicitly
+            # treating it as offline so doctor never probes central here.
+            offline_read = True
     if args.command == "uninstall":
         try:
             _emit(uninstall_installation(_root(args.state_root), purge=args.purge, confirm=args.yes,
@@ -250,7 +271,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "status":
             _emit({"controller": store.identity(), "binding": store.binding(), "runs": store.list_runs()}); return 0
         if args.command == "doctor":
-            report = doctor_report(store)
+            central_health = (lambda _url: (False, "offline mode; central health not probed")) if offline_read else None
+            report = doctor_report(store, **({"central_health": central_health} if central_health else {}))
             _emit(report)
             return 2 if report["summary"]["FAIL"] else 0
         if args.command == "runs": _emit(store.list_runs()); return 0
