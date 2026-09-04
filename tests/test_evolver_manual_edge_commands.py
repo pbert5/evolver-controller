@@ -83,6 +83,18 @@ def test_manual_command_rejects_stale_generation_and_run_without_ownership(tmp_p
         store.close()
 
 
+def test_manual_command_rejects_unknown_instrument_before_actuation(tmp_path):
+    store, _clock, sink, executor = _setup(tmp_path)
+    try:
+        command = _command("stir_pulse", command_id="unknown", channel=0, duration_ms=1, level=1)
+        command["instrument_id"] = "not-enrolled"
+        result = executor.execute(command)
+        assert result["disposition"] == "rejected_invalid"
+        assert not sink.commands
+    finally:
+        store.close()
+
+
 def test_sync_delivers_manual_intent_once_to_the_typed_executor(tmp_path):
     store, _clock, sink, executor = _setup(tmp_path)
     try:

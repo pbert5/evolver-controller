@@ -97,6 +97,12 @@ class ManualCommandExecutor:
                 return {"command_id": command_id, "disposition": "rejected_run_ownership", "reason": "run does not own target instrument"}
         if operation != "safe_stop" and not isinstance(instrument_id, str):
             return {"command_id": command_id, "disposition": "rejected_invalid", "reason": "instrument_id is required"}
+        if operation != "safe_stop":
+            try:
+                self.store.instrument(instrument_id)
+            except (KeyError, EdgeStoreError):
+                return {"command_id": command_id, "disposition": "rejected_invalid",
+                        "reason": "instrument_id is not present in local durable inventory"}
         parameters = dict(command.get("parameters") or {})
         if operation == "heater_pulse":
             # Device protocol v2 is intentionally narrower than the central
