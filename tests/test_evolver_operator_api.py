@@ -58,6 +58,6 @@ def test_operator_socket_is_private_and_client_reports_explicit_unavailable(tmp_
     path = tmp_path / "operator.sock"
     with EdgeStore(tmp_path / "state") as store, OperatorServer(store, path):
         stat_mode = os.stat(path).st_mode & 0o777
-        assert stat_mode == 0o600
+        assert stat_mode == 0o660
     with pytest.raises(OperatorUnavailable, match="operator service unavailable"):
         request("status", path, timeout=0.1)

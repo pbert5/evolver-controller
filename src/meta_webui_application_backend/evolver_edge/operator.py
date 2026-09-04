@@ -124,7 +124,9 @@ class OperatorServer:
             except (ConnectionRefusedError, FileNotFoundError, socket.timeout):
                 self.path.unlink()
         self._server = _OperatorServer(str(self.path), self.store)
-        os.chmod(self.path, stat.S_IRUSR | stat.S_IWUSR)
+        # The edge Dev Container joins the explicitly selected operator group;
+        # never make the local API world-writable.
+        os.chmod(self.path, 0o660)
         self._thread = threading.Thread(target=self._server.serve_forever, name="evolver-operator", daemon=True)
         self._thread.start()
         return self
