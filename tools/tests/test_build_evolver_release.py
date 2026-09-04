@@ -15,7 +15,8 @@ BUILDER = ROOT / "tools/build_evolver_release.py"
 
 def run_builder(output: Path, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, str(BUILDER), "--output", str(output), "--version", "test", *args],
+        [sys.executable, str(BUILDER), "--output", str(output), "--version", "test",
+         "--git-revision", "a" * 40, *args],
         cwd=ROOT,
         text=True,
         capture_output=True,
