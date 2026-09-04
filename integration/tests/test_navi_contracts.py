@@ -35,3 +35,9 @@ def test_zsh_widget_is_safe_and_both_profiles_wire_it():
         zshrc = (ROOT / ".devcontainer/dotfiles/.zshrc").read_text()
         assert "NAVI_PATH=\"${NAVI_PATH:-/workspaces/meta_bal/docs/navi/generated}\"" in zshrc
         assert "tools/navi-widget.zsh" in zshrc
+
+
+def test_parent_docs_do_not_reintroduce_retired_evoctl_claim():
+    readme = (ROOT / "README.md").read_text()
+    assert "there is no separate `evoctl` command" not in readme
+    assert "docs/operator.md" in readme

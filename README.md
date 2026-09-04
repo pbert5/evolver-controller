@@ -8,8 +8,8 @@ implementation owner.
 
 See [docs/architecture.md](docs/architecture.md), [docs/extraction-map.md](docs/extraction-map.md), and [docs/development.md](docs/development.md).
 
-The implemented local operator executable is `evoctl`; there is no
-separate `evoctl` command. See [docs/operator.md](docs/operator.md).
+The implemented local operator executable is `evoctl`; use it for local edge
+inspection and recovery. See [docs/operator.md](docs/operator.md).
 
 For physical-controller development, open the `Meta Ball eVOLVER Edge`
 Dev Container. It provides a source-backed `evoctl` and host Docker access

@@ -16,14 +16,20 @@ tools/test integration
 tools/test component <component>
   component: controller, hardware, server, metactl, or root
 
+# Read the architecture and ownership guide
+less docs/architecture.md
+
+# Read the eVOLVER operator guide
+less docs/operator.md
+
 # Start the Server Dev Container
-tools/dev-env up server
+tools/dev-env server up
 
 # Open a shell in the Server Dev Container
 tools/dev-env server exec zsh
 
 # Start the eVOLVER Edge Dev Container
-tools/dev-env up evolver-edge
+tools/dev-env evolver-edge up
 
 # Check the edge runtime status
 tools/dev-env evolver-edge exec evoctl status
