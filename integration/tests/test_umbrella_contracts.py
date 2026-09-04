@@ -17,10 +17,11 @@ CATALOG = ROOT / "metactl/applications/evolver/actions.json"
 TEST_ROOTS = (
     "private-schema/tests",
     "integration/tests",
-    "evolver-controller/tests",
-    "evolver-hardware/tests",
-    "evolver-server/tests",
+    "evolver/evolver-controller/tests",
+    "evolver/evolver-hardware/tests",
+    "evolver/evolver-server/tests",
     "metactl/tests",
+    "evolver/evolver-schemas/tests",
 )
 
 

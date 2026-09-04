@@ -19,9 +19,9 @@ validate_workers() {
 component_pythonpath() {
   case "$1" in
     root) printf '%s\n' . ;;
-    controller) printf '%s\n' evolver-controller/src ;;
-    hardware) printf '%s\n' evolver-hardware/src ;;
-    server) printf '%s\n' evolver-server/src ;;
+    controller) printf '%s\n' evolver/evolver-controller/src ;;
+    hardware) printf '%s\n' evolver/evolver-hardware/src ;;
+    server) printf '%s\n' evolver/evolver-server/src ;;
     metactl) printf '%s\n' metactl ;;
     *) die "unknown component: $1" ;;
   esac
@@ -30,9 +30,9 @@ component_pythonpath() {
 component_tests() {
   case "$1" in
     root) printf '%s\n' '' ;;
-    controller) printf '%s\n' evolver-controller/tests ;;
-    hardware) printf '%s\n' evolver-hardware/tests ;;
-    server) printf '%s\n' evolver-server/tests ;;
+    controller) printf '%s\n' evolver/evolver-controller/tests ;;
+    hardware) printf '%s\n' evolver/evolver-hardware/tests ;;
+    server) printf '%s\n' evolver/evolver-server/tests ;;
     metactl) printf '%s\n' metactl/tests ;;
     *) die "unknown component: $1" ;;
   esac

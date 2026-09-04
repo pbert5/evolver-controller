@@ -1,0 +1,62 @@
+id: https://w3id.org/meta-webui/evolver/measurement
+name: meta_webui_evolver_measurement
+title: eVOLVER measurement and observation contracts
+prefixes: {linkml: https://w3id.org/linkml/, evolver: https://w3id.org/meta-webui/evolver/}
+default_prefix: evolver
+default_range: string
+imports: [linkml:types, base, hardware]
+classes:
+  MeasurementRecord:
+    is_a: NamedEntity
+    attributes:
+      run_id: {}
+      step_id: {}
+      controller_id: {range: Controller}
+      instrument_id: {range: Instrument}
+      vial_position_id: {range: VialPosition}
+      device_id: {range: Device}
+      channel: {}
+      captured_at: {range: datetime, required: true}
+      measurement_type: {required: true}
+      raw_value: {required: true}
+      derived_value: {}
+      unit: {}
+      source_type: {range: MeasurementSourceType, required: true}
+      source_resource: {}
+      target_resource: {}
+      stream_id: {}
+      sequence_number: {range: integer}
+      raw_signal_reference: {}
+      quality_flags: {multivalued: true}
+      operator: {}
+      calibration_artifact_id: {}
+      calibration_artifact_digest: {}
+      calibration_status: {}
+      extrapolated: {range: boolean, required: true}
+      evidence_level: {range: VerificationState}
+  ObservationRequestTemplate:
+    is_a: NamedEntity
+    attributes:
+      schedule: {range: SerializedPayload, inlined: true}
+      blocking: {range: boolean, required: true}
+      required: {range: boolean, required: true}
+      measurement_type: {required: true}
+      expected_unit: {required: true}
+      target: {}
+      instructions: {}
+      allowed_bounds: {range: ParameterBounds, inlined: true}
+      timeout: {range: Quantity, inlined: true}
+      notes: {}
+      attachment_allowed: {range: boolean}
+  ObservationRequest:
+    is_a: ObservationRequestTemplate
+    attributes:
+      run_id: {}
+      intervention_id: {}
+      state: {range: ObservationRequestState, required: true}
+      requested_at: {range: datetime, required: true}
+      completed_at: {range: datetime}
+      measurement_record_id: {}
+enums:
+  MeasurementSourceType: {permissible_values: {instrument_telemetry: {}, evaluation_fixture: {}, human: {}, imported: {}, derived: {}}}
+  ObservationRequestState: {permissible_values: {pending: {}, in_progress: {}, completed: {}, expired: {}, cancelled: {}}}

@@ -31,7 +31,7 @@ def test_stale_webui_and_browser_tooling_are_absent():
 
 def test_workspace_members_and_contract_scripts_exist():
     pyproject = (ROOT / "pyproject.toml").read_text()
-    for member in ("evolver-controller", "evolver-hardware", "evolver-server"):
+    for member in ("evolver/evolver-controller", "evolver/evolver-hardware", "evolver/evolver-server"):
         assert member in pyproject
     assert "metactl/tests" not in pyproject
     for script in ("tools/dev-env", "tools/test", "tools/test-fast", "tools/test-serial"):
@@ -46,10 +46,10 @@ def test_evolver_edge_devcontainer_is_source_backed_and_has_docker_without_seria
     assert "/var/run/docker.sock" in mounts
     assert "/dev" not in mounts
     launcher = ROOT / ".devcontainer/evolver-edge/scripts/evolverctl"
-    assert "uv run --project /workspaces/meta_bal/evolver-controller evolverctl" in launcher.read_text()
+    assert "uv run --project /workspaces/meta_bal/evolver/evolver-controller evolverctl" in launcher.read_text()
     # The launcher deliberately points at the checkout, not an installed
     # wheel. A changed CLI module is therefore visible on the next invocation.
-    assert "/workspaces/meta_bal/evolver-controller" in launcher.read_text()
+    assert "/workspaces/meta_bal/evolver/evolver-controller" in launcher.read_text()
 
 
 def test_edge_compose_keeps_hardware_as_the_only_device_owner():

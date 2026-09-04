@@ -9,6 +9,8 @@ verify it with `command -v codex` and `codex --version`. Codex login state and
 configuration persist in the shared `meta-ball-codex` volume mounted at
 `/home/vscode/.codex`; no credentials are included in the image. Outside the
 container, use `tools/dev-env`.
+The helper uses a profile-first command form: `tools/dev-env common exec
+<command...>` (Common Toolchain is the default profile).
 The three setuptools-based components are editable workspace members. `metactl`
 is intentionally kept as a checkout-path component because its pinned child
 metadata is not buildable by setuptools; its tests and imports remain available
@@ -46,7 +48,7 @@ Python/Docker editor support, but omits Node, Chromium, WebUI dependencies,
 and server tooling. It mounts the host Docker socket for bounded Compose
 development and the local operator runtime directory, never `/dev`. Its
 `evolverctl` launcher runs `uv run --project
-/workspaces/meta_bal/evolver-controller`, so edits in the current checkout are
+/workspaces/meta_bal/evolver/evolver-controller`, so edits in the current checkout are
 used immediately. Use `tools/dev-env up evolver-edge` or
 `tools/evolver-edge up --build` to manage the edge stack.
 
@@ -60,7 +62,7 @@ not make the hardware daemon unhealthy. Firmware development remains a
 separate build/verify/explicit-physical-flash path with SHA verification,
 operator attribution, and serial ownership checks.
 
-The standalone server entry point is `uv run --project evolver-server
+The standalone server entry point is `uv run --project evolver/evolver-server
 evolver-control`; its configuration uses `DATABASE_URL` and does not embed
 PostgreSQL. `metactl` uses `EVOLVER_SERVER_URL` and the HTTP operator API.
 Controller and hardware simulators are exercised by their copied pytest

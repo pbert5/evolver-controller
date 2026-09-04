@@ -1,0 +1,40 @@
+id: temperature-hold-validation
+name: Temperature hold validation
+purpose: validation
+program:
+  id: temperature-hold
+  version: "1.0"
+  entry_step_id: hold
+  parameters:
+  - id: target_temperature
+    type: number
+    unit: degree_Celsius
+    default: 30
+    minimum: 20
+    maximum: 40
+    mutable_during_run: false
+  completion_policy: {mode: all_steps}
+  failure_policy: {mode: stop_run}
+  steps:
+  - id: hold
+    entry_actions:
+    - id: set-temperature
+      action_id: set_temperature
+      action_version: "1.0"
+      target_selector: instrument.heater
+      parameters: {target: target_temperature}
+    periodic_actions:
+    - action: {id: capture-temperature, action_id: capture_measurement, action_version: "1.0", target_selector: instrument.temperature}
+      trigger: {kind: fixed_interval, interval: {value: 10, unit: second}}
+validation_plan:
+  id: temperature-criteria
+  protocol_id: temperature_hold
+  protocol_version: "1.0"
+  criteria:
+  - id: mean-error
+    metric: temperature.absolute_error
+    comparator: lte
+    threshold: 0.5
+    unit: degree_Celsius
+    severity: error
+    required: true

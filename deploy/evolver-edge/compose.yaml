@@ -7,7 +7,7 @@ volumes:
 services:
   evolver-hardware:
     build:
-      context: ../../evolver-hardware
+      context: ../../evolver/evolver-hardware
       dockerfile: Dockerfile
     privileged: true
     network_mode: none
@@ -38,7 +38,7 @@ services:
 
   evolver-controller:
     build:
-      context: ../../evolver-controller
+      context: ../../evolver/evolver-controller
       dockerfile: Dockerfile
     network_mode: host
     restart: unless-stopped

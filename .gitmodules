@@ -1,11 +1,11 @@
 [submodule "evolver-controller"]
-	path = evolver-controller
+	path = evolver/evolver-controller
 	url = https://github.com/pbert5/evolver-controller.git
 [submodule "evolver-hardware"]
-	path = evolver-hardware
+	path = evolver/evolver-hardware
 	url = https://github.com/pbert5/evolver-hardware.git
 [submodule "evolver-server"]
-	path = evolver-server
+	path = evolver/evolver-server
 	url = https://github.com/pbert5/evolver-server.git
 [submodule "metactl"]
 	path = metactl

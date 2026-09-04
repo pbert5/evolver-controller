@@ -1,0 +1,416 @@
+# Editing legend: [ID] stable identifier | [REF] existing configured object | [TYPE] structural contract | [ADVANCED] edit with care
+# Details: application/schemas/field-reference.md
+# Scoped contract: Immutable experiment bundles and append-only operational history. Mutable catalog definitions never change an existing bundle.
+id: https://w3id.org/meta-webui/evolver/experiment # [ID] Stable shared schema identifier.
+name: meta_webui_evolver_experiment # [ID] Stable LinkML module name.
+title: Meta WebUI eVOLVER experiment contracts
+prefixes:
+  linkml: https://w3id.org/linkml/
+  evolver: https://w3id.org/meta-webui/evolver/
+default_prefix: evolver
+default_range: string
+imports:
+- linkml:types # [REF] LinkML scalar types.
+- base # [REF] Shared primitives and runtime parameter bounds.
+- hardware # [REF] Controller and instrument identities.
+- calibration # [REF] Immutable calibration provenance references.
+- experiment_program # Typed executable program contract.
+- requirements # Logical resource and capability requirements.
+- measurement # Observation requests and measurement vocabulary.
+- validation # Structured validation plan.
+- fixture # Evaluation fixture and reference-component identity.
+classes:
+  ExperimentDefinition:
+    is_a: NamedEntity
+    description: Mutable central catalog definition from which an immutable ExperimentBundle is resolved.
+    attributes:
+      purpose:
+        range: ExperimentPurpose
+        required: false
+      dataset_id:
+        required: true
+      dataset_revision:
+        required: true
+      definition_digest:
+        required: true
+      definition:
+        range: SerializedPayload
+        inlined: true
+        required: true
+      program:
+        range: ExperimentProgram
+      resource_requirements:
+        range: ResourceRequirement
+        multivalued: true
+        inlined_as_list: true
+      capability_requirements:
+        range: CapabilityRequirement
+        multivalued: true
+        inlined_as_list: true
+      material_requirements:
+        range: SerializedPayload
+        multivalued: true
+        inlined_as_list: true
+      observation_requests:
+        range: ObservationRequestTemplate
+        multivalued: true
+        inlined_as_list: true
+      validation_plan:
+        range: ValidationPlan
+        inlined: true
+      bal_references:
+        range: SerializedPayload
+        multivalued: true
+        inlined_as_list: true
+  BundleSource:
+    description: Provenance captured when a definition is resolved.
+    attributes:
+      experiment_id:
+        required: true
+      dataset_revision:
+        required: true
+      created_at:
+        range: datetime
+        required: true
+  ExperimentBundle:
+    is_a: NamedEntity
+    description: Immutable resolved snapshot sufficient for edge execution and operational recovery.
+    attributes:
+      calibration_references:
+        range: BundleCalibrationReference
+        multivalued: true
+        inlined_as_list: true
+      purpose:
+        range: ExperimentPurpose
+        required: false
+      digest:
+        required: true
+      schema_version:
+        required: true
+      execution_mode:
+        range: BundleExecutionMode
+        required: true
+      source:
+        range: BundleSource
+        inlined: true
+        required: true
+      resolved_definition:
+        range: SerializedPayload
+        inlined: true
+        required: true
+      execution_plan:
+        range: SerializedPayload
+        inlined: true
+        required: true
+        description: Serializable edge-local state machine or isolated legacy-runner specification; it is resolved with the bundle and never follows later catalog edits.
+      runtime_parameters:
+        range: RuntimeParameter
+        multivalued: true
+        inlined_as_list: true
+      source_metadata:
+        range: ContentSnapshot
+        multivalued: true
+        inlined_as_list: true
+  ExperimentRun:
+    is_a: NamedEntity
+    description: Edge-executed run whose effective configuration is the immutable bundle plus ordered patches and events.
+    attributes:
+      bundle_id:
+        range: ExperimentBundle
+        required: true
+      controller_id:
+        range: Controller
+        required: true
+      instrument_ids:
+        range: Instrument
+        required: true
+        multivalued: true
+      state:
+        range: RunState
+        required: true
+      preparation_state:
+        range: PreparationState
+        required: true
+      preheat_state:
+        range: PreheatState
+        required: true
+      preparation:
+        range: RunPreparation
+        inlined: true
+      lifecycle_state:
+        range: ExperimentLifecycle
+      current_revision:
+        range: integer
+        required: true
+      created_at:
+        range: datetime
+        required: true
+      started_at:
+        range: datetime
+      ended_at:
+        range: datetime
+      resource_assignments:
+        range: RunResourceAssignment
+        multivalued: true
+        inlined_as_list: true
+  RunPreparation:
+    description: Durable preparation and preheat state captured before a run may start.
+    attributes:
+      state:
+        range: PreparationState
+        required: true
+      preheat_state:
+        range: PreheatState
+        required: true
+      requested_at:
+        range: datetime
+        required: true
+      started_at:
+        range: datetime
+      completed_at:
+        range: datetime
+      target_temperature:
+        range: Quantity
+        inlined: true
+      observed_temperature:
+        range: Quantity
+        inlined: true
+      blocking_reason:
+  RunResourceAssignment:
+    is_a: NamedEntity
+    description: Immutable, ordered fact in a run's durable resource-assignment history. A release or replacement appends a new record.
+    attributes:
+      run_id:
+        range: ExperimentRun
+        required: true
+      sequence:
+        range: integer
+        required: true
+      resource_kind:
+        range: RunResourceKind
+        required: true
+      resource_id:
+        required: true
+      assignment_state:
+        range: ResourceAssignmentState
+        required: true
+      assigned_at:
+        range: datetime
+        required: true
+      released_at:
+        range: datetime
+      expires_at:
+        range: datetime
+      reason:
+      supersedes_id:
+      sample_reference:
+        range: BALSampleReference
+        inlined: true
+      assigned_by:
+  Intervention:
+    is_a: NamedEntity
+    description: Durable operator fact associated with an experiment run and, when applicable, an instrument.
+    attributes:
+      kind: {required: true}
+      status:
+        range: InterventionStatus
+        required: true
+      experiment_run_id:
+        range: ExperimentRun
+      instrument_id:
+        range: Instrument
+      created_at: {range: datetime, required: true}
+      waiting_since: {range: datetime}
+      instructions: {required: true}
+      acknowledged_at: {range: datetime}
+      acknowledged_by:
+      completed_at: {range: datetime}
+      completed_by:
+  DeploymentQueueEntry:
+    is_a: NamedEntity
+    description: Central ordered deployment request; instrument queues are projections of this record.
+    attributes:
+      experiment_run_id: {range: ExperimentRun, required: true}
+      queue_position: {range: integer, required: true}
+      required_instrument_ids:
+        range: Instrument
+        multivalued: true
+        required: true
+      status: {range: DeploymentStatus, required: true}
+      blockers: {multivalued: true}
+      queued_at: {range: datetime, required: true}
+  RunRevision:
+    description: Durable materialized revision of a run. Revisions are monotonic per run.
+    attributes:
+      run_id:
+        range: ExperimentRun
+        required: true
+      revision:
+        range: integer
+        required: true
+      effective_state_digest:
+        required: true
+      effective_state:
+        range: SerializedPayload
+        inlined: true
+        required: true
+      created_at:
+        range: datetime
+        required: true
+  RunPatch:
+    is_a: NamedEntity
+    description: Ordered intentional operational change. It preserves the original bundle and names the revision on which it was based.
+    attributes:
+      run_id:
+        range: ExperimentRun
+        required: true
+      sequence:
+        range: integer
+        required: true
+      based_on_revision:
+        range: integer
+        required: true
+      patch_kind:
+        range: RunPatchKind
+        required: true
+      parameter:
+        range: ParameterKind
+      value:
+        range: Quantity
+        inlined: true
+      change:
+        range: SerializedPayload
+        inlined: true
+        required: true
+        description: Canonical requested change. It carries non-quantity changes such as media references or safe conditional-logic updates.
+      requested_at:
+        range: datetime
+        required: true
+      requested_by:
+      effective_revision:
+        range: integer
+  RunEvent:
+    is_a: NamedEntity
+    description: Append-only fact recorded by the edge; events are not commands and do not imply a requested action was physically verified.
+    attributes:
+      run_id:
+        range: ExperimentRun
+        required: true
+      sequence:
+        range: integer
+        required: true
+      event_type:
+        range: RunEventType
+        required: true
+      occurred_at:
+        range: datetime
+        required: true
+      revision:
+        range: integer
+        required: true
+      causation_command_id:
+      details:
+        range: SerializedPayload
+        inlined: true
+  Campaign:
+    is_a: NamedEntity
+    description: Central coordination record for related runs; local execution remains independent when disconnected.
+    attributes:
+      run_ids:
+        range: ExperimentRun
+        multivalued: true
+        required: true
+      coordination_policy:
+enums:
+  PreparationState:
+    permissible_values:
+      not_started: {}
+      preparing: {}
+      ready: {}
+      blocked: {}
+      failed: {}
+  PreheatState:
+    permissible_values:
+      not_required: {}
+      pending: {}
+      heating: {}
+      at_target: {}
+      timeout: {}
+      failed: {}
+  RunResourceKind:
+    permissible_values:
+      instrument: {}
+      vial_position: {}
+      controller: {}
+      pump: {}
+  ResourceAssignmentState:
+    permissible_values:
+      assigned: {}
+      released: {}
+      replaced: {}
+  ExperimentPurpose:
+    permissible_values:
+      research: {}
+      test_fixture: {}
+      commissioning: {}
+      calibration: {}
+      validation: {}
+      verification: {}
+      endurance: {}
+      diagnostic: {}
+  ExperimentLifecycle:
+    permissible_values:
+      active: {}
+      stale: {}
+      archived: {}
+      deleted: {}
+  DeploymentStatus:
+    permissible_values:
+      queued: {}
+      blocked: {}
+      ready: {}
+      running: {}
+      completed: {}
+  InterventionStatus:
+    permissible_values:
+      pending: {}
+      acknowledged: {}
+      in_progress: {}
+      completed: {}
+      cancelled: {}
+      failed: {}
+  BundleExecutionMode:
+    permissible_values:
+      declarative_state_machine: {}
+      isolated_legacy_runner: {}
+  RunState:
+    permissible_values:
+      created: {}
+      ready: {}
+      running: {}
+      paused: {}
+      stopping: {}
+      stopped: {}
+      completed: {}
+      failed: {}
+      recovery_required: {}
+  RunPatchKind:
+    permissible_values:
+      parameter_change: {}
+      pause: {}
+      resume: {}
+      media_replacement: {}
+      conditional_logic_change: {}
+  RunEventType:
+    permissible_values:
+      run_created: {}
+      run_started: {}
+      run_paused: {}
+      run_resumed: {}
+      run_stopped: {}
+      condition_reached: {}
+      parameter_changed: {}
+      media_replaced: {}
+      device_disconnected: {}
+      device_reconnected: {}
+      recovery_required: {}

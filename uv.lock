@@ -155,7 +155,7 @@ toml = [
 [[package]]
 name = "evolver-controller"
 version = "0.1.0"
-source = { editable = "evolver-controller" }
+source = { editable = "evolver/evolver-controller" }
 dependencies = [
     { name = "psycopg", extra = ["binary"] },
     { name = "pyserial" },
@@ -183,7 +183,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "evolver-hardware"
 version = "0.1.0"
-source = { editable = "evolver-hardware" }
+source = { editable = "evolver/evolver-hardware" }
 dependencies = [
     { name = "pyserial" },
 ]
@@ -205,7 +205,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "evolver-server"
 version = "0.1.0"
-source = { editable = "evolver-server" }
+source = { editable = "evolver/evolver-server" }
 dependencies = [
     { name = "psycopg", extra = ["binary"] },
     { name = "pyyaml" },

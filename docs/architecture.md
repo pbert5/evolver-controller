@@ -10,6 +10,8 @@ exclusive privileged serial owner. Native/systemd installation remains a
 legacy compatibility path.
 `evolver-hardware` exclusively owns serial transport and its bounded local IPC;
 it has no PostgreSQL or catalog dependency. `metactl` is an operator API client.
+In the Meta BAL checkout these three component gitlinks live under `evolver/`;
+the authoritative private instrument schema source is `evolver/evolver-schemas/`.
 `evolver-protocol` is reserved for contracts that genuinely need an independent
 lifecycle. `evolver-arduino` remains the existing firmware source repository.
 
