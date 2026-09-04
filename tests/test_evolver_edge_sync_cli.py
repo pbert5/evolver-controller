@@ -46,6 +46,7 @@ def test_service_module_entrypoint_starts_persistent_sync_loop(tmp_path, monkeyp
 
     monkeypatch.setattr(store_module, "EdgeStore", FakeStore)
     monkeypatch.setattr(sync_module, "SyncClient", FakeSyncClient)
+    monkeypatch.setenv("EVOLVER_OPERATOR_SOCKET", str(tmp_path / "operator.sock"))
     monkeypatch.setattr(sys, "argv", ["evolver-edge-service", "--state-root", str(tmp_path), "--interval", "3"])
 
     with pytest.raises(SystemExit) as raised:
