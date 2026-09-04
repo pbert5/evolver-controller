@@ -8,3 +8,5 @@ alias la='ls -A'
 command -v fzf >/dev/null && source <(fzf --zsh 2>/dev/null || true)
 command -v zoxide >/dev/null && eval "$(zoxide init zsh)"
 export EDITOR="${EDITOR:-vim}"
+export NAVI_PATH="${NAVI_PATH:-/workspaces/meta_bal/docs/navi/generated}"
+[[ -r /workspaces/meta_bal/tools/navi-widget.zsh ]] && source /workspaces/meta_bal/tools/navi-widget.zsh

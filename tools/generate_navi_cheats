@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""Build the checked-in Navi catalog from repository-owned cheat sources."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SOURCE_DIR = ROOT / "docs" / "navi" / "cheatsheets"
+OUTPUT = ROOT / "docs" / "navi" / "generated" / "meta-ball.cheat"
+HEADER = """# GENERATED FILE. DO NOT EDIT.\n# Run tools/generate-navi-cheats after changing docs/navi/cheatsheets/.\n"""
+
+
+def render() -> str:
+    sources = sorted(SOURCE_DIR.glob("*.cheat"), key=lambda path: path.relative_to(ROOT).as_posix())
+    if not sources:
+        raise SystemExit(f"no Navi source files found in {SOURCE_DIR}")
+
+    sections: list[str] = []
+    for source in sources:
+        text = source.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n").rstrip()
+        if not text:
+            raise SystemExit(f"Navi source is empty: {source}")
+        sections.append(text)
+    return HEADER + "\n\n".join(sections) + "\n"
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true", help="fail when the checked-in catalog is stale")
+    args = parser.parse_args()
+    expected = render()
+
+    if args.check:
+        actual = OUTPUT.read_text(encoding="utf-8") if OUTPUT.exists() else None
+        if actual != expected:
+            print(f"stale Navi catalog: {OUTPUT}")
+            print("run tools/generate-navi-cheats")
+            return 1
+        return 0
+
+    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    OUTPUT.write_text(expected, encoding="utf-8", newline="\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
