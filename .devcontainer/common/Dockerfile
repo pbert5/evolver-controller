@@ -1,6 +1,7 @@
 FROM mcr.microsoft.com/vscode/devcontainers/python:1-3.12-bookworm
 ARG UV_VERSION=0.8.14
 ARG RTK_VERSION=v0.47.0
+ARG NAVI_VERSION=v2.24.0
 ARG DEBIAN_FRONTEND=noninteractive
 USER root
 RUN rm -f /etc/apt/sources.list.d/yarn.list \
@@ -19,6 +20,10 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
     && mv /root/.local/bin/uvx /usr/local/bin/uvx \
     && curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | PATH=/root/.local/bin:$PATH RTK_VERSION=${RTK_VERSION} sh \
     && install -m 0755 /root/.local/bin/rtk /usr/local/bin/rtk \
+    && curl -fsSL "https://github.com/denisidoro/navi/releases/download/${NAVI_VERSION}/navi-${NAVI_VERSION}-x86_64-unknown-linux-musl.tar.gz" -o /tmp/navi.tar.gz \
+    && tar -xzf /tmp/navi.tar.gz -C /usr/local/bin \
+    && chmod 0755 /usr/local/bin/navi \
+    && rm -f /tmp/navi.tar.gz \
     && install -d -m 0755 /opt/codex \
     && curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_HOME=/opt/codex CODEX_INSTALL_DIR=/usr/local/bin CODEX_NON_INTERACTIVE=1 sh \
     && codex --version \

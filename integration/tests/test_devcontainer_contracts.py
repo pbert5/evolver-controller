@@ -1,4 +1,5 @@
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -34,8 +35,32 @@ def test_workspace_members_and_contract_scripts_exist():
     for member in ("evolver/evolver-controller", "evolver/evolver-hardware", "evolver/evolver-server"):
         assert member in pyproject
     assert "metactl/tests" not in pyproject
-    for script in ("tools/dev-env", "tools/test", "tools/test-fast", "tools/test-serial"):
+    for script in ("tools/dev-env", "tools/check-locks", "tools/test", "tools/test-fast", "tools/test-serial"):
         assert (ROOT / script).is_file()
+        assert (ROOT / script).stat().st_mode & 0o111
+
+
+@pytest.mark.parametrize("argv", [("common", "check"), ("check", "common")])
+def test_dev_env_accepts_canonical_and_legacy_profile_order(argv):
+    result = subprocess.run([str(ROOT / "tools/dev-env"), *argv], cwd=ROOT,
+                            capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    assert "configuration valid:" in result.stdout
+
+
+def test_environment_lock_checker_has_explicit_relock_mode():
+    result = subprocess.run([str(ROOT / "tools/check-locks"), "--help"], cwd=ROOT,
+                            capture_output=True, text=True, check=False)
+    assert result.returncode == 0
+    assert "[--relock]" in result.stdout
+
+
+def test_dev_env_smoke_covers_shared_and_edge_contracts():
+    source = (ROOT / "tools/dev-env").read_text()
+    for command in ("rtk", "uv", "python", "pytest", "navi", "codex", "docker", "evolverctl", "metactl"):
+        assert f"{command}" in source
+    assert 'import yaml' in source
+    assert 'test -d /run/evolver-controller' in source
 
 
 def test_evolver_edge_devcontainer_is_source_backed_and_has_docker_without_serial():

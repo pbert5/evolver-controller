@@ -30,3 +30,19 @@ rtk --version
 rtk gain
 which rtk
 ```
+
+## Repository guidance
+
+Use RTK for repository shell commands:
+
+```bash
+rtk tools/dev-env common check
+rtk tools/dev-env common smoke
+rtk tools/check-locks
+rtk tools/test fast
+```
+
+The Dev Containers install the pinned RTK release and shared toolchain. When a
+host command is unavailable, enter the Common Toolchain before installing
+anything locally. The older action-first `tools/dev-env check common` form is
+accepted, but profile-first is canonical.
