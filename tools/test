@@ -140,7 +140,7 @@ case "$mode" in
   # The serial lane is intentionally conservative: it runs every repository
   # process in order, so an unmarked legacy shared-resource test cannot be
   # accidentally omitted. Tests carrying the serial marker are also included.
-  serial) run_all_serial 0 '' "$@" ;;
+  serial) run_all_serial 0 '' '' "$@" ;;
   integration) run_all_parallel "$workers" integration '' "$@" ;;
   simulator) run_all_parallel "$workers" simulator '' "$@" ;;
   coverage)
