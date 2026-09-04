@@ -1,0 +1,56 @@
+{
+  "json.validate.enable": true,
+  "json.schemas": [
+    {
+      "fileMatch": [
+        "/config/app-config.json"
+      ],
+      "url": "./config/schema/app-config.schema.json"
+    },
+    {
+      "fileMatch": [
+        "/config/imported-config.json"
+      ],
+      "url": "./config/schema/imported-config.schema.json"
+    }
+  ],
+  "yaml.validate": true,
+  "yaml.completion": true,
+  "yaml.hover": true,
+  "yaml.schemas": {
+    "https://w3id.org/linkml/meta.schema.json": [
+      "config/schema/*.linkml.yml",
+      "config/schema/*.linkml.yaml"
+    ]
+  },
+  "dev.containers.defaultExtensions": [
+    "ms-python.python",
+    "ms-playwright.playwright",
+    "redhat.vscode-yaml",
+    "ms-azuretools.vscode-docker"
+  ],
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestArgs": ["private-schema/tests", "integration/tests"],
+  "python.testing.cwd": "${workspaceFolder}",
+  "python.testing.env": {
+    "META_WEBUI_RUN_DB_INTEGRATION_TESTS": "0",
+    "BAL_SCHEMA_VERSION": "latest"
+  },
+  "pgsql.connections": [
+    {
+      "profileName": "meta_webui_interface (local dev)",
+      "server": "127.0.0.1",
+      "port": "5432",
+      "database": "meta_webui_interface",
+      "authenticationType": "SqlLogin",
+      "user": "meta_webui_interface",
+      "password": "",
+      "id": "8C056251-A530-4ABC-847B-FEAC52FB649A",
+      "groupId": "F948B7C8-686B-47B2-BE7D-19C9DFC2C5E6",
+      "expiresOn": 0,
+      "sshPassword": ""
+    }
+  ]
+}

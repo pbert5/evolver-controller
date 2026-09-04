@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+sudo pkill dockerd 2>/dev/null || true; sudo pkill containerd 2>/dev/null || true
+sudo rm -f /run/docker.pid /var/run/docker.pid /run/containerd/containerd.pid
+sudo sh -c 'dockerd --iptables=false --ip-masq=false >/tmp/dockerd.log 2>&1 &'
+for _ in {1..30}; do docker info >/dev/null 2>&1 && exit 0; sleep 1; done
+echo 'private Docker daemon did not become ready; see /tmp/dockerd.log' >&2; exit 1

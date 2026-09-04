@@ -1,0 +1,40 @@
+{
+  "name": "Meta WebUI: Common Toolchain",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "remoteUser": "vscode",
+  "containerName": "meta-ball-${localEnv:META_BALL_WORKTREE_ID}-common",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/meta_bal,type=bind",
+  "workspaceFolder": "/workspaces/meta_bal",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.debugpy",
+        "openai.chatgpt",
+        "ms-azuretools.vscode-containers",
+        "ms-azuretools.vscode-docker",
+        "jackiotyu.git-worktree-manager",
+        "adrianwilczynski.toggle-hidden",
+        "ms-playwright.playwright",
+        "mutantdino.resourcemonitor"
+      ]
+    }
+  },
+  "containerEnv": {
+    "META_BALL_WORKTREE_ID": "${localEnv:META_BALL_WORKTREE_ID}",
+    "CODEX_HOME": "/home/vscode/.codex-common"
+  },
+  "mounts": [
+    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
+    "source=meta-ball-${localEnv:META_BALL_WORKTREE_ID}-uv-cache,target=/home/vscode/.cache/uv,type=volume",
+    "source=meta-ball-${localEnv:META_BALL_WORKTREE_ID}-npm-cache,target=/home/vscode/.npm,type=volume",
+    "source=meta-ball-${localEnv:META_BALL_WORKTREE_ID}-codex-common,target=/home/vscode/.codex-common,type=volume",
+    "source=${localEnv:HOME}/.codex/auth.json,target=/home/vscode/.codex-common/auth.json,type=bind"
+  ],
+  "initializeCommand": "sh -eu -c 'auth=\"$HOME/.codex/auth.json\"; mkdir -p \"$(dirname \"$auth\")\"; touch \"$auth\"; chmod 600 \"$auth\"'",
+  "postCreateCommand": "bootstrap-devcontainer"
+}

@@ -1,0 +1,10 @@
+{
+  "recommendations": [
+    "redhat.vscode-yaml",
+    "ms-playwright.playwright",
+    "ms-ossdata.vscode-pgsql",
+    "ms-python.python",
+    "ms-vscode-remote.remote-containers",
+    "ms-azuretools.vscode-docker"
+  ]
+}

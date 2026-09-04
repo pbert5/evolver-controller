@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+exec npm --prefix shells/web/frontend run test:e2e

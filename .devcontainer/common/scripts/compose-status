@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+set -euo pipefail
+exec docker compose -f compose.yaml -f .devcontainer/ui/compose.override.yaml -p "$COMPOSE_PROJECT_NAME" ps --all

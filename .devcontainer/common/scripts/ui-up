@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$META_WEBUI_DEV_PROFILE" == isolated-ui ]] || exit 2
+exec docker compose -f compose.yaml -f .devcontainer/ui/compose.override.yaml -p "$COMPOSE_PROJECT_NAME" up -d --build

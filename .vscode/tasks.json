@@ -1,0 +1,7 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {"label": "pytest (parallel)", "type": "shell", "command": "uv run pytest -n auto -q", "problemMatcher": []},
+    {"label": "pytest (focused schema)", "type": "shell", "command": "uv run pytest -q private-schema/tests", "problemMatcher": []}
+  ]
+}

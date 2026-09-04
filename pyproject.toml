@@ -1,0 +1,18 @@
+[project]
+name = "meta-ball"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["PyYAML>=6"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-xdist>=3.8", "pytest-cov>=6"]
+
+[tool.pytest.ini_options]
+testpaths = ["private-schema/tests", "integration/tests"]
+markers = [
+  "unit: isolated unit tests",
+  "contract: wire/API contract tests",
+  "integration: cross-component tests",
+  "simulator: simulator-backed tests",
+  "serial: shared serial resource (not run in parallel)",
+]

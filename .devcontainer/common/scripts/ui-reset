@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-containers}" in containers) exec ui-down;; data) exec docker compose -f compose.yaml -f .devcontainer/ui/compose.override.yaml -p "$COMPOSE_PROJECT_NAME" down --remove-orphans --volumes;; *) exit 2;; esac

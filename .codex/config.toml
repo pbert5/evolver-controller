@@ -1,0 +1,63 @@
+# Live web search is available to the parent Codex session and is inherited by
+# bounded sub-agents such as recovery-advisor. Agent roles may reduce parent
+# capabilities but should not be relied on to elevate a capability the parent
+# session does not already have.
+web_search = "live"
+
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 8
+
+[mcp_servers.serena]
+command = "nix"
+args = ["develop", "-c", "uvx", "-p", "3.13", "--from", "git+https://github.com/oraios/serena", "serena", "start-mcp-server", "--context=codex", "--project-from-cwd", "--enable-web-dashboard=false", "--open-web-dashboard=false"]
+approval_mode = "auto"
+startup_timeout_sec = 60
+# Starts a Nix shell and a remote uvx package; enable only when using Serena.
+enabled = false
+
+[mcp_servers.chrome-devtools]
+command = "docker"
+args = ["compose", "run", "--rm", "--no-deps", "-T", "chrome-devtools-mcp"]
+approval_mode = "auto"
+# Starts a Nix shell and npx package; enable only when GitHub MCP is needed.
+enabled = false
+
+[mcp_servers.github]
+command = "nix"
+args = ["develop", "-c", "npx", "-y", "@modelcontextprotocol/server-github"]
+approval_mode = "auto"
+
+[mcp_servers.github.env]
+GITHUB_PERSONAL_ACCESS_TOKEN = "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+
+[mcp_servers.postgres]
+command = "nix"
+args = ["develop", "-c", "npx", "-y", "@modelcontextprotocol/server-postgres", "${POSTGRES_CONNECTION_STRING}"]
+approval_mode = "auto"
+# This integration needs a reachable database URL; enable after setting it.
+enabled = false
+
+[mcp_servers.sentry]
+command = "nix"
+args = ["develop", "-c", "npx", "-y", "@sentry/mcp-server@latest"]
+approval_mode = "auto"
+# This integration needs a Sentry user access token; enable after setting it.
+enabled = false
+
+[mcp_servers.sentry.env]
+SENTRY_ACCESS_TOKEN = "${SENTRY_ACCESS_TOKEN}"
+
+[mcp_servers.docker]
+command = "docker"
+args = ["mcp", "gateway", "run"]
+approval_mode = "auto"
+# Requires Docker Desktop's MCP Toolkit (the ordinary Docker CLI lacks `docker mcp`).
+enabled = false
+
+[mcp_servers.playwright]
+command = "npx"
+args = ["-y", "@playwright/mcp@latest"]
+approval_mode = "auto"
+# Optional browser automation and inspection; enable with tools/codex-mcp.
+enabled = false
