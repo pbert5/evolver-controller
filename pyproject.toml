@@ -9,7 +9,7 @@ dependencies = ["pyserial==3.5", "zstandard==0.25.0", "psycopg[binary]>=3.1"]
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-xdist>=3.8", "pytest-cov>=6"]
 [project.scripts]
-evolverctl = "meta_webui_application_backend.evolver_edge.cli:main"
+evoctl = "meta_webui_application_backend.evolver_edge.cli:main"
 evolver-controller = "meta_webui_application_backend.evolver_edge.service:main"
 evolver-hardware = "meta_webui_application_backend.evolver_edge.hardware_service:main"
 [tool.setuptools.packages.find]

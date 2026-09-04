@@ -52,6 +52,8 @@ def _compatibility_argv(argv: list[str]) -> list[str]:
     """
     aliases: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         (("local", "run", "list"), ("runs",)),
+        (("local", "instrument", "list"), ("instruments",)),
+        (("local", "instrument", "show"), ("instrument", "show")),
         (("local", "runs"), ("runs",)),
         (("local", "run"), ("run",)),
         (("local", "diagnostics"), ("doctor",)),
@@ -84,7 +86,7 @@ def _compatibility_argv(argv: list[str]) -> list[str]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="evolverctl", description="eVOLVER controller local operator CLI")
+    parser = argparse.ArgumentParser(prog="evoctl", description="eVOLVER controller local operator CLI")
     parser.add_argument("--state-root", help="persistent controller state directory")
     parser.add_argument("--offline", action="store_true",
                         help="read directly from the durable store without contacting the operator service")
@@ -290,7 +292,7 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 if args.update_command == "check":
                     _emit(manager.plan(args.release).__dict__); return 0
-                # Applying from evolverctl is a local, explicit maintenance
+                # Applying from evoctl is a local, explicit maintenance
                 # action.  The manager still records the release durably.
                 _emit(manager.request(args.release, explicit=True).__dict__); return 0
             except Exception as error:

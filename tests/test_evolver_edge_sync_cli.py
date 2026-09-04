@@ -59,7 +59,7 @@ def test_service_module_entrypoint_starts_persistent_sync_loop(tmp_path, monkeyp
 
 def test_cli_module_entrypoint_invokes_main(tmp_path, monkeypatch, capsys):
     """Executing the Nix-targeted CLI module must invoke its main function."""
-    monkeypatch.setattr(sys, "argv", ["evolverctl", "--state-root", str(tmp_path), "status"])
+    monkeypatch.setattr(sys, "argv", ["evoctl", "--state-root", str(tmp_path), "status"])
 
     with pytest.raises(SystemExit) as raised:
         runpy.run_module("meta_webui_application_backend.evolver_edge.cli", run_name="__main__")
@@ -72,7 +72,7 @@ def test_cli_module_entrypoint_invokes_main(tmp_path, monkeypatch, capsys):
 def test_cli_inspection_redacts_nested_credentials(tmp_path, monkeypatch, capsys, command):
     with EdgeStore(tmp_path) as edge:
         edge.bind(webui_controller_id="central", server_url="https://central", credential="sentinel-secret", generation=1)
-    monkeypatch.setattr(sys, "argv", ["evolverctl", "--state-root", str(tmp_path), *command])
+    monkeypatch.setattr(sys, "argv", ["evoctl", "--state-root", str(tmp_path), *command])
     main()
     output = capsys.readouterr().out
     assert "sentinel-secret" not in output
@@ -368,6 +368,8 @@ def test_cli_status_and_revision_safe_pause(tmp_path, capsys):
     (("diagnostics",), ("doctor",)),
     (("read-only", "diagnostics"), ("doctor",)),
     (("local", "run", "list"), ("runs",)),
+    (("local", "instrument", "list"), ("instruments",)),
+    (("local", "instrument", "show"), ("instrument", "show")),
     (("local", "runs"), ("runs",)),
     (("run", "list"), ("runs",)),
 ])
