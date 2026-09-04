@@ -30,6 +30,7 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
     && mkdir -p /opt/meta-ball/bin /workspaces \
     && chown -R vscode:vscode /opt/meta-ball /workspaces
 COPY scripts/ /opt/meta-ball/bin/
+# Keep project operator wrappers in the image PATH as well as the uv environment.
 RUN chmod +x /opt/meta-ball/bin/* \
     && for script in /opt/meta-ball/bin/*; do ln -sf "$script" "/usr/local/bin/$(basename "$script")"; done \
     && chown -R vscode:vscode /opt/meta-ball
