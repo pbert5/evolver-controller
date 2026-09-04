@@ -1,9 +1,10 @@
 """Safe controller software update planning.
 
 The central service may describe a desired *release*, but it never sends a
-shell command.  A host-local backend owns installation and this module fences
-updates while an experiment can still be affected.  Firmware is deliberately
-outside this contract.
+shell command.  Docker Compose is the only supported deployment boundary;
+the controller container deliberately has no Docker socket, so applying an
+update is an explicit host-side operation.  Firmware is deliberately outside
+this contract.
 """
 from __future__ import annotations
 
@@ -45,51 +46,25 @@ def _run(command: Sequence[str]) -> None:
     subprocess.run(command, check=True)  # nosec B603: fixed executable/argument vector
 
 
-class NixUpdateBackend:
-    """Install a pinned flake release; the service is restarted by the host."""
-    name = "nix"
+class ComposeUpdateBackend:
+    """Apply a release through the root-owned Docker Compose deployment.
 
-    def __init__(self, *, flake: str, runner: Runner = _run) -> None:
-        self.flake, self.runner = flake, runner
-
-    def install(self, release: str) -> None:
-        self.runner(["nix", "profile", "install", f"{self.flake}?ref={release}"])
-
-
-class NativePackageBackend:
-    """Native package backend with an allowlisted package manager command."""
-    name = "native"
-
-    def __init__(self, *, package: str = "evolver-controller", manager: str = "apt-get", runner: Runner = _run) -> None:
-        self.package, self.manager, self.runner = package, manager, runner
-
-    def install(self, release: str) -> None:
-        if self.manager == "apt-get":
-            command = [self.manager, "install", "--yes", f"{self.package}={release}"]
-        elif self.manager == "dnf":
-            command = [self.manager, "install", "--assumeyes", f"{self.package}-{release}"]
-        else:
-            raise EdgeStoreError(f"unsupported native package manager {self.manager!r}")
-        self.runner(command)
-
-
-class OCIUpdateBackend:
-    """Reserved for a future OCI lifecycle backend; intentionally unusable.
-
-    An image pull alone is not an update: it neither replaces the systemd
-    runtime nor supplies the atomic current/previous rollback contract that
-    native installations have.  Keeping this explicit prevents the CLI from
-    reporting an image as installed when the running controller is unchanged.
+    The default edge container cannot reach Docker, by design.  A runner is
+    therefore injectable for the small host-side adapter and for tests; no
+    package manager, Nix profile, or native service manager is selected here.
     """
-    name = "oci"
+    name = "compose"
 
-    def __init__(self, *, image: str, runtime: str = "podman", runner: Runner = _run) -> None:
-        self.image, self.runtime, self.runner = image, runtime, runner
+    def __init__(self, *, compose_file: str | None = None, runner: Runner = _run) -> None:
+        self.compose_file = compose_file
+        self.runner = runner
 
     def install(self, release: str) -> None:
-        raise EdgeStoreError(
-            "OCI updates are planned/unsupported: image service replacement and rollback are not implemented"
-        )
+        if not self.compose_file:
+            raise EdgeStoreError(
+                "Compose deployment is host-owned; set EVOLVER_COMPOSE_FILE for an explicit host update"
+            )
+        self.runner(["docker", "compose", "-f", self.compose_file, "up", "-d", "--build"])
 
 
 @dataclass(frozen=True)
@@ -102,7 +77,7 @@ class UpdateDecision:
 
 
 class UpdateManager:
-    """Policy gate shared by Nix, native-package and future OCI backends."""
+    """Policy gate for the root-owned Compose deployment."""
 
     def __init__(self, store: EdgeStore, backend: UpdateBackend, *, policy: UpdatePolicy = UpdatePolicy.WHEN_IDLE):
         self.store, self.backend, self.policy = store, backend, policy

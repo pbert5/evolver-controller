@@ -5,8 +5,8 @@ from .store import (CommandInProgressError, EdgeStore, EdgeStoreError,
                     ImmutableBundleError, StaleGenerationError,
                     StaleRevisionError, LeaseValidationError, canonical_digest)
 from .sync import SyncClient, SyncResult
-from .update import (NixUpdateBackend, NativePackageBackend, OCIUpdateBackend,
-                     UpdateDecision, UpdateManager, UpdatePolicy)
+from .update import (ComposeUpdateBackend, UpdateDecision, UpdateManager,
+                     UpdatePolicy)
 from .lifecycle import ControllerLifecyclePlan, plan_lifecycle
 from .hardware import (HardwareCommand, HardwareResult, HardwareService,
                        HardwareUnavailableError, ReadOnlyHardwareService,
@@ -22,7 +22,7 @@ from .operator import (ALLOWED_OPERATIONS, DEFAULT_SOCKET as DEFAULT_OPERATOR_SO
 
 __all__ = ["BundleResolutionError", "CalibrationPreflightError", "calibration_artifact_digest", "CommandInProgressError", "EdgeStore", "EdgeStoreError", "ImmutableBundleError", "LeaseValidationError",
            "StaleGenerationError", "StaleRevisionError", "SyncClient", "SyncResult", "canonical_digest", "resolve_bundle",
-           "NixUpdateBackend", "NativePackageBackend", "OCIUpdateBackend", "UpdateDecision", "UpdateManager", "UpdatePolicy",
+           "ComposeUpdateBackend", "UpdateDecision", "UpdateManager", "UpdatePolicy",
            "ControllerLifecyclePlan", "plan_lifecycle",
                      "HardwareUnavailableError", "ReadOnlyHardwareService", "HardwareService",
                      "HardwareCommand", "HardwareResult", "normalize_effective_device_state",

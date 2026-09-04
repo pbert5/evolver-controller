@@ -1,4 +1,4 @@
-"""Long-running controller process entrypoint used by the systemd unit."""
+"""Long-running controller process entrypoint used by the Compose service."""
 from __future__ import annotations
 
 import argparse

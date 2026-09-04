@@ -1,4 +1,9 @@
-"""Host inspection and systemd unit rendering for explicit controller bootstrap."""
+"""Durable edge inspection and legacy lifecycle compatibility helpers.
+
+The supported deployment is Docker Compose.  The filesystem/systemd helpers
+remain only so older recovery archives and explicit migrations can be
+inspected safely; they are not a selectable installation backend.
+"""
 from __future__ import annotations
 
 import os
@@ -39,13 +44,8 @@ class InstallationStatus:
 
 
 def detect_backend() -> str:
-    if shutil.which("nix"):
-        return "nix"
-    # OCI images are not an installation backend yet.  Pulling one does not
-    # atomically replace both supervised services, perform a health check, or
-    # restore the prior image on failure.  Do not make a host with podman look
-    # supported until those lifecycle semantics exist.
-    return "native"
+    """Return the one supported edge deployment boundary."""
+    return "compose"
 
 
 def persistent_systemd_root() -> Path:
@@ -381,7 +381,6 @@ set +x
 SERVER_URL="{default_server_url.rstrip('/')}"
 STATE_ROOT="${{EVOLVER_STATE_ROOT:-/var/lib/evolver-controller}}"
 EVOLVER_DEVELOPER_MODE="${{EVOLVER_DEVELOPER_MODE:-false}}"
-EVOLVER_NIX_INSTALL_REF="${{EVOLVER_NIX_INSTALL_REF:-server-release}}"
 # EVOLVER_DEVELOPER_MODE=true is intentionally a developer-only setting; this
   # production installer never uses it to select an external source.
 TOKEN=""

@@ -11,7 +11,11 @@ import json
 from typing import Any, Mapping
 
 Json = dict[str, Any]
-EXPERIMENT_PURPOSES = frozenset({"research", "test_fixture", "commissioning", "calibration"})
+EXPERIMENT_PURPOSES = frozenset({
+    "research", "test_fixture", "commissioning", "calibration",
+    "validation", "verification", "endurance", "diagnostic",
+})
+EXECUTION_MODES = frozenset({"declarative_state_machine"})
 
 
 class BundleResolutionError(ValueError):
@@ -110,4 +114,10 @@ def resolve_bundle(bundle: Mapping[str, Any], calibration_artifacts: Any) -> Jso
 
 
 def experiment_purpose(value: Any) -> str:
-    return value if value in EXPERIMENT_PURPOSES else "research"
+    if value is None:
+        # Bundles created before purpose became required retain the stable
+        # compatibility view used by EdgeStore.bundle().
+        return "research"
+    if not isinstance(value, str) or value not in EXPERIMENT_PURPOSES:
+        raise BundleResolutionError(f"unsupported experiment purpose: {value!r}")
+    return value

@@ -12,10 +12,10 @@ from .bundle import resolve_bundle
 from .domain import plan_calibrated_dispense, validate_bounded_operation
 from .store import EdgeStore, EdgeStoreError, canonical_digest
 from .sync import SyncClient
-from .install import (detect_backend, inspect_installation, repair_installation, status_json, systemd_unit,
+from .install import (detect_backend, inspect_installation, repair_installation, status_json,
                       uninstall_installation)
 from .lifecycle import plan_lifecycle
-from .update import NativePackageBackend, NixUpdateBackend, OCIUpdateBackend, UpdateManager, UpdatePolicy, record_installed_release
+from .update import ComposeUpdateBackend, UpdateManager, UpdatePolicy, record_installed_release
 from .doctor import doctor_report
 from .operator import DEFAULT_SOCKET as DEFAULT_OPERATOR_SOCKET, OperatorUnavailable, request as operator_request
 
@@ -142,7 +142,7 @@ def build_parser() -> argparse.ArgumentParser:
     validation.add_argument("--parameters", default="{}", help="JSON operation parameters")
     tui = commands.add_parser("tui", help="run the local configured Textual operator UI")
     tui.add_argument("--page", choices=("overview", "controllers", "instruments", "runs", "recovery", "maintenance"), default="overview")
-    install = commands.add_parser("install-status"); install.add_argument("--unit", action="store_true")
+    commands.add_parser("install-status", help="inspect durable edge deployment state")
     update = commands.add_parser("update", help="inspect or apply a local controller software release")
     update_sub = update.add_subparsers(dest="update_command", required=True)
     update_sub.add_parser("status")
@@ -312,7 +312,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "runs": _emit(store.list_runs()); return 0
         if args.command == "binding": _emit(store.binding()); return 0
         if args.command == "install-status":
-            _emit(systemd_unit() if args.unit else status_json(store.root)); return 0
+            _emit(status_json(store.root)); return 0
         if args.command == "update":
             manager = UpdateManager(store, _update_backend(), policy=_update_policy())
             if args.update_command == "status":
@@ -453,14 +453,7 @@ def _update_policy() -> UpdatePolicy:
 
 
 def _update_backend():
-    backend = detect_backend()
-    if backend == "nix" and os.environ.get("EVOLVER_DEVELOPER_MODE") == "true" and os.environ.get("EVOLVER_NIX_FLAKE"):
-        return NixUpdateBackend(flake=os.environ["EVOLVER_NIX_FLAKE"])
-    if backend == "oci":
-        return OCIUpdateBackend(image=os.environ.get("EVOLVER_OCI_IMAGE", "ghcr.io/pbert5/evolver-controller"),
-                                runtime="podman" if os.environ.get("EVOLVER_OCI_RUNTIME") is None else os.environ["EVOLVER_OCI_RUNTIME"])
-    return NativePackageBackend(package=os.environ.get("EVOLVER_NATIVE_PACKAGE", "evolver-controller"),
-                                manager=os.environ.get("EVOLVER_NATIVE_PACKAGE_MANAGER", "apt-get"))
+    return ComposeUpdateBackend(compose_file=os.environ.get("EVOLVER_COMPOSE_FILE"))
 
 
 if __name__ == "__main__":  # pragma: no cover - module entry point

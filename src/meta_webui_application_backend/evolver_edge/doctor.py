@@ -10,8 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
-import shutil
-import subprocess
+import socket
 from pathlib import Path
 from typing import Any, Callable
 from urllib.request import Request, urlopen
@@ -24,12 +23,18 @@ HealthProbe = Callable[[str], tuple[bool, str]]
 
 
 def _service_status(unit: str) -> tuple[int, str]:
-    """Return a compact systemd state without raising on non-systemd hosts."""
-    if not shutil.which("systemctl"):
-        return 3, "systemctl is not installed"
-    result = subprocess.run(["systemctl", "is-active", unit], check=False,
-                            capture_output=True, text=True, timeout=5)
-    return result.returncode, (result.stdout.strip() or result.stderr.strip() or "unknown")
+    """Check the local service boundary without assuming a host supervisor."""
+    socket_path = (os.environ.get("EVOLVER_OPERATOR_SOCKET") if "controller" in unit
+                   else os.environ.get("EVOLVER_HARDWARE_SOCKET"))
+    socket_path = socket_path or ("/run/evolver-controller/operator.sock" if "controller" in unit
+                                  else "/run/evolver-controller/hardware.sock")
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+            connection.settimeout(1)
+            connection.connect(socket_path)
+        return 0, f"socket reachable: {socket_path}"
+    except OSError as error:
+        return 3, f"socket unavailable: {socket_path}: {error}"
 
 
 def _central_health(server_url: str) -> tuple[bool, str]:

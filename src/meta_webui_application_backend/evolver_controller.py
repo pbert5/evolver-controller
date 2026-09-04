@@ -84,8 +84,15 @@ def resolve_definition_bundle(
     requirements = definition.get("calibration_requirements", content.get("calibration_requirements", []))
     if not isinstance(requirements, list):
         raise BundleResolutionError("ExperimentDefinition.calibration_requirements must be a list")
+    purpose = definition.get("purpose", "research")
+    if not isinstance(purpose, str) or purpose not in {
+            "research", "test_fixture", "commissioning", "calibration",
+            "validation", "verification", "endurance", "diagnostic"}:
+        raise BundleResolutionError(f"unsupported experiment purpose: {purpose!r}")
+    if content["execution_mode"] != "declarative_state_machine":
+        raise BundleResolutionError("only declarative_state_machine bundles are supported")
     bundle = {
-        "id": definition["id"], "name": definition["name"], "purpose": definition.get("purpose", "research"),
+        "id": definition["id"], "name": definition["name"], "purpose": purpose,
         "schema_version": content["schema_version"], "execution_mode": content["execution_mode"],
         "source": {"experiment_id": definition["id"], "dataset_revision": definition["dataset_revision"], "created_at": resolved_at},
         "resolved_definition": dict(snapshot), "execution_plan": content["execution_plan"],

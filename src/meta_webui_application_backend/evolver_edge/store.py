@@ -616,6 +616,10 @@ class EdgeStore:
         bundle_id, supplied_digest = payload.get("id"), payload.pop("digest", None)
         if not bundle_id or not supplied_digest:
             raise ImmutableBundleError("ExperimentBundle requires id and digest")
+        if "purpose" in payload:
+            experiment_purpose(payload["purpose"])
+        if "execution_mode" in payload and payload["execution_mode"] != "declarative_state_machine":
+            raise ImmutableBundleError("only declarative_state_machine bundles are supported")
         digest = canonical_digest(payload)
         if digest != supplied_digest:
             raise ImmutableBundleError("ExperimentBundle digest does not match canonical content")

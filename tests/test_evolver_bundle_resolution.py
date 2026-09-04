@@ -75,3 +75,20 @@ def test_definition_adapter_freezes_only_caller_selected_calibration(tmp_path) -
     # hard failure for the required declaration even if a catalog artifact exists.
     with pytest.raises(BundleResolutionError, match="required calibration is missing"):
         resolve_definition_bundle(definition, [], resolved_at="2026-08-26T12:00:00Z")
+
+
+@pytest.mark.parametrize("field, value", [("purpose", "obsolete"),
+                                           ("execution_mode", "isolated_legacy_runner")])
+def test_definition_adapter_rejects_retired_purpose_and_runner_mode(field, value) -> None:
+    definition = {
+        "id": "definition-retired", "name": "retired", "dataset_id": "dataset-1",
+        "dataset_revision": "rev-1", "purpose": "research",
+        "definition": {"content": {"schema_version": "1", "execution_mode": "declarative_state_machine",
+                                      "execution_plan": {"steps": []}}},
+    }
+    if field == "purpose":
+        definition[field] = value
+    else:
+        definition["definition"]["content"][field] = value
+    with pytest.raises(BundleResolutionError, match="unsupported experiment purpose|declarative_state_machine"):
+        resolve_definition_bundle(definition, [], resolved_at="2026-09-04T00:00:00Z")

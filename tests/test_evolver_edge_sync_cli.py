@@ -20,7 +20,7 @@ from meta_webui_application_backend import evolver_controller
 
 
 def test_service_module_entrypoint_starts_persistent_sync_loop(tmp_path, monkeypatch):
-    """Executing the systemd-targeted module must invoke its service main."""
+    """The Compose service entrypoint invokes the persistent sync loop."""
     import meta_webui_application_backend.evolver_edge.store as store_module
     import meta_webui_application_backend.evolver_edge.sync as sync_module
 
@@ -86,7 +86,7 @@ def test_service_simulator_composes_local_non_actuating_manual_sink(tmp_path, mo
 
 
 def test_cli_module_entrypoint_invokes_main(tmp_path, monkeypatch, capsys):
-    """Executing the Nix-targeted CLI module must invoke its main function."""
+    """Executing the CLI module invokes its main function."""
     monkeypatch.setattr(sys, "argv", ["evoctl", "--state-root", str(tmp_path), "status"])
 
     with pytest.raises(SystemExit) as raised:
@@ -168,6 +168,28 @@ def test_enroll_sync_command_and_orphan_transition_are_transport_independent(tmp
     with EdgeStore(tmp_path) as edge:
         with pytest.raises(TimeoutError): SyncClient(edge, transport=offline).sync_once()
         assert edge.identity()["connection_state"] == "orphaned"
+
+
+def test_sync_batch_projects_edge_facts_into_stable_history_batches(tmp_path):
+    with EdgeStore(tmp_path) as edge:
+        edge.put_bundle(_bundle())
+        edge.create_run(run_id="run", bundle_id="bundle", instrument_ids=["instrument"])
+        edge.append_event(run_id="run", event_type="run_started", revision=0)
+        events = edge.events_after("run")
+        telemetry = edge.spool_telemetry(stream_id="instrument/od", sequence=1,
+                                         payload={"od": 0.2}, captured_at="2026-09-01T00:00:00Z")
+        edge.bind(webui_controller_id="central", server_url="https://central",
+                  credential="credential", generation=3)
+        history = SyncClient(edge)._batch()["history_batches"]
+
+    assert history[0] == {"fact_type": "event", "stream_id": "run", "records": [
+        {"fact_id": event["id"], "run_id": "run", "sequence": event["sequence"],
+         "occurred_at": event["occurred_at"], "payload": event} for event in events
+    ]}
+    assert history[1] == {"fact_type": "telemetry", "stream_id": "instrument/od", "records": [{
+        "fact_id": "telemetry:instrument/od:1", "stream_id": "instrument/od", "sequence": 1,
+        "captured_at": telemetry["captured_at"], "payload": {"od": 0.2},
+    }]}
 
 
 def test_server_identity_replacement_is_not_silently_accepted(tmp_path):
