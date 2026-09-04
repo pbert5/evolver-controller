@@ -12,8 +12,7 @@ from .bundle import resolve_bundle
 from .domain import plan_calibrated_dispense, validate_bounded_operation
 from .store import EdgeStore, EdgeStoreError, canonical_digest
 from .sync import SyncClient
-from .install import (detect_backend, inspect_installation, repair_installation, status_json,
-                      uninstall_installation)
+from .install import inspect_installation
 from .lifecycle import plan_lifecycle
 from .update import ComposeUpdateBackend, UpdateManager, UpdatePolicy, record_installed_release
 from .doctor import doctor_report
@@ -142,18 +141,11 @@ def build_parser() -> argparse.ArgumentParser:
     validation.add_argument("--parameters", default="{}", help="JSON operation parameters")
     tui = commands.add_parser("tui", help="run the local configured Textual operator UI")
     tui.add_argument("--page", choices=("overview", "controllers", "instruments", "runs", "recovery", "maintenance"), default="overview")
-    commands.add_parser("install-status", help="inspect durable edge deployment state")
     update = commands.add_parser("update", help="inspect or apply a local controller software release")
     update_sub = update.add_subparsers(dest="update_command", required=True)
     update_sub.add_parser("status")
     check = update_sub.add_parser("check"); check.add_argument("release")
     apply = update_sub.add_parser("apply"); apply.add_argument("release")
-    uninstall = commands.add_parser("uninstall", help="remove eVOLVER software while preserving state")
-    uninstall.add_argument("--purge", action="store_true", help="also delete local controller state (destructive)")
-    uninstall.add_argument("--yes", action="store_true", help="confirm destructive maintenance in automation")
-    uninstall.add_argument("--force-active", action="store_true", help="explicitly override active-run protection")
-    uninstall.add_argument("--operator", help="operator attribution for the lifecycle audit")
-    commands.add_parser("repair", help="restore owned services and links from the current release")
     simulator = commands.add_parser("simulator"); sim_sub = simulator.add_subparsers(dest="simulator_command", required=True)
     start = sim_sub.add_parser("start"); start.add_argument("--instruments", type=int, default=1)
     create = sim_sub.add_parser("create-run", help="create a safe simulated run from a declarative plan")
@@ -235,18 +227,6 @@ def main(argv: list[str] | None = None) -> int:
             # unavailable.  Retain the legacy direct-store read, explicitly
             # treating it as offline so doctor never probes central here.
             offline_read = True
-    if args.command == "uninstall":
-        try:
-            _emit(uninstall_installation(_root(args.state_root), purge=args.purge, confirm=args.yes,
-                                         force_active=args.force_active, operator=args.operator))
-            return 0
-        except (RuntimeError, ValueError, OSError) as error:
-            _emit({"error": str(error)}); return 2
-    if args.command == "repair":
-        try:
-            _emit(repair_installation(_root(args.state_root))); return 0
-        except (RuntimeError, ValueError, OSError) as error:
-            _emit({"error": str(error)}); return 2
     if args.command == "lifecycle-plan":
         if args.current_state is not None:
             snapshot = json.loads(args.current_state.read_text(encoding="utf-8"))
