@@ -7,18 +7,13 @@ rtk gain >/dev/null
 prepare-dev-volumes
 
 uv_status=0
-npm_status=0
-uv sync --extra dev &
+uv sync --all-packages --all-extras &
 uv_pid=$!
-npm_pid=''
-if [[ -f package-lock.json ]]; then npm ci & npm_pid=$!; fi
 
 cleanup() {
   local status=$?
   if kill -0 "$uv_pid" 2>/dev/null; then kill "$uv_pid" 2>/dev/null || true; fi
-  if [[ -n "$npm_pid" ]] && kill -0 "$npm_pid" 2>/dev/null; then kill "$npm_pid" 2>/dev/null || true; fi
   wait "$uv_pid" 2>/dev/null || true
-  if [[ -n "$npm_pid" ]]; then wait "$npm_pid" 2>/dev/null || true; fi
   return "$status"
 }
 trap cleanup EXIT INT TERM
@@ -29,16 +24,7 @@ else
   uv_status=$?
   printf 'bootstrap-devcontainer: uv sync failed (status %s)\n' "$uv_status" >&2
 fi
-if [[ -z "$npm_pid" ]]; then
-  :
-elif wait "$npm_pid"; then
-  :
-else
-  npm_status=$?
-  printf 'bootstrap-devcontainer: npm ci failed (status %s)\n' "$npm_status" >&2
-fi
-
-if (( uv_status != 0 || npm_status != 0 )); then
-  printf 'bootstrap-devcontainer: failed (uv=%s npm=%s)\n' "$uv_status" "$npm_status" >&2
+if (( uv_status != 0 )); then
+  printf 'bootstrap-devcontainer: failed (uv=%s)\n' "$uv_status" >&2
   exit 1
 fi

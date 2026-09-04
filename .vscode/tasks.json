@@ -1,7 +1,8 @@
 {
   "version": "2.0.0",
   "tasks": [
-    {"label": "pytest (parallel)", "type": "shell", "command": "uv run pytest -n auto -q", "problemMatcher": []},
-    {"label": "pytest (focused schema)", "type": "shell", "command": "uv run pytest -q private-schema/tests", "problemMatcher": []}
+    {"label": "pytest (safe parallel)", "type": "shell", "command": "tools/test-fast", "problemMatcher": []},
+    {"label": "pytest (serial/shared resources)", "type": "shell", "command": "tools/test-serial", "problemMatcher": []},
+    {"label": "pytest (focused component)", "type": "shell", "command": "tools/test component", "problemMatcher": []}
   ]
 }

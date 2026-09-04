@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+run_component() {
+  local component=$1 workers=$2; shift 2
+  case "$component" in
+    controller) PYTHONPATH=evolver-controller/src uv run --project . pytest -o pythonpath=evolver-controller/src -n "$workers" -q evolver-controller/tests "$@" ;;
+    hardware) PYTHONPATH=evolver-hardware/src uv run --project . pytest -o pythonpath=evolver-hardware/src -n "$workers" -q evolver-hardware/tests "$@" ;;
+    server) PYTHONPATH=evolver-server/src uv run --project . pytest -o pythonpath=evolver-server/src -n "$workers" -q evolver-server/tests "$@" ;;
+    metactl) PYTHONPATH=metactl uv run --project . pytest -o pythonpath=metactl -n "$workers" -q metactl/tests "$@" ;;
+    root) uv run pytest -n "$workers" -q "$@" ;;
+    *) echo "unknown component: $component" >&2; return 2;;
+  esac
+}
+case "${1:-fast}" in
+  fast) shift; workers=${PYTEST_WORKERS:-8}; run_component root "$workers" "$@"; for c in controller hardware server metactl; do run_component "$c" "$workers" "$@" & done; wait ;;
+  serial) shift; run_component root 0 "$@" ;;
+  component) [[ $# -ge 2 ]] || { echo 'usage: tools/test component <controller|hardware|server|metactl|root>' >&2; exit 2; }; component=$2; shift 2; run_component "$component" "${PYTEST_WORKERS:-auto}" "$@" ;;
+  *) echo 'usage: tools/test [fast|serial|component <name>]' >&2; exit 2;;
+esac
