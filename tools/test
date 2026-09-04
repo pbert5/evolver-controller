@@ -157,7 +157,7 @@ case "$mode" in
   # marked tests yet; invoking them would turn a valid empty lane into pytest
   # exit code 5. Keep the lane ready for future component integration suites.
   integration) run_suite root "$workers" integration '' "$@" ;;
-  simulator) run_suite root "$workers" 'simulator or integration' '' "$@" ;;
+  simulator) run_all_parallel "$workers" 'simulator or integration' '' "$@" ;;
   coverage)
     coverage_dir=$(mktemp -d "${TMPDIR:-/tmp}/meta-bal-coverage.XXXXXX")
     cleanup_coverage() { rm -rf -- "$coverage_dir"; }
