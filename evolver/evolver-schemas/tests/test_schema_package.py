@@ -26,7 +26,7 @@ def test_import_graph_and_transport_boundary_are_valid():
 def test_experiment_purpose_is_compatible_and_action_is_declarative():
     modules = validator.load_modules(ROOT)
     values = modules["experiment.yaml"]["enums"]["ExperimentPurpose"]["permissible_values"]
-    assert {"research", "test_fixture", "commissioning"} <= set(values)
+    assert {"research", "test_fixture", "commissioning", "calibration", "validation"} <= set(values)
     attrs = modules["experiment_program.yaml"]["classes"]["ActionInvocation"]["attributes"]
     assert "action_id" in attrs and "action_version" in attrs
     assert not validator.FORBIDDEN_ACTION_KEYS & set(attrs)
