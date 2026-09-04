@@ -8,6 +8,7 @@ import sys
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+REGISTRY = ROOT / "registry" / "trusted_actions.yaml"
 REQUIRED_MODULES = {
     "base.yaml", "hardware.yaml", "experiment.yaml", "calibration.yaml",
     "protocol.yaml", "experiment_program.yaml", "requirements.yaml",
@@ -62,6 +63,23 @@ def validate_contract(modules: dict[str, dict]) -> None:
         raise ValueError("ActionInvocation contains an arbitrary-execution field")
 
 
+def validate_action_registry(root: Path) -> None:
+    path = root / "registry" / "trusted_actions.yaml"
+    registry = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(registry, dict) or not registry.get("version") or not registry.get("revision"):
+        raise ValueError("trusted action registry requires version and revision")
+    actions = registry.get("actions")
+    if not isinstance(actions, dict) or not actions:
+        raise ValueError("trusted action registry requires actions")
+    for action_id, record in actions.items():
+        if not isinstance(action_id, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", action_id):
+            raise ValueError(f"invalid trusted action ID: {action_id!r}")
+        if not isinstance(record, dict) or not record.get("versions"):
+            raise ValueError(f"{action_id}: trusted action requires versions")
+        if any(not isinstance(version, str) for version in record["versions"]):
+            raise ValueError(f"{action_id}: action versions must be strings")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, default=ROOT)
@@ -70,6 +88,7 @@ def main(argv=None) -> int:
         modules = load_modules(args.root)
         validate_imports(args.root, modules)
         validate_contract(modules)
+        validate_action_registry(args.root)
     except (OSError, ValueError, yaml.YAMLError) as exc:
         print(f"schema validation failed: {exc}", file=sys.stderr)
         return 1

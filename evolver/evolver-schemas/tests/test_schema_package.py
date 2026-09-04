@@ -7,7 +7,7 @@ import pytest
 ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 import validate_schema_package as validator  # noqa: E402
-from compiler import DefinitionError, compile_definition  # noqa: E402
+from compiler import DefinitionError, compile_definition, load_trusted_action_registry  # noqa: E402
 from export_schema import export_manifest  # noqa: E402
 
 
@@ -37,7 +37,7 @@ def test_compiler_is_deterministic_and_preserves_legacy_payload():
         "id": "demo", "purpose": "validation", "definition": {"legacy": True},
         "program": {"version": "1", "entry_step_id": "s", "steps": [{
             "id": "s", "entry_actions": [{"action_id": "capture_measurement", "action_version": "1"}],
-        }]},
+        }], "completion_policy": {"mode": "all_steps"}, "failure_policy": {"mode": "stop_run"}},
     }
     first = compile_definition(definition)
     second = compile_definition(definition)
@@ -48,7 +48,7 @@ def test_compiler_is_deterministic_and_preserves_legacy_payload():
 
 
 def test_compiler_rejects_unknown_unversioned_and_invalid_transition_actions():
-    base = {"id": "demo", "purpose": "research", "program": {"version": "1", "entry_step_id": "s", "steps": [{"id": "s"}]}}
+    base = {"id": "demo", "purpose": "research", "program": {"version": "1", "entry_step_id": "s", "steps": [{"id": "s"}], "completion_policy": {"mode": "all_steps"}, "failure_policy": {"mode": "stop_run"}}}
     for action in ({"action_id": "unknown", "action_version": "1"}, {"action_id": "wait"}):
         with pytest.raises(DefinitionError):
             compile_definition({**base, "program": {**base["program"], "steps": [{"id": "s", "entry_actions": [action]}]}})
@@ -64,6 +64,30 @@ def test_export_manifest_is_deterministic_and_records_source_digest():
     assert first["schema_package_version"] == "0.1.0"
     assert {item["name"] for item in first["modules"]} >= validator.REQUIRED_MODULES
     assert len(first["source_digest"]) == 64
+    assert any(item["name"] == "registry/trusted_actions.yaml" for item in first["modules"])
+
+
+def test_trusted_action_registry_is_versioned_and_bound_to_bundle():
+    registry = load_trusted_action_registry()
+    assert registry["revision"] == "trusted-actions-1"
+    definition = {
+        "id": "registry-demo", "purpose": "research",
+        "program": {"version": "1", "entry_step_id": "s", "steps": [{"id": "s", "entry_actions": [{"action_id": "wait", "action_version": "1"}]}], "completion_policy": {"mode": "all_steps"}, "failure_policy": {"mode": "stop_run"}},
+    }
+    assert compile_definition(definition)["action_registry_revision"] == registry["revision"]
+
+
+def test_compiler_validates_conditions_random_windows_and_validation_criteria():
+    definition = {
+        "id": "expanded", "purpose": "validation", "validation_plan": {"criteria": [{"metric": "x", "comparator": "between", "lower_bound": 1, "upper_bound": 2}]},
+        "program": {"version": "1", "entry_step_id": "s", "steps": [{"id": "s", "periodic_actions": [{"action": {"action_id": "wait", "action_version": "1"}, "trigger": {"kind": "random_window", "random_window": {"earliest": {"value": 1}, "latest": {"value": 2}, "seed": 7, "algorithm_version": "1"}}}]}], "completion_policy": {"mode": "all_steps"}, "failure_policy": {"mode": "stop_run"}},
+    }
+    first = compile_definition(definition)
+    second = compile_definition({"program": definition["program"], "purpose": "validation", "id": "expanded", "validation_plan": definition["validation_plan"]})
+    assert first["digest"] == second["digest"]
+    bad = {**definition, "validation_plan": {"criteria": [{"metric": "x", "comparator": "between"}]}}
+    with pytest.raises(DefinitionError, match="between"):
+        compile_definition(bad)
 
 
 @pytest.mark.parametrize("filename", sorted(validator.REQUIRED_MODULES))
