@@ -7,8 +7,10 @@ services:
       POSTGRES_DB: meta_webui_acceptance
       POSTGRES_USER: meta_webui_acceptance
       POSTGRES_PASSWORD: meta_webui_acceptance
+    # Publish on the daemon bridge so the Server Dev Container can reach this
+    # isolated project through the Docker host gateway.
     ports:
-      - "127.0.0.1::5432"
+      - "5432"
     healthcheck:
       test: [CMD-SHELL, "pg_isready -U meta_webui_acceptance -d meta_webui_acceptance"]
       interval: 1s

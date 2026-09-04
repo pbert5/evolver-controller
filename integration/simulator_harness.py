@@ -60,6 +60,7 @@ class SimulatorAcceptanceHarness:
     server_thread: Thread
     edge: Any
     simulator: Any
+    manual_executor: Any
     sync: Any
     operator: Any
     operator_client: Any
@@ -71,7 +72,7 @@ class SimulatorAcceptanceHarness:
     def create(cls, root: Path) -> "SimulatorAcceptanceHarness":
         _add_component_paths()
         from meta_webui_application_backend.evolver_control.service import EvolverControlHandler
-        from meta_webui_application_backend.evolver_edge import EdgeStore, SyncClient
+        from meta_webui_application_backend.evolver_edge import EdgeStore, ManualCommandExecutor, SyncClient
         from meta_webui_application_backend import evolver_edge as edge_package
         controller_edge = str(ROOT / "evolver/evolver-controller/src/meta_webui_application_backend/evolver_edge")
         if controller_edge not in edge_package.__path__:
@@ -96,8 +97,12 @@ class SimulatorAcceptanceHarness:
 
         edge = EdgeStore(edge_root)
         simulator = EvolverSimulator(edge, instruments=1, vials_per_instrument=2, seed=7, tick_seconds=60)
+        # Compose the same typed, durable command boundary used by the
+        # production controller service.  Acceptance must exercise SyncClient
+        # delivery and acknowledgement, never call the executor as a shortcut.
+        manual_executor = ManualCommandExecutor(edge, simulator.device_sink)
         operator = OperatorServer(edge, operator_socket).start()
-        sync = SyncClient(edge, timeout=3)
+        sync = SyncClient(edge, timeout=3, manual_executor=manual_executor)
         metactl = _load_metactl()
         transport = HTTPTransport(
             base_url=server_url,
@@ -106,7 +111,7 @@ class SimulatorAcceptanceHarness:
             permissions="manage_controller,evolver:read,operate_run",
         )
         return cls(root, central_root, edge_root, operator_socket, server, server_thread,
-                   edge, simulator, sync, operator, OperatorClient(operator_socket), metactl, transport, server_url)
+                   edge, simulator, manual_executor, sync, operator, OperatorClient(operator_socket), metactl, transport, server_url)
 
     def enroll(self) -> dict[str, Any]:
         issued = self.transport.action("evolver.controllers.add", {"server_url": self.server_url})
@@ -116,15 +121,16 @@ class SimulatorAcceptanceHarness:
     def restart_edge(self) -> None:
         self.operator.shutdown()
         self.edge.close()
-        from meta_webui_application_backend.evolver_edge import EdgeStore, SyncClient
+        from meta_webui_application_backend.evolver_edge import EdgeStore, ManualCommandExecutor, SyncClient
         from meta_webui_application_backend.evolver_edge.operator import OperatorClient, OperatorServer
         from meta_webui_application_backend.evolver_edge.simulator import EvolverSimulator
 
         self.edge = EdgeStore(self.edge_root)
         self.simulator = EvolverSimulator(self.edge, instruments=1, vials_per_instrument=2, seed=7, tick_seconds=60)
+        self.manual_executor = ManualCommandExecutor(self.edge, self.simulator.device_sink)
         self.operator = OperatorServer(self.edge, self.operator_socket).start()
         self.operator_client = OperatorClient(self.operator_socket)
-        self.sync = SyncClient(self.edge, timeout=3)
+        self.sync = SyncClient(self.edge, timeout=3, manual_executor=self.manual_executor)
 
     def metactl_json(self, *arguments: str) -> dict[str, Any]:
         output = io.StringIO()
