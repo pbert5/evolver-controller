@@ -9,6 +9,7 @@ from __future__ import annotations
 import hmac
 import json
 import os
+import sys
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
@@ -92,7 +93,9 @@ class EvolverControlHandler(BaseHTTPRequestHandler):
         self.wfile.write(encoded)
 
     def log_message(self, format: str, *args: object) -> None:
-        print("[evolver-control] " + format % args)
+        # Keep machine-readable operator output on stdout; HTTP access logs
+        # belong on the diagnostic stream.
+        print("[evolver-control] " + format % args, file=sys.stderr)
 
 
 def main() -> None:
