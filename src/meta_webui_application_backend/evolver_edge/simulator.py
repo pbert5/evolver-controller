@@ -9,6 +9,7 @@ from uuid import NAMESPACE_URL, uuid5
 
 from .store import EdgeStore, EdgeStoreError, Json
 from .actuator import RunActuatorExecutor, SimulatorDeviceCommandSink, compile_device_command
+from .domain import plan_calibrated_dispense
 
 
 @dataclass(frozen=True)
@@ -94,6 +95,14 @@ class EvolverSimulator:
         """Return deterministic effective device state without hardware I/O."""
         self._instrument(instrument_id)
         return self.device_sink.state(instrument_id)
+
+    def plan_dispense(self, *, artifact: Mapping[str, Any], volume_ul: float,
+                      instrument_id: str, channel: int = 0) -> Json:
+        """Return a calibrated simulator command; does not execute it."""
+        self._instrument(instrument_id)
+        plan = plan_calibrated_dispense(artifact=artifact, volume_ul=volume_ul, channel=channel)
+        plan["target"] = {"instrument_id": instrument_id}
+        return plan
 
     def start_run(self, *, run_id: str, bundle_id: str, instrument_ids: Sequence[str] | None = None) -> Json:
         """Create a running simulated run from an immutable declarative bundle."""
@@ -197,8 +206,16 @@ class EvolverSimulator:
                 prior = self.store.telemetry_after(stream)
                 sequence = prior[-1]["sequence"] + 1 if prior else 1
                 payload = self._telemetry(run_id, instrument_id, vial_index, sequence)
+                captured_at = f"simulated+{sequence * self.tick_seconds:.3f}s"
                 samples.append(self.store.spool_telemetry(stream_id=stream, sequence=sequence, payload=payload,
-                                                          captured_at=f"simulated+{sequence * self.tick_seconds:.3f}s"))
+                                                          captured_at=captured_at))
+                self.store.record_measurement({"id": f"{stream}:{sequence}", "run_id": run_id,
+                    "instrument_id": instrument_id, "vial_position_id": vial_id,
+                    "stream_id": stream, "sequence_number": sequence,
+                    "captured_at": captured_at, "measurement_type": "simulated_observation",
+                    "raw_value": payload, "derived_value": payload, "unit": "mixed",
+                    "source_type": "instrument_telemetry", "extrapolated": False,
+                    "quality_flags": ["simulated"]})
         self._transition_if_ready(run_id, plan, state)
         return samples
 

@@ -178,6 +178,12 @@ class EdgeStore:
             CREATE TABLE IF NOT EXISTS telemetry (
               stream_id TEXT NOT NULL, sequence INTEGER NOT NULL, payload TEXT NOT NULL,
               digest TEXT NOT NULL, captured_at TEXT NOT NULL, PRIMARY KEY(stream_id, sequence));
+            CREATE TABLE IF NOT EXISTS measurements (
+              id TEXT PRIMARY KEY, stream_id TEXT, sequence INTEGER, payload TEXT NOT NULL,
+              digest TEXT NOT NULL, captured_at TEXT NOT NULL, UNIQUE(stream_id, sequence));
+            CREATE TABLE IF NOT EXISTS activities (
+              id TEXT PRIMARY KEY, run_id TEXT, activity_type TEXT NOT NULL, status TEXT NOT NULL,
+              payload TEXT NOT NULL, created_at TEXT NOT NULL);
             -- Identity and topology are durable.  Transport and connection state
             -- deliberately live in the latest observation instead of becoming an
             -- accidental hardware identifier.
@@ -918,6 +924,74 @@ class EdgeStore:
 
     def telemetry_streams(self) -> list[str]:
         return [row["stream_id"] for row in self._connection.execute("SELECT DISTINCT stream_id FROM telemetry ORDER BY stream_id")]
+
+    # Measurement and activity projections --------------------------------
+    def record_measurement(self, measurement: Mapping[str, Any]) -> Json:
+        """Persist one validated observation without conflating it with actuation."""
+        value = dict(measurement)
+        required = ("id", "captured_at", "measurement_type", "source_type", "extrapolated")
+        if any(not isinstance(value.get(key), str) or not value[key] for key in required[:4]):
+            raise EdgeStoreError("measurement requires id, captured_at, measurement_type, and source_type")
+        if not isinstance(value["extrapolated"], bool):
+            raise EdgeStoreError("measurement extrapolated must be boolean")
+        if "raw_value" not in value:
+            raise EdgeStoreError("measurement raw_value is required")
+        if value.get("stream_id") is not None and not isinstance(value["stream_id"], str):
+            raise EdgeStoreError("measurement stream_id must be a string")
+        value.setdefault("quality_flags", [])
+        if not isinstance(value["quality_flags"], list):
+            raise EdgeStoreError("measurement quality_flags must be a list")
+        digest = canonical_digest(value)
+        encoded = _canonical(value)
+        row = self._connection.execute("SELECT digest, payload FROM measurements WHERE id=?", (value["id"],)).fetchone()
+        if row:
+            if row["digest"] != digest or row["payload"] != encoded:
+                raise EdgeStoreError("measurement id is already bound to different content")
+            return _decode(row["payload"])
+        stream_id, sequence = value.get("stream_id"), value.get("sequence_number")
+        with self._transaction() as cursor:
+            try:
+                cursor.execute("INSERT INTO measurements VALUES (?, ?, ?, ?, ?, ?)",
+                               (value["id"], stream_id, sequence, encoded, digest, value["captured_at"]))
+            except sqlite3.IntegrityError as error:
+                raise EdgeStoreError("measurement stream sequence is already bound") from error
+        return value
+
+    def measurements_after(self, stream_id: str, sequence: int = 0) -> list[Json]:
+        rows = self._connection.execute(
+            "SELECT payload FROM measurements WHERE stream_id=? AND sequence>? ORDER BY sequence", (stream_id, sequence))
+        return [_decode(row["payload"]) for row in rows]
+
+    def record_activity(self, *, activity_type: str, run_id: str | None = None,
+                        activity_id: str | None = None, status: str = "recorded",
+                        details: Mapping[str, Any] | None = None) -> Json:
+        if not isinstance(activity_type, str) or not activity_type.strip():
+            raise EdgeStoreError("activity_type is required")
+        if status not in {"recorded", "started", "completed", "failed", "cancelled"}:
+            raise EdgeStoreError("activity status is invalid")
+        value = {"id": activity_id or str(uuid.uuid4()), "run_id": run_id,
+                 "activity_type": activity_type, "status": status,
+                 "details": dict(details or {}), "created_at": _now()}
+        encoded = _canonical(value)
+        with self._transaction() as cursor:
+            existing = cursor.execute("SELECT payload FROM activities WHERE id=?", (value["id"],)).fetchone()
+            if existing:
+                prior = _decode(existing["payload"])
+                comparable = {key: value[key] for key in value if key != "created_at"}
+                prior_comparable = {key: prior[key] for key in prior if key != "created_at"}
+                if prior_comparable != comparable:
+                    raise EdgeStoreError("activity id is already bound to different content")
+                return prior
+            cursor.execute("INSERT INTO activities VALUES (?, ?, ?, ?, ?, ?)",
+                           (value["id"], run_id, activity_type, status, encoded, value["created_at"]))
+        return value
+
+    def activities(self, *, run_id: str | None = None) -> list[Json]:
+        if run_id is None:
+            rows = self._connection.execute("SELECT payload FROM activities ORDER BY created_at, id")
+        else:
+            rows = self._connection.execute("SELECT payload FROM activities WHERE run_id=? ORDER BY created_at, id", (run_id,))
+        return [_decode(row["payload"]) for row in rows]
 
     def command_acknowledgements(self) -> list[Json]:
         return [_decode(row["acknowledgement"]) for row in self._connection.execute(
