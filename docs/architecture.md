@@ -6,8 +6,9 @@ edge durable state, central-initiated-by-client sync, command execution,
 orphan behavior, `evoctl`, and the local operator API. The preferred edge
 deployment is the root-owned Docker Compose stack in `deploy/evolver-edge`:
 the controller has no `/dev` or Docker socket, while `evolver-hardware` is the
-exclusive privileged serial owner. Native/systemd installation remains a
-legacy compatibility path.
+exclusive privileged serial owner. Native package, Nix, and systemd
+installation paths are retired; lifecycle recovery operates on the durable
+state and the Compose deployment boundary.
 `evolver-hardware` exclusively owns serial transport and its bounded local IPC;
 it has no PostgreSQL or catalog dependency. `metactl` is an operator API client.
 In the Meta BAL checkout these three component gitlinks live under `evolver/`;
