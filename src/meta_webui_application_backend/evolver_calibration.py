@@ -34,16 +34,28 @@ def calibration_run_definition(*, run_id: str, calibration_type: str,
         raise ValueError("only temperature and pump_flow_rate calibration runs are supported")
     if not run_id or not instrument_id:
         raise ValueError("calibration run requires run_id and instrument_id")
+    actions = ([{"action_id": "set_temperature", "action_version": "1"},
+                {"action_id": "capture_measurement", "action_version": "1"}]
+               if calibration_type == "temperature" else
+               [{"action_id": "pulse_pump", "action_version": "1"},
+                {"action_id": "capture_measurement", "action_version": "1"}])
+    definition = {"id": f"calibration:{run_id}", "purpose": "calibration",
+                  "revision": 1, "calibration_type": calibration_type,
+                  "instrument_id": instrument_id, "component_id": component_id,
+                  "vial_position_id": vial_position_id,
+                  "program": {"version": "1", "entry_step_id": "collect",
+                               "completion_policy": {"mode": "all_steps"},
+                               "failure_policy": {"mode": "stop_run"},
+                               "steps": [{"id": "collect", "entry_actions": actions}]}}
     return {"id": f"calibration-bundle:{run_id}", "name": f"Calibration {run_id}",
-            "purpose": "commissioning", "schema_version": "1",
+            "purpose": "calibration", "schema_version": "1",
             "execution_mode": "declarative_state_machine",
-            "source": {"experiment_id": f"calibration:{run_id}", "dataset_revision": "1", "created_at": "runtime"},
-            "resolved_definition": {"content": {"calibration_type": calibration_type,
-                "instrument_id": instrument_id, "component_id": component_id,
-                "vial_position_id": vial_position_id}},
+            "source": {"experiment_id": definition["id"], "dataset_revision": "1", "created_at": "runtime"},
+            "resolved_definition": {"content": definition},
             "execution_plan": {"content": {"calibration_type": calibration_type,
                 "instrument_id": instrument_id, "component_id": component_id,
-                "vial_position_id": vial_position_id}},
+                "vial_position_id": vial_position_id, "program": definition["program"]}},
+            "action_registry_revision": "trusted-actions-1",
             "runtime_parameters": [], "source_metadata": [],
             "calibration_requirements": []}
 
@@ -82,7 +94,7 @@ def activation_record(artifact: Mapping[str, Any], *, run_id: str,
         raise ValueError("activation requires run_id and activated_by")
     return {"event_type": "calibration_activated", "artifact_id": artifact.get("id"),
             "artifact_digest": artifact.get("artifact_digest"), "run_id": run_id,
-            "activated_by": activated_by}
+            "activated_by": activated_by, "assessment": assessment}
 def transition_session(session: Mapping[str, Any], target: str) -> dict[str, Any]:
     current = str(session.get("state", ""))
     if target not in SESSION_TRANSITIONS.get(current, frozenset()): raise CalibrationConflictError(f"illegal calibration session transition: {current} -> {target}")
@@ -94,7 +106,12 @@ def validate_observation(calibration_type: str, observation: Mapping[str, Any]) 
         except (KeyError, TypeError, ValueError) as exc: raise ValueError("pump_flow_rate observations require pulse_duration_ms and delivered_volume_ul") from exc
         if duration <= 0 or volume < 0 or not math.isfinite(duration + volume): raise ValueError("pump_flow_rate observation values are invalid")
         item.setdefault("source_type", "manual"); item.setdefault("raw_metric", "pump_flow"); return item
-    if not isinstance(item.get("raw_value"), (int, float)) or not isinstance(item.get("reference_value"), (int, float)): raise ValueError(f"{calibration_type} observations require raw_value and reference_value")
+    if (isinstance(item.get("raw_value"), bool) or isinstance(item.get("reference_value"), bool)
+            or not isinstance(item.get("raw_value"), (int, float))
+            or not isinstance(item.get("reference_value"), (int, float))
+            or not math.isfinite(float(item["raw_value"]))
+            or not math.isfinite(float(item["reference_value"]))):
+        raise ValueError(f"{calibration_type} observations require finite numeric raw_value and reference_value")
     item.setdefault("source_type", "manual"); return item
 def derive_temperature(raw: Mapping[str, Any], artifact: Mapping[str, Any]) -> dict[str, Any] | None:
     if raw.get("metric") != "thermistor_raw" or artifact.get("calibration_type") != "temperature" or artifact.get("assessment", {}).get("status") != "valid": return None

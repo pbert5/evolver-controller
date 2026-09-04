@@ -77,6 +77,25 @@ def test_calibration_is_a_real_experiment_run_and_activation_is_provenanced(tmp_
         assert edge.activities(run_id="cal-run")[0]["activity_type"] == "calibration_activation"
 
 
+def test_pump_calibration_without_vial_preserves_observation_and_assessment(tmp_path):
+    with EdgeStore(tmp_path) as edge:
+        run = edge.create_calibration_run(run_id="pump-cal-run", calibration_type="pump_flow_rate",
+                                          instrument_id="instrument-a", component_id="P2")
+        assert run["purpose"] == "calibration"
+        edge.record_calibration_observation(
+            run_id=run["id"], observation={"pulse_duration_ms": 100, "delivered_volume_ul": 250})
+        assert edge.run(run["id"])["effective_state"]["observations"][0]["delivered_volume_ul"] == 250
+        artifact = {"id": "pump-cal", "instrument_id": "instrument-a", "component_id": "P2",
+                    "calibration_type": "pump_flow_rate", "method": "pump_flow_rate_v1",
+                    "method_version": "1", "coefficients": {"ul_per_ms": 2.5},
+                    "evidence_digest": "sha256:evidence", "artifact_digest": "sha256:artifact"}
+        activated = edge.activate_calibration_artifact(artifact=artifact, run_id=run["id"],
+                                                       activated_by="operator")
+        assert activated["activation"]["assessment"] == {
+            "artifact_id": "pump-cal", "status": "valid", "active": False, "reasons": []}
+        assert edge.activities(run_id=run["id"])[0]["details"]["assessment"]["status"] == "valid"
+
+
 def test_calibrated_dispense_executes_with_provenance_or_rejects_without_actuation(tmp_path):
     with EdgeStore(tmp_path) as edge:
         simulator = EvolverSimulator(edge, instruments=1, vials_per_instrument=1)

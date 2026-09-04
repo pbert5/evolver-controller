@@ -459,10 +459,10 @@ class EdgeStore:
         """
         payload = dict(artifact)
         artifact_id, supplied = payload.get("id"), payload.get("artifact_digest")
-        required = (artifact_id, supplied, payload.get("instrument_id"), payload.get("vial_position_id"),
+        required = (artifact_id, supplied, payload.get("instrument_id"),
                     payload.get("calibration_type"), payload.get("method"), payload.get("method_version"))
         if not all(isinstance(value, str) and value for value in required):
-            raise ImmutableBundleError("calibration artifact requires id, digest, instrument, vial position, type, and method")
+            raise ImmutableBundleError("calibration artifact requires id, digest, instrument, type, and method")
         try:
             actual_digest = calibration_artifact_digest(payload)
         except (TypeError, ValueError) as error:
@@ -667,6 +667,8 @@ class EdgeStore:
                                vial_position_id: str | None = None) -> Json:
         """Create a calibration as a normal durable ExperimentRun."""
         from ..evolver_calibration import calibration_run_definition, calibration_run_state
+        if calibration_type == "pump_flow_rate" and not component_id:
+            raise EdgeStoreError("pump_flow_rate calibration requires component_id")
         bundle = calibration_run_definition(run_id=run_id, calibration_type=calibration_type,
                                             instrument_id=instrument_id, component_id=component_id,
                                             vial_position_id=vial_position_id)
@@ -705,6 +707,9 @@ class EdgeStore:
             raise EdgeStoreError("calibration activation requires an active ExperimentRun")
         if artifact.get("instrument_id") not in run.get("instrument_ids", []):
             raise EdgeStoreError("calibration artifact target is not owned by the run")
+        expected = run["effective_state"].get("component_id")
+        if expected and artifact.get("component_id") and artifact.get("component_id") != expected:
+            raise EdgeStoreError("calibration artifact component is not owned by the run")
         record = activation_record(artifact, run_id=run_id, activated_by=activated_by)
         event = self.append_event(run_id=run_id, event_type=record["event_type"],
                                   revision=run["current_revision"], details=record)
