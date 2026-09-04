@@ -17,6 +17,72 @@ EVIDENCE_TYPES = frozenset({"temperature", "optical_density", "od_blank", "pump_
 FIRMWARE_SUPPORTED_PROCEDURES = frozenset()
 SESSION_TRANSITIONS = {"collecting": frozenset({"review", "cancelled", "rejected"}), "review": frozenset({"review", "ready_to_accept", "cancelled", "rejected"}), "ready_to_accept": frozenset({"completed", "cancelled", "rejected"}), "completed": frozenset(), "cancelled": frozenset(), "rejected": frozenset()}
 class CalibrationConflictError(ValueError): pass
+
+CALIBRATION_RUN_STATES = frozenset({"ready", "running", "paused", "completed", "failed", "stopped"})
+
+
+def calibration_run_definition(*, run_id: str, calibration_type: str,
+                               instrument_id: str, component_id: str | None = None,
+                               vial_position_id: str | None = None) -> dict[str, Any]:
+    """Return the immutable bundle payload for an edge calibration run.
+
+    Calibration is an experiment with ordinary run provenance.  The payload
+    contains no executable code and deliberately has no calibration
+    requirement: it produces the evidence later used to create an artifact.
+    """
+    if calibration_type not in {"temperature", "pump_flow_rate"}:
+        raise ValueError("only temperature and pump_flow_rate calibration runs are supported")
+    if not run_id or not instrument_id:
+        raise ValueError("calibration run requires run_id and instrument_id")
+    return {"id": f"calibration-bundle:{run_id}", "name": f"Calibration {run_id}",
+            "purpose": "commissioning", "schema_version": "1",
+            "execution_mode": "declarative_state_machine",
+            "source": {"experiment_id": f"calibration:{run_id}", "dataset_revision": "1", "created_at": "runtime"},
+            "resolved_definition": {"content": {"calibration_type": calibration_type,
+                "instrument_id": instrument_id, "component_id": component_id,
+                "vial_position_id": vial_position_id}},
+            "execution_plan": {"content": {"calibration_type": calibration_type,
+                "instrument_id": instrument_id, "component_id": component_id,
+                "vial_position_id": vial_position_id}},
+            "runtime_parameters": [], "source_metadata": [],
+            "calibration_requirements": []}
+
+
+def calibration_run_state(*, run_id: str, calibration_type: str,
+                          instrument_id: str, component_id: str | None = None,
+                          vial_position_id: str | None = None) -> dict[str, Any]:
+    """Return the effective state stored on a calibration ExperimentRun."""
+    if calibration_type not in {"temperature", "pump_flow_rate"}:
+        raise ValueError("unsupported calibration run type")
+    return {"kind": "calibration", "run_id": run_id, "calibration_type": calibration_type,
+            "instrument_id": instrument_id, "component_id": component_id,
+            "vial_position_id": vial_position_id, "state": "running", "observations": []}
+
+
+def assess_artifact(artifact: Mapping[str, Any], *, active: bool = False) -> dict[str, Any]:
+    """Assess immutable artifact evidence without changing the artifact."""
+    reasons: list[str] = []
+    if artifact.get("calibration_type") not in {"temperature", "pump_flow_rate"}:
+        reasons.append("unsupported_calibration_type")
+    if not artifact.get("artifact_digest") or not artifact.get("evidence_digest"):
+        reasons.append("missing_digest")
+    if not isinstance(artifact.get("coefficients"), Mapping):
+        reasons.append("missing_coefficients")
+    status = "valid" if not reasons else "invalid"
+    return {"artifact_id": artifact.get("id"), "status": status, "active": bool(active and status == "valid"),
+            "reasons": reasons}
+
+
+def activation_record(artifact: Mapping[str, Any], *, run_id: str,
+                      activated_by: str) -> dict[str, Any]:
+    assessment = assess_artifact(artifact)
+    if assessment["status"] != "valid":
+        raise ValueError("only a valid calibration artifact may be activated")
+    if not run_id or not activated_by:
+        raise ValueError("activation requires run_id and activated_by")
+    return {"event_type": "calibration_activated", "artifact_id": artifact.get("id"),
+            "artifact_digest": artifact.get("artifact_digest"), "run_id": run_id,
+            "activated_by": activated_by}
 def transition_session(session: Mapping[str, Any], target: str) -> dict[str, Any]:
     current = str(session.get("state", ""))
     if target not in SESSION_TRANSITIONS.get(current, frozenset()): raise CalibrationConflictError(f"illegal calibration session transition: {current} -> {target}")

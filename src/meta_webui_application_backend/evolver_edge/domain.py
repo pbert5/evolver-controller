@@ -59,7 +59,12 @@ def plan_calibrated_dispense(*, artifact: Mapping[str, Any], volume_ul: float,
     if not isinstance(coefficients, Mapping):
         raise EdgeStoreError("dispense calibration coefficients are missing")
     try:
-        slope, intercept = float(coefficients["slope"]), float(coefficients.get("intercept", 0.0))
+        if "ul_per_ms" in coefficients:
+            slope, intercept = float(coefficients["ul_per_ms"]), 0.0
+        elif "flow_ml_per_min" in coefficients:
+            slope, intercept = float(coefficients["flow_ml_per_min"]) / 60.0, 0.0
+        else:
+            slope, intercept = float(coefficients["slope"]), float(coefficients.get("intercept", 0.0))
     except (KeyError, TypeError, ValueError) as error:
         raise EdgeStoreError("dispense calibration coefficients are invalid") from error
     if slope <= 0:
@@ -71,4 +76,13 @@ def plan_calibrated_dispense(*, artifact: Mapping[str, Any], volume_ul: float,
     return {"operation": "pulse_pump", "parameters": {"channel": channel, "direction": "forward",
             "duration_ms": rounded}, "calibration": {"artifact_id": artifact.get("id"),
             "artifact_digest": artifact.get("artifact_digest"), "volume_ul": float(volume_ul),
-            "flow_model": "volume_ul=slope*duration_ms+intercept"}}
+            "flow_model": "volume_ul=slope*duration_ms+intercept", "duration_ms": rounded}}
+
+
+def reject_calibrated_dispense(*, reason: str, artifact: Mapping[str, Any] | None = None,
+                               run_id: str | None = None, volume_ul: float | None = None) -> dict[str, Any]:
+    """Create explicit, non-actuating rejection evidence."""
+    return {"disposition": "rejected_calibration", "reason": reason,
+            "run_id": run_id, "requested_volume_ul": volume_ul,
+            "calibration": {"artifact_id": artifact.get("id") if artifact else None,
+                             "artifact_digest": artifact.get("artifact_digest") if artifact else None}}

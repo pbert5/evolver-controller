@@ -53,3 +53,47 @@ def test_simulator_tick_projects_position_keyed_measurements(tmp_path):
         instrument = simulator.instruments[0]
         stream = f"run:r:instrument:{instrument.id}:vial:{instrument.vial_position_ids[0]}"
         assert edge.measurements_after(stream)[0]["vial_position_id"] == instrument.vial_position_ids[0]
+
+
+def test_calibration_is_a_real_experiment_run_and_activation_is_provenanced(tmp_path):
+    with EdgeStore(tmp_path) as edge:
+        simulator = EvolverSimulator(edge, instruments=1, vials_per_instrument=1)
+        instrument = simulator.instruments[0]
+        vial = instrument.vial_position_ids[0]
+        run = edge.create_calibration_run(run_id="cal-run", calibration_type="temperature",
+                                          instrument_id=instrument.id, vial_position_id=vial)
+        assert run["state"] == "running"
+        assert run["effective_state"]["kind"] == "calibration"
+        edge.record_calibration_observation(run_id="cal-run",
+                                            observation={"raw_value": 100, "reference_value": 20})
+        assert edge.run("cal-run")["effective_state"]["observations"][0]["run_id"] == "cal-run"
+        artifact = {"id": "temp-a", "instrument_id": instrument.id, "vial_position_id": vial,
+                    "calibration_type": "temperature", "method": "temperature_linear_v1",
+                    "method_version": "1", "coefficients": {"slope": 1.0, "intercept": 0.0},
+                    "evidence_digest": "sha256:evidence", "artifact_digest": "sha256:artifact"}
+        activated = edge.activate_calibration_artifact(artifact=artifact, run_id="cal-run",
+                                                       activated_by="operator")
+        assert activated["activation"]["artifact_digest"] == "sha256:artifact"
+        assert edge.activities(run_id="cal-run")[0]["activity_type"] == "calibration_activation"
+
+
+def test_calibrated_dispense_executes_with_provenance_or_rejects_without_actuation(tmp_path):
+    with EdgeStore(tmp_path) as edge:
+        simulator = EvolverSimulator(edge, instruments=1, vials_per_instrument=1)
+        instrument = simulator.instruments[0]
+        bundle = {"id": "dispense-b", "schema_version": "1", "execution_mode": "declarative_state_machine",
+                  "purpose": "test_fixture", "source": {"experiment_id": "e", "dataset_revision": "1", "created_at": "now"},
+                  "resolved_definition": {"content": {}}, "execution_plan": {"content": {"states": {"run": {}}}},
+                  "runtime_parameters": [], "source_metadata": [], "calibration_requirements": []}
+        from meta_webui_application_backend.evolver_edge import canonical_digest
+        bundle["digest"] = canonical_digest(bundle)
+        edge.put_bundle(bundle)
+        run = edge.create_run(run_id="dispense-run", bundle_id="dispense-b", instrument_ids=[instrument.id], state="running")
+        artifact = {"id": "pump-a", "artifact_digest": "sha256:pump", "calibration_type": "pump_flow_rate",
+                    "assessment": {"status": "valid"}, "coefficients": {"ul_per_ms": 2.0}}
+        result = simulator.dispense(run_id=run["id"], artifact=artifact, volume_ul=80, instrument_id=instrument.id, channel=1)
+        assert result["disposition"] == "executed"
+        assert result["calibration"]["artifact_id"] == "pump-a"
+        rejected = simulator.dispense(run_id=run["id"], artifact={**artifact, "assessment": {"status": "stale"}},
+                                      volume_ul=80, instrument_id=instrument.id, channel=1)
+        assert rejected["disposition"] == "rejected_calibration"

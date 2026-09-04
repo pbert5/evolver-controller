@@ -322,6 +322,32 @@ class EdgeStore:
             )
         return self.instrument(instrument_id)
 
+    def record_simulator_device_state(self, instrument_id: str, state: Mapping[str, Any],
+                                      *, clock_ms: int) -> Json:
+        """Persist simulator effective state as observed, not as identity.
+
+        The simulator is a production-shaped device boundary.  Its effective
+        outputs must therefore survive a controller restart, while remaining
+        volatile observation data that cannot alter stable instrument
+        topology or identity.
+        """
+        instrument = self.instrument(instrument_id)
+        if isinstance(clock_ms, bool) or not isinstance(clock_ms, int) or clock_ms < 0:
+            raise EdgeStoreError("simulator clock must be a non-negative integer")
+        observation = {key: value for key, value in instrument.items()
+                       if key not in {"id", "controller_id", "instrument_type", "vial_positions",
+                                      "capabilities", "created_at", "assigned_runs", "observed_at"}}
+        observation.update({"connection_state": "connected", "transport": {"kind": "simulated"},
+                            "transport_evidence": {"event": "simulated_command", "simulated": True},
+                            "effective_device_state": dict(state), "simulator_clock_ms": clock_ms})
+        with self._transaction() as cursor:
+            cursor.execute(
+                "INSERT INTO instrument_observations(instrument_id, payload, observed_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(instrument_id) DO UPDATE SET payload=excluded.payload, observed_at=excluded.observed_at",
+                (instrument_id, _canonical(observation), _now()),
+            )
+        return self.instrument(instrument_id)
+
     # Instrument inventory -------------------------------------------------
     def register_instruments(self, inventory: list[Mapping[str, Any]]) -> list[Json]:
         """Record stable instrument identity/topology and its latest observation.
@@ -635,6 +661,57 @@ class EdgeStore:
                 raise EdgeStoreError(f"run already exists or bundle absent: {run_id}") from error
         self.append_event(run_id=run_id, event_type="run_created", revision=0, details={"bundle_id": bundle_id})
         return self.run(run_id)
+
+    def create_calibration_run(self, *, run_id: str, calibration_type: str,
+                               instrument_id: str, component_id: str | None = None,
+                               vial_position_id: str | None = None) -> Json:
+        """Create a calibration as a normal durable ExperimentRun."""
+        from ..evolver_calibration import calibration_run_definition, calibration_run_state
+        bundle = calibration_run_definition(run_id=run_id, calibration_type=calibration_type,
+                                            instrument_id=instrument_id, component_id=component_id,
+                                            vial_position_id=vial_position_id)
+        bundle["digest"] = canonical_digest(bundle)
+        self.put_bundle(bundle)
+        return self.create_run(run_id=run_id, bundle_id=bundle["id"], instrument_ids=[instrument_id],
+                               state="running", effective_state=calibration_run_state(
+                                   run_id=run_id, calibration_type=calibration_type,
+                                   instrument_id=instrument_id, component_id=component_id,
+                                   vial_position_id=vial_position_id))
+
+    def record_calibration_observation(self, *, run_id: str, observation: Mapping[str, Any]) -> Json:
+        """Append calibration evidence to the run revision and event journal."""
+        from ..evolver_calibration import validate_observation
+        run = self.run(run_id)
+        state = run["effective_state"]
+        if state.get("kind") != "calibration" or run.get("state") != "running":
+            raise EdgeStoreError("calibration ExperimentRun is not collecting evidence")
+        item = validate_observation(str(state["calibration_type"]), observation)
+        item = {**item, "id": item.get("id") or str(uuid.uuid4()),
+                "run_id": run_id, "vial_position_id": state.get("vial_position_id"),
+                "sequence": len(state.get("observations", [])) + 1}
+        revision = self.apply_patch({"run_id": run_id, "based_on_revision": run["current_revision"],
+                                     "patch_kind": "calibration_observation",
+                                     "change": {"observations": [*state.get("observations", []), item]}})
+        self.append_event(run_id=run_id, event_type="calibration_observation_recorded",
+                          revision=revision["revision"], details=item)
+        return self.run(run_id)
+
+    def activate_calibration_artifact(self, *, artifact: Mapping[str, Any], run_id: str,
+                                      activated_by: str) -> Json:
+        """Record activation as an append-only run fact with artifact provenance."""
+        from ..evolver_calibration import activation_record
+        run = self.run(run_id)
+        if run["state"] not in {"running", "paused"}:
+            raise EdgeStoreError("calibration activation requires an active ExperimentRun")
+        if artifact.get("instrument_id") not in run.get("instrument_ids", []):
+            raise EdgeStoreError("calibration artifact target is not owned by the run")
+        record = activation_record(artifact, run_id=run_id, activated_by=activated_by)
+        event = self.append_event(run_id=run_id, event_type=record["event_type"],
+                                  revision=run["current_revision"], details=record)
+        self.record_activity(activity_type="calibration_activation", run_id=run_id,
+                             activity_id=f"activation:{artifact.get('id')}:{run_id}",
+                             details=record)
+        return {"activation": record, "event": event, "run": self.run(run_id)}
 
     def run(self, run_id: str) -> Json:
         row = self._connection.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
