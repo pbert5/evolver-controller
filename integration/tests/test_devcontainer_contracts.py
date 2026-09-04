@@ -69,3 +69,11 @@ def test_edge_has_no_database_service_or_required_database_dependency():
     compose = (ROOT / "deploy/evolver-edge/compose.yaml").read_text().lower()
     for forbidden in ("postgres", "mysql", "redis"):
         assert forbidden not in compose
+
+
+def test_edge_runtime_volume_is_stable_and_shared_with_edge_devcontainer():
+    compose = (ROOT / "deploy/evolver-edge/compose.yaml").read_text()
+    config = json.loads((ROOT / ".devcontainer/evolver-edge/devcontainer.json").read_text())
+    assert "evolver-edge-runtime:\n    name: evolver-edge-runtime" in compose
+    assert any("source=evolver-edge-runtime,target=/run/evolver-controller" in mount
+               for mount in config["mounts"])
