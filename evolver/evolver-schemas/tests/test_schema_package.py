@@ -7,7 +7,7 @@ import pytest
 ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 import validate_schema_package as validator  # noqa: E402
-from compiler import DefinitionError, compile_definition, load_trusted_action_registry  # noqa: E402
+from compiler import DefinitionError, compile_definition, compile_program, load_trusted_action_registry  # noqa: E402
 from export_schema import export_manifest  # noqa: E402
 
 
@@ -47,6 +47,24 @@ def test_compiler_is_deterministic_and_preserves_legacy_payload():
     assert compile_definition(changed)["digest"] != first["digest"]
 
 
+def test_compiler_projects_program_to_edge_state_machine_plan():
+    program = {
+        "version": "3", "entry_step_id": "warm", "steps": [
+            {"id": "warm", "entry_actions": [{"action_id": "wait", "action_version": "1"}],
+             "transitions": [{"target_step_id": "done", "condition": {
+                 "operator": "eq", "operands": [{"kind": "literal", "literal": True}]}}]},
+            {"id": "done"},
+        ], "completion_policy": {"mode": "all_steps"},
+        "failure_policy": {"mode": "stop_run"},
+    }
+    plan = compile_program(program)
+    assert plan["initial_state"] == "warm"
+    assert plan["states"]["warm"]["entry_actions"][0]["action_id"] == "wait"
+    assert plan["states"]["warm"]["transitions"][0]["target_step_id"] == "done"
+    bundle = compile_definition({"id": "demo", "purpose": "research", "program": program})
+    assert bundle["execution_plan"] == plan
+
+
 def test_compiler_rejects_unknown_unversioned_and_invalid_transition_actions():
     base = {"id": "demo", "purpose": "research", "program": {"version": "1", "entry_step_id": "s", "steps": [{"id": "s"}], "completion_policy": {"mode": "all_steps"}, "failure_policy": {"mode": "stop_run"}}}
     for action in ({"action_id": "unknown", "action_version": "1"}, {"action_id": "wait"}):
@@ -75,6 +93,15 @@ def test_trusted_action_registry_is_versioned_and_bound_to_bundle():
         "program": {"version": "1", "entry_step_id": "s", "steps": [{"id": "s", "entry_actions": [{"action_id": "wait", "action_version": "1"}]}], "completion_policy": {"mode": "all_steps"}, "failure_policy": {"mode": "stop_run"}},
     }
     assert compile_definition(definition)["action_registry_revision"] == registry["revision"]
+
+
+@pytest.mark.parametrize("filename", ["calibration_temperature.yaml", "calibration_pump_flow.yaml"])
+def test_schema_defined_calibration_examples_compile_through_canonical_bridge(filename):
+    definition = load_definition((ROOT / "examples" / filename).read_text())
+    bundle = compile_definition(definition)
+    assert bundle["purpose"] == "calibration"
+    assert bundle["resolved_definition"]["program"]["steps"][0]["entry_actions"]
+    assert bundle["action_registry_revision"] == "trusted-actions-1"
 
 
 def test_compiler_validates_conditions_random_windows_and_validation_criteria():

@@ -1,0 +1,20 @@
+id: calibration-temperature
+name: Temperature calibration
+purpose: calibration
+revision: 1
+definition:
+  content:
+    calibration_type: temperature
+    input_metric: thermistor_raw
+    reference_unit: degree_Celsius
+program:
+  id: calibration-temperature-program
+  version: "1"
+  entry_step_id: collect
+  completion_policy: {mode: all_steps}
+  failure_policy: {mode: stop_run}
+  steps:
+  - id: collect
+    entry_actions:
+    - {action_id: set_temperature, action_version: "1"}
+    - {action_id: capture_measurement, action_version: "1"}

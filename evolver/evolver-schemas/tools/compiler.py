@@ -193,8 +193,45 @@ def _validate(definition: dict[str, Any], action_registry: Any) -> str:
     return registry_revision
 
 
-def compile_definition(definition: dict[str, Any], *, action_registry: set[str] | None = None) -> dict[str, Any]:
-    """Return a canonical immutable bundle representation with a stable digest."""
+def compile_program(program: dict[str, Any], *, action_registry: Any = None) -> dict[str, Any]:
+    """Compile an :class:`ExperimentProgram` into the edge state-machine plan.
+
+    The plan deliberately contains only declarative action invocations.  The
+    edge may schedule and journal these identities, but it cannot resolve an
+    import path or execute source supplied by a definition.
+    """
+    wrapper = {
+        "id": "program",
+        "purpose": "research",
+        "program": program,
+    }
+    _validate(wrapper, action_registry)
+    states: dict[str, Any] = {}
+    for step in program["steps"]:
+        state = {"entry_actions": deepcopy(step.get("entry_actions", [])),
+                 "periodic_actions": deepcopy(step.get("periodic_actions", [])),
+                 "exit_conditions": deepcopy(step.get("exit_conditions", [])),
+                 "transitions": deepcopy(step.get("transitions", []))}
+        for field in ("timeout", "intervention_policy"):
+            if field in step:
+                state[field] = deepcopy(step[field])
+        states[step["id"]] = state
+    return {
+        "version": program["version"],
+        "initial_state": program["entry_step_id"],
+        "states": states,
+        "completion_policy": deepcopy(program["completion_policy"]),
+        "failure_policy": deepcopy(program["failure_policy"]),
+        "parameters": deepcopy(program.get("parameters", [])),
+    }
+
+
+def compile_definition(definition: dict[str, Any], *, action_registry: Any = None) -> dict[str, Any]:
+    """Return a canonical :class:`ExperimentBundle` representation.
+
+    ``resolved_definition`` is the immutable source snapshot; ``execution_plan``
+    is the separate edge-facing projection compiled from its program.
+    """
     document = deepcopy(definition)
     registry_revision = _validate(document, action_registry)
     program = document["program"]
@@ -210,11 +247,13 @@ def compile_definition(definition: dict[str, Any], *, action_registry: set[str] 
                 latest = float(window["latest"]["value"])
                 # Integer arithmetic avoids platform-dependent random floats.
                 scheduled["resolved_offset"] = earliest + (latest - earliest) * int(_digest({"seed": seed, "algorithm_version": window["algorithm_version"]})[:16], 16) / 0xFFFFFFFFFFFFFFFF
+    execution_plan = compile_program(program, action_registry=action_registry)
     bundle = {
         "definition_id": document["id"],
         "definition_revision": document.get("revision"),
         "purpose": document["purpose"],
         "resolved_definition": document,
+        "execution_plan": execution_plan,
         "action_registry_revision": registry_revision,
         "schema_version": SCHEMA_VERSION,
         "execution_mode": "declarative_state_machine",
