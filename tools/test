@@ -73,11 +73,15 @@ run_suite() {
   command+=("$@")
 
   echo "==> $component${marker:+ [$marker]}"
+  local status=0
   if [[ -n "$coverage_file" ]]; then
-    (cd "$ROOT_DIR" && PYTHONPATH="$pythonpath" COVERAGE_FILE="$coverage_file" "${command[@]}")
+    (cd "$ROOT_DIR" && PYTHONPATH="$pythonpath" COVERAGE_FILE="$coverage_file" "${command[@]}") || status=$?
   else
-    (cd "$ROOT_DIR" && PYTHONPATH="$pythonpath" "${command[@]}")
+    (cd "$ROOT_DIR" && PYTHONPATH="$pythonpath" "${command[@]}") || status=$?
   fi
+  # Marker-specific component lanes may legitimately have no tests yet.
+  [[ "$status" -eq 5 && -n "$marker" ]] && return 0
+  return "$status"
 }
 
 declare -a CHILD_PIDS=()
