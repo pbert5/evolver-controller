@@ -102,7 +102,7 @@ classes:
         range: SerializedPayload
         inlined: true
         required: true
-        description: Serializable edge-local state machine or isolated legacy-runner specification; it is resolved with the bundle and never follows later catalog edits.
+        description: Serializable edge-local declarative state-machine specification; it is resolved with the bundle and never follows later catalog edits.
       runtime_parameters:
         range: RuntimeParameter
         multivalued: true
@@ -382,7 +382,6 @@ enums:
   BundleExecutionMode:
     permissible_values:
       declarative_state_machine: {}
-      isolated_legacy_runner: {}
   RunState:
     permissible_values:
       created: {}

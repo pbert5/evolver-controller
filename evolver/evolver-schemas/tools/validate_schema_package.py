@@ -53,8 +53,11 @@ def validate_contract(modules: dict[str, dict]) -> None:
     experiment = modules["experiment.yaml"]
     purposes = experiment["enums"]["ExperimentPurpose"]["permissible_values"]
     expected = {"research", "test_fixture", "commissioning", "calibration", "validation", "verification", "endurance", "diagnostic"}
-    if not expected <= set(purposes):
-        raise ValueError("ExperimentPurpose is missing a required compatible value")
+    if set(purposes) != expected:
+        raise ValueError("ExperimentPurpose must contain exactly the supported purpose values")
+    execution_modes = experiment["enums"]["BundleExecutionMode"]["permissible_values"]
+    if set(execution_modes) != {"declarative_state_machine"}:
+        raise ValueError("BundleExecutionMode must contain exactly declarative_state_machine")
     protocol = modules["protocol.yaml"]
     if any(name in protocol.get("classes", {}) for name in ("ExperimentProgram", "ConditionExpression", "AcceptanceCriterion")):
         raise ValueError("protocol.yaml must remain transport-only")

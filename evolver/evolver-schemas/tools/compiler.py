@@ -11,6 +11,10 @@ import yaml
 
 REGISTRY_PATH = Path(__file__).resolve().parents[1] / "registry" / "trusted_actions.yaml"
 SCHEMA_VERSION = "0.1.0"
+EXPERIMENT_PURPOSES = frozenset({
+    "research", "test_fixture", "commissioning", "calibration",
+    "validation", "verification", "endurance", "diagnostic",
+})
 
 
 class DefinitionError(ValueError):
@@ -100,6 +104,8 @@ def _validate(definition: dict[str, Any], action_registry: Any) -> str:
     for field in ("id", "purpose", "program"):
         if field not in definition:
             raise DefinitionError(field, "is required")
+    if not isinstance(definition["purpose"], str) or definition["purpose"] not in EXPERIMENT_PURPOSES:
+        raise DefinitionError("purpose", "unknown experiment purpose")
     program = definition["program"]
     if not isinstance(program, dict):
         raise DefinitionError("program", "must be a mapping")
