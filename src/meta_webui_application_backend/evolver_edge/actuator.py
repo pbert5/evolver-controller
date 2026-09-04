@@ -13,6 +13,7 @@ from typing import Any, Callable, Mapping, Protocol
 from uuid import NAMESPACE_URL, uuid5
 
 from .hardware import DEVICE_PROTOCOL_VERSION, HardwareService, validate_device_operation
+from .hardware_ipc import DEFAULT_SOCKET, request as hardware_ipc_request
 from .store import EdgeStore, EdgeStoreError, StaleGenerationError
 
 
@@ -347,3 +348,43 @@ class HardwareDeviceCommandSink:
             results.append(result.as_json())
         return results[0] if len(results) == 1 else {"command_id": command["command_id"], "request_accepted": all(item["request_accepted"] for item in results),
                                                       "verification": "protocol_verified", "results": results}
+
+
+class HardwareIPCDeviceCommandSink:
+    """Send typed device commands to the exclusive hardware daemon."""
+
+    def __init__(self, store: EdgeStore, socket_path: str | None = None,
+                 *, request: Callable[[str, dict[str, Any], float | None], dict[str, Any]] = hardware_ipc_request,
+                 timeout: float = 5.0) -> None:
+        self.store, self.socket_path, self.request, self.timeout = store, socket_path or DEFAULT_SOCKET, request, timeout
+
+    def send(self, command: Mapping[str, Any]) -> Mapping[str, Any]:
+        if command.get("schema_version") != DEVICE_PROTOCOL_VERSION:
+            raise EdgeStoreError("unsupported device protocol")
+        operation = command.get("operation")
+        if operation not in {"set_stir", "pulse_heater", "safe_stop"}:
+            raise EdgeStoreError(f"unsupported manual device operation: {operation}")
+        target = command.get("target") if isinstance(command.get("target"), Mapping) else {}
+        instrument_id = target.get("instrument_id")
+        instruments = self.store.list_instruments() if operation == "safe_stop" else [self.store.instrument(instrument_id)]
+        context = command.get("context") if isinstance(command.get("context"), Mapping) else {}
+        generation = context.get("controller_generation")
+        lease_token, lease_owner = context.get("lease_token"), context.get("lease_owner")
+        if not isinstance(generation, int) or isinstance(generation, bool) or generation <= 0:
+            raise EdgeStoreError("hardware command requires the active positive controller generation")
+        if not isinstance(lease_token, str) or not isinstance(lease_owner, str) or not lease_token or not lease_owner:
+            raise EdgeStoreError("hardware command requires an active lease")
+        results: list[Mapping[str, Any]] = []
+        for index, instrument in enumerate(instruments):
+            device_identity = instrument.get("device_identity")
+            if not isinstance(device_identity, str) or not device_identity:
+                raise EdgeStoreError("instrument has no provisioned device identity")
+            payload = {"operation": operation, "physical": True, "target_identity": device_identity,
+                       "operator": lease_owner, "lease_token": lease_token, "controller_generation": generation,
+                       "command_id": command["command_id"] if index == 0 else f"{command['command_id']}:{index}",
+                       "parameters": dict(command.get("parameters") or {})}
+            results.append(self.request(self.socket_path, payload, self.timeout))
+        if len(results) == 1:
+            return results[0]
+        return {"command_id": command["command_id"], "request_accepted": all(item.get("request_accepted", False) for item in results),
+                "verification": "protocol_verified", "results": results}

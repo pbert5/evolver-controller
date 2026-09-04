@@ -40,9 +40,11 @@ def test_service_module_entrypoint_starts_persistent_sync_loop(tmp_path, monkeyp
     class FakeSyncClient:
         def __init__(self, store, **kwargs):
             self.store = store
+            self.init_kwargs = kwargs
+            calls.append(kwargs)
 
         def run_loop(self, **kwargs):
-            calls.append(kwargs)
+            calls.append({**self.init_kwargs, **kwargs})
 
     monkeypatch.setattr(store_module, "EdgeStore", FakeStore)
     monkeypatch.setattr(sync_module, "SyncClient", FakeSyncClient)
@@ -53,8 +55,34 @@ def test_service_module_entrypoint_starts_persistent_sync_loop(tmp_path, monkeyp
         runpy.run_module("meta_webui_application_backend.evolver_edge.service", run_name="__main__")
 
     assert raised.value.code == 0
-    assert calls and calls[0]["interval"] == 3.0
-    assert calls[0]["inventory"]() == [{"id": "simulated"}]
+    assert calls and calls[1]["interval"] == 3.0
+    assert calls[0]["manual_executor"].sink.__class__.__name__ == "HardwareIPCDeviceCommandSink"
+    assert calls[1]["inventory"]() == [{"id": "simulated"}]
+
+
+def test_service_simulator_composes_local_non_actuating_manual_sink(tmp_path, monkeypatch):
+    import meta_webui_application_backend.evolver_edge.service as service_module
+
+    calls = []
+
+    class FakeStore:
+        def __init__(self, root): self.list_instruments = lambda: [{"id": "simulated"}]
+        def identity(self): return {"id": "controller"}
+        def register_instruments(self, _instruments): pass
+        def __enter__(self): return self
+        def __exit__(self, *_): return False
+
+    class FakeSyncClient:
+        def __init__(self, store, **kwargs): calls.append(kwargs)
+        def run_loop(self, **kwargs): pass
+
+    monkeypatch.setattr(service_module, "EdgeStore", FakeStore)
+    monkeypatch.setattr(service_module, "SyncClient", FakeSyncClient)
+    monkeypatch.setattr(service_module, "OperatorServer", type("Operator", (), {
+        "__init__": lambda self, *_args: None, "start": lambda self: self, "shutdown": lambda self: None,
+    }))
+    service_module.main(["--state-root", str(tmp_path), "--simulator-instruments", "1"])
+    assert calls[0]["manual_executor"].sink.__class__.__name__ == "SimulatorDeviceCommandSink"
 
 
 def test_cli_module_entrypoint_invokes_main(tmp_path, monkeypatch, capsys):

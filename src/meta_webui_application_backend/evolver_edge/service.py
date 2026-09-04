@@ -7,6 +7,7 @@ import signal
 import threading
 from pathlib import Path
 
+from .actuator import HardwareIPCDeviceCommandSink, ManualCommandExecutor, SimulatorDeviceCommandSink
 from .operator import DEFAULT_SOCKET as DEFAULT_OPERATOR_SOCKET, OperatorServer
 from .store import EdgeStore
 from .sync import SyncClient
@@ -51,8 +52,11 @@ def main(argv: list[str] | None = None) -> int:
             # Instantiate once to register stable simulated identities; the
             # common store inventory keeps physical and simulated instruments.
             simulator.inventory()
+        manual_sink = (SimulatorDeviceCommandSink() if args.simulator_instruments
+                       else HardwareIPCDeviceCommandSink(store))
+        manual_executor = ManualCommandExecutor(store, manual_sink)
         try:
-            SyncClient(store).run_loop(interval=args.interval, inventory=inventory, stop=stop_event.is_set)
+            SyncClient(store, manual_executor=manual_executor).run_loop(interval=args.interval, inventory=inventory, stop=stop_event.is_set)
         finally:
             operator.shutdown()
             for signal_number, handler in previous_handlers.items():
