@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+rtk --version >/dev/null
+uv sync --package evolver-controller --all-extras

@@ -1,0 +1,12 @@
+services:
+  evolver-controller:
+    build:
+      context: ../../evolver-controller
+    environment:
+      EVOLVER_CONTROLLER_VERSION: dev
+    command: ["--interval", "2"]
+  evolver-hardware:
+    build:
+      context: ../../evolver-hardware
+    command: ["--interval", "2"]
+

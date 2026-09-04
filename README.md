@@ -8,5 +8,11 @@ implementation owner.
 
 See [docs/architecture.md](docs/architecture.md), [docs/extraction-map.md](docs/extraction-map.md), and [docs/development.md](docs/development.md).
 
+For physical-controller development, open the `Meta Ball eVOLVER Edge`
+Dev Container. It provides a source-backed `evolverctl` and host Docker access
+for the root-owned edge Compose stack; the controller container never receives
+`/dev` or the Docker socket, and the hardware container remains the exclusive
+serial owner.
+
 The reference checkout under `refference/` is intentionally retained with its
 original spelling and is read-only source material.

@@ -36,3 +36,36 @@ def test_workspace_members_and_contract_scripts_exist():
     assert "metactl/tests" not in pyproject
     for script in ("tools/dev-env", "tools/test", "tools/test-fast", "tools/test-serial"):
         assert (ROOT / script).is_file()
+
+
+def test_evolver_edge_devcontainer_is_source_backed_and_has_docker_without_serial():
+    config = json.loads((ROOT / ".devcontainer/evolver-edge/devcontainer.json").read_text())
+    assert config["name"] == "Meta Ball eVOLVER Edge"
+    assert any("docker-outside-of-docker" in feature for feature in config["features"])
+    mounts = "\n".join(config["mounts"])
+    assert "/var/run/docker.sock" in mounts
+    assert "/dev" not in mounts
+    launcher = ROOT / ".devcontainer/evolver-edge/scripts/evolverctl"
+    assert "uv run --project /workspaces/meta_bal/evolver-controller evolverctl" in launcher.read_text()
+    # The launcher deliberately points at the checkout, not an installed
+    # wheel. A changed CLI module is therefore visible on the next invocation.
+    assert "/workspaces/meta_bal/evolver-controller" in launcher.read_text()
+
+
+def test_edge_compose_keeps_hardware_as_the_only_device_owner():
+    compose = (ROOT / "deploy/evolver-edge/compose.yaml").read_text()
+    assert "evolver-controller:" in compose and "evolver-hardware:" in compose
+    controller = compose.split("  evolver-controller:", 1)[1]
+    hardware = compose.split("  evolver-hardware:", 1)[1].split("  evolver-controller:", 1)[0]
+    assert "/dev" not in controller
+    assert "/var/run/docker.sock" not in controller and "/var/run/docker.sock" not in hardware
+    assert "source: /dev" in hardware
+    assert "restart: unless-stopped" in controller and "restart: unless-stopped" in hardware
+    assert "network_mode: none" in hardware
+    assert "network_mode: host" in controller
+
+
+def test_edge_has_no_database_service_or_required_database_dependency():
+    compose = (ROOT / "deploy/evolver-edge/compose.yaml").read_text().lower()
+    for forbidden in ("postgres", "mysql", "redis"):
+        assert forbidden not in compose

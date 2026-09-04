@@ -3,7 +3,11 @@
 `evolver-server` owns central intent, enrollment, controller fencing, sync,
 telemetry, operator API, and its own database. `evolver-controller` owns the
 edge durable state, central-initiated-by-client sync, command execution,
-orphan behavior, `evolverctl`, and host/systemd installer/update behavior.
+orphan behavior, `evolverctl`, and the local operator API. The preferred edge
+deployment is the root-owned Docker Compose stack in `deploy/evolver-edge`:
+the controller has no `/dev` or Docker socket, while `evolver-hardware` is the
+exclusive privileged serial owner. Native/systemd installation remains a
+legacy compatibility path.
 `evolver-hardware` exclusively owns serial transport and its bounded local IPC;
 it has no PostgreSQL or catalog dependency. `metactl` is an operator API client.
 `evolver-protocol` is reserved for contracts that genuinely need an independent
@@ -40,3 +44,14 @@ Central is future/operator intent; edge is physical/current reality. ACKs are
 not physical observations. Controller communication is controller-initiated,
 authenticated, and generation fenced. Meta WebUI and BAL catalog code remain
 private and are not required by public components.
+
+The controller owns the authoritative durable state root
+(`/var/lib/evolver-controller`). Hardware uses its own daemon-owned state and
+observation spool (`/var/lib/evolver-hardware`) and does not open or migrate
+the controller database. They share only the runtime directory
+(`/run/evolver-controller`, backed by a runtime-only named volume) for distinct Unix sockets: the controller operator
+socket and hardware IPC socket. Hardware observations cross that typed IPC
+boundary as evidence; they are not direct writes to controller identity,
+binding, command, or run state.
+The controller initiates central communication; hardware uses isolated
+networking and has no externally reachable port.

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+ROOT=$(git -C "$(dirname "${BASH_SOURCE[0]}")/.." rev-parse --show-toplevel)
+project="${EVOLVER_EDGE_PROJECT:-evolver-edge}"
+COMPOSE=(docker compose -f "$ROOT/deploy/evolver-edge/compose.yaml" -f "$ROOT/deploy/evolver-edge/compose.dev.yaml" -p "$project")
+usage() { echo 'usage: tools/evolver-edge {up [--build]|status|logs controller|logs hardware|restart controller|restart hardware|down}'; }
+case "${1:-}" in
+  up) shift; exec "${COMPOSE[@]}" up -d "$@" ;;
+  status) exec "${COMPOSE[@]}" ps ;;
+  logs) [[ "${2:-}" == controller ]] && service=evolver-controller || [[ "${2:-}" == hardware ]] && service=evolver-hardware || { usage >&2; exit 2; }; exec "${COMPOSE[@]}" logs -f "$service" ;;
+  restart) [[ "${2:-}" == controller ]] && service=evolver-controller || [[ "${2:-}" == hardware ]] && service=evolver-hardware || { usage >&2; exit 2; }; exec "${COMPOSE[@]}" restart "$service" ;;
+  down) exec "${COMPOSE[@]}" down ;;
+  *) usage >&2; exit 2 ;;
+esac

@@ -36,6 +36,26 @@ from a controller, explicitly set the bind address to a host LAN or Tailscale
 IPv4, then run `tools/dev-env network`. No firewall, ACL, or public exposure is
 changed by this repository.
 
+For physical-controller work, select `Meta Ball eVOLVER Edge` in VS Code.
+This slimmer profile keeps Python, uv, RTK, Git, zsh/tmux, Docker client, and
+Python/Docker editor support, but omits Node, Chromium, WebUI dependencies,
+and server tooling. It mounts the host Docker socket for bounded Compose
+development and the local operator runtime directory, never `/dev`. Its
+`evolverctl` launcher runs `uv run --project
+/workspaces/meta_bal/evolver-controller`, so edits in the current checkout are
+used immediately. Use `tools/dev-env up evolver-edge` or
+`tools/evolver-edge up --build` to manage the edge stack.
+
+The production-like edge stack has no PostgreSQL dependency. Durable SQLite
+state lives on the host at `/var/lib/evolver-controller`, while the hardware
+daemon’s observation state is at `/var/lib/evolver-hardware`; runtime sockets
+are under `/run/evolver-controller` in a runtime-only named volume. Docker restarts both services after
+reboot. The two daemons never share a writable SQLite database.
+Hardware availability is application state, so a disconnected instrument does
+not make the hardware daemon unhealthy. Firmware development remains a
+separate build/verify/explicit-physical-flash path with SHA verification,
+operator attribution, and serial ownership checks.
+
 The standalone server entry point is `uv run --project evolver-server
 evolver-control`; its configuration uses `DATABASE_URL` and does not embed
 PostgreSQL. `metactl` uses `EVOLVER_SERVER_URL` and the HTTP operator API.

@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 ROOT=$(git -C "$(dirname "${BASH_SOURCE[0]}")/.." rev-parse --show-toplevel)
+profile=common
+if [[ "${1:-}" == common || "${1:-}" == evolver-edge ]]; then profile=$1; shift; fi
 branch=$(git -C "$ROOT" branch --show-current)
 slug=$(printf '%s' "${branch:-worktree}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g;s/--*/-/g;s/^-//;s/-$//')
 path=$(cd "$ROOT" && pwd -P)
 if command -v sha256sum >/dev/null; then hash=$(printf '%s' "$path" | sha256sum | cut -c1-10); else hash=$(printf '%s' "$path" | shasum -a 256 | cut -c1-10); fi
 id="${slug:-worktree}-${hash}"
-name="meta-ball-${id}-common"
-config="$ROOT/.devcontainer/common/devcontainer.json"
-usage() { echo 'usage: tools/dev-env {identity|check|status|network|up|exec <command...>|rebuild|down|build}'; }
-container_id() { docker ps -aq --filter "label=devcontainer.local_folder=$ROOT" | head -1; }
+name="meta-ball-${id}-${profile}"
+config="$ROOT/.devcontainer/${profile}/devcontainer.json"
+usage() { echo 'usage: tools/dev-env [common|evolver-edge] {identity|check|status|network|up|exec <command...>|rebuild|down|build}'; }
+container_id() { docker ps -aq --filter "label=devcontainer.local_folder=$ROOT" --filter "label=devcontainer.config_file=$config" | head -1; }
 state() { local id; id=$(container_id); [[ -n "$id" ]] && docker inspect --format '{{.State.Status}}' "$id" || echo absent; }
 case "${1:-}" in
   identity) printf '%s\n' "$id" ;;
-  check) command -v jq >/dev/null || { echo 'check requires jq' >&2; exit 2; }; jq empty "$config"; rg -q 'Meta Ball Common Toolchain' "$config"; ! rg -qi 'META_WEBUI|meta-webui|npm-cache|PLAYWRIGHT|Chromium' .devcontainer .vscode; test ! -e .env.local; echo "configuration valid: $id" ;;
+  check) command -v jq >/dev/null || { echo 'check requires jq' >&2; exit 2; }; jq empty "$config"; if [[ "$profile" == common ]]; then rg -q 'Meta Ball Common Toolchain' "$config"; else rg -q 'Meta Ball eVOLVER Edge' "$config"; fi; ! rg -qi 'META_WEBUI|meta-webui|npm-cache|PLAYWRIGHT|Chromium' .devcontainer .vscode; test ! -e .env.local; echo "configuration valid: $id" ;;
   status) echo "worktree: $ROOT"; echo "identity: $id"; echo "container: $name"; echo "state: $(state)"; command -v devcontainer >/dev/null && devcontainer --version || echo 'devcontainer: unavailable'; [[ -S /var/run/docker.sock ]] && echo 'host Docker socket: available' || echo 'host Docker socket: unavailable' ;;
   network) echo "bind address: ${META_BAL_DEV_BIND_ADDRESS:-127.0.0.1}"; echo "port: ${META_BAL_DEV_PORT:-18086}"; if command -v tailscale >/dev/null; then tailscale ip -4 | sed 's#^#Tailscale IPv4: #' || true; fi; hostname -I 2>/dev/null | tr ' ' '\n' | awk -F. 'NF == 4 {print "LAN candidate: " $0}'; echo "Controller URL (when explicitly bound): http://${META_BAL_DEV_BIND_ADDRESS:-127.0.0.1}:${META_BAL_DEV_PORT:-18086}" ;;
   build) export META_BALL_WORKTREE_ID="$id"; devcontainer build --workspace-folder "$ROOT" --config "$config" ;;

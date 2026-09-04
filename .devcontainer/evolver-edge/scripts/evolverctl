@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+exec uv run --project /workspaces/meta_bal/evolver-controller evolverctl "$@"
+
