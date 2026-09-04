@@ -6,13 +6,15 @@ action=''
 declare -a action_args=()
 # Canonical: tools/dev-env [profile] action [args...]. Accept action-first
 # spelling for compatibility with older checkouts and scripts.
-if [[ "${1:-}" == server || "${1:-}" == evolver-edge ]]; then
+if [[ "${1:-}" == server || "${1:-}" == common || "${1:-}" == evolver-edge ]]; then
   profile=$1; shift
+  if [[ "$profile" == common ]]; then echo 'tools/dev-env: common is deprecated; use server' >&2; profile=server; fi
   action=${1:-}; shift || true
 else
   action=${1:-}; shift || true
-  if [[ "${1:-}" == server || "${1:-}" == evolver-edge ]]; then
+  if [[ "${1:-}" == server || "${1:-}" == common || "${1:-}" == evolver-edge ]]; then
     profile=$1; shift
+    if [[ "$profile" == common ]]; then echo 'tools/dev-env: common is deprecated; use server' >&2; profile=server; fi
   fi
 fi
 action_args=("$@")
