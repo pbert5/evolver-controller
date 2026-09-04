@@ -142,6 +142,22 @@ class SyncClient:
             if records:
                 telemetry_batches.append({"stream_id": stream_id, "first_sequence": records[0]["sequence"],
                                           "last_sequence": records[-1]["sequence"], "records": records})
+        # ``history_batches`` is an additive normalized view of the same
+        # edge-owned facts.  It lets central project one read-only timeline
+        # without making that projection an authority or changing the durable
+        # event/telemetry streams used for retry cursors.
+        history_batches = []
+        for batch in event_batches:
+            history_batches.append({"fact_type": "event", "stream_id": batch["run_id"],
+                                    "records": [{"fact_id": event.get("id"), "run_id": batch["run_id"],
+                                                 "sequence": event["sequence"], "occurred_at": event.get("occurred_at"),
+                                                 "payload": event} for event in batch["records"]]})
+        for batch in telemetry_batches:
+            history_batches.append({"fact_type": "telemetry", "stream_id": batch["stream_id"],
+                                    "records": [{"fact_id": f"telemetry:{batch['stream_id']}:{record['sequence']}",
+                                                 "stream_id": batch["stream_id"], "sequence": record["sequence"],
+                                                 "captured_at": record.get("captured_at"),
+                                                 "payload": record.get("payload", {})} for record in batch["records"]]})
         # The ordinary heartbeat is a compact operational summary.  Full
         # recovery provenance is requested explicitly, not replayed on every
         # synchronization cycle.
@@ -153,6 +169,7 @@ class SyncClient:
             "active_runs": manifest["active_runs"], "event_batches": event_batches,
             "command_acknowledgements": self.store.command_acknowledgements(),
             "telemetry_batches": telemetry_batches, "recovery_summary": manifest,
+            "history_batches": history_batches,
         }
 
     def sync_once(self, *, inventory: list[Json] | None = None) -> SyncResult:
