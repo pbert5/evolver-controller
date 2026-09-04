@@ -1145,6 +1145,9 @@ class EdgeStore:
         events = [_decode(r["payload"]) for r in self._connection.execute("SELECT payload FROM events ORDER BY run_id, sequence")] if include_records else []
         run_action_executions = [self.run_action(row["command_id"]) for row in self._connection.execute(
             "SELECT command_id FROM run_action_executions ORDER BY created_at")] if include_records else []
+        measurements = [_decode(row["payload"]) for row in self._connection.execute(
+            "SELECT payload FROM measurements ORDER BY captured_at, id")] if include_records else []
+        activities = self.activities() if include_records else []
         revisions = [self.revision(run["id"]) for run in runs]
         ranges = []
         for row in self._connection.execute("SELECT stream_id, MIN(sequence) lo, MAX(sequence) hi FROM telemetry GROUP BY stream_id"):
@@ -1166,6 +1169,7 @@ class EdgeStore:
                 "active_runs": [r for r in runs if r["state"] in {"running", "paused", "stopping"}],
                 "runs": runs, "bundles": bundles, "run_patches": patches, "run_events": events,
                 "run_action_executions": run_action_executions,
+                "measurements": measurements, "activities": activities,
                 "run_revisions": revisions, "telemetry_ranges": ranges,
                 "completed_unsynchronized_runs": completed_unsynchronized,
                 "source_metadata": [s for b in bundles for s in b.get("source_metadata", [])],
