@@ -38,10 +38,22 @@ component_tests() {
   esac
 }
 
+component_workers() {
+  if [[ "$1" == server && -z "${PYTEST_SERVER_WORKERS:-}" ]]; then
+    # Server tests share process-local persistence/configuration helpers. Keep
+    # that repository process deterministic while other repositories run in
+    # parallel; callers may opt into server xdist after auditing new tests.
+    printf '%s\n' 1
+  else
+    printf '%s\n' "$2"
+  fi
+}
+
 run_suite() {
   local component=$1 workers=$2 marker=$3 coverage_file=$4
   shift 4
   local pythonpath tests
+  workers=$(component_workers "$component" "$workers")
   pythonpath=$(component_pythonpath "$component")
   tests=$(component_tests "$component")
 
