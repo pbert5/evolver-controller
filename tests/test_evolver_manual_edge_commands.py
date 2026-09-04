@@ -119,3 +119,41 @@ def test_ipc_sink_preserves_typed_command_evidence_and_fencing(tmp_path):
         assert store.command_acknowledgements()[-1]["command_id"] == "manual-1"
     finally:
         store.close()
+
+
+def test_simulator_accepts_typed_pump_and_persists_effective_evidence(tmp_path):
+    store, _clock, _sink, _executor = _setup(tmp_path)
+    sink = SimulatorDeviceCommandSink(store)
+    try:
+        command = {"schema_version": "evolver.device.v2", "command_id": "pump-typed",
+                   "operation": "pulse_pump", "target": {"instrument_id": "instrument"},
+                   "parameters": {"channel": 2, "direction": "forward", "duration_ms": 100}}
+        result = sink.send(command)
+        assert result["request_accepted"] is True
+        assert result["physical_actuation"] is False
+        assert result["observed_evidence"]["effective_device_state"]["pump"]["channels"]["2"]["effective_state"] == "active"
+        assert store.instrument("instrument")["effective_device_state"]["pump"]["effective_state"] == "active"
+    finally:
+        store.close()
+
+
+def test_simulator_state_and_command_ack_replay_across_restart(tmp_path):
+    command = {"schema_version": "evolver.device.v2", "command_id": "restart-heater",
+               "controller_generation": 4, "operation": "pulse_heater",
+               "target": {"instrument_id": "instrument"},
+               "parameters": {"channel": 0, "level": 12, "duration_ms": 250}}
+    with EdgeStore(tmp_path) as store:
+        store.bind(webui_controller_id="central", server_url="https://central",
+                   credential="credential", generation=4)
+        store.register_instruments([{"id": "instrument", "instrument_type": "minievolver",
+                                     "vial_positions": [], "capabilities": {}}])
+        sink = SimulatorDeviceCommandSink(store)
+        first = store.execute_command(command, lambda: sink.send(command))
+        assert first["observed_evidence"]["simulated"] is True
+
+    with EdgeStore(tmp_path) as store:
+        sink = SimulatorDeviceCommandSink(store)
+        assert sink.state("instrument")["heater"]["effective_state"] == "active"
+        replay = store.execute_command(command, lambda: (_ for _ in ()).throw(AssertionError("replayed hardware")))
+        assert replay == first
+        assert sink.commands == []

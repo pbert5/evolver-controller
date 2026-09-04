@@ -245,18 +245,39 @@ class RunActuatorExecutor:
 
 class SimulatorDeviceCommandSink:
     """Deterministic sink; no sleep, serial, network, or real hardware."""
-    def __init__(self) -> None:
+    def __init__(self, store: EdgeStore | None = None) -> None:
+        self.store = store
         self.now_ms = 0
         self.outputs: dict[tuple[str, str, int], dict[str, Any]] = {}
         self.commands: list[dict[str, Any]] = []
         self._results: dict[str, Mapping[str, Any]] = {}
+        if store is not None:
+            for instrument in store.list_instruments():
+                observation = instrument.get("effective_device_state")
+                self.now_ms = max(self.now_ms, int(instrument.get("simulator_clock_ms", 0)))
+                if not isinstance(observation, Mapping):
+                    continue
+                for kind in ("pump", "stir", "heater"):
+                    channels = observation.get(kind, {}).get("channels", {})
+                    if isinstance(channels, Mapping):
+                        for channel, value in channels.items():
+                            if isinstance(value, Mapping) and value.get("active_until_ms", 0) > self.now_ms:
+                                self.outputs[(instrument["id"], kind, int(channel))] = dict(value)
+
+    def _persist(self, instrument_ids: set[str] | None = None) -> None:
+        if self.store is None:
+            return
+        ids = instrument_ids or {item["id"] for item in self.store.list_instruments()}
+        for instrument_id in ids:
+            self.store.record_simulator_device_state(instrument_id, self.state(instrument_id), clock_ms=self.now_ms)
 
     def send(self, command: Mapping[str, Any]) -> Mapping[str, Any]:
         if command.get("command_id") in self._results:
             return self._results[str(command["command_id"])]
         if command.get("schema_version") != DEVICE_PROTOCOL_VERSION:
             raise EdgeStoreError("unsupported device protocol")
-        operation = command.get("operation")
+        operation = {"pulse_pump": "pump_pulse", "pulse_heater": "heater_pulse"}.get(
+            command.get("operation"), command.get("operation"))
         target = command.get("target", {})
         instrument_id = target.get("instrument_id")
         p = command.get("parameters", {})
@@ -288,13 +309,16 @@ class SimulatorDeviceCommandSink:
         self.commands.append(dict(command))
         result = {"command_id": command["command_id"], "request_accepted": True,
                 "protocol_response": f"SIMULATED|{operation}", "verification": "simulated_effective_state",
-                "observed_evidence": {"simulated": True}}
+                "physical_actuation": False,
+                "observed_evidence": {"simulated": True, "effective_device_state": self.state(instrument_id)}}
         self._results[str(command["command_id"])] = result
+        self._persist(None if operation == "safe_stop" else {instrument_id})
         return result
 
     def advance(self, milliseconds: int) -> None:
         self.now_ms += milliseconds
         self.outputs = {key: value for key, value in self.outputs.items() if value["active_until_ms"] > self.now_ms}
+        self._persist()
 
     def state(self, instrument_id: str) -> dict[str, Any]:
         pumps = {str(channel): value for (instrument, kind, channel), value in self.outputs.items()

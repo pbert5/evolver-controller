@@ -42,6 +42,7 @@ def main(argv: list[str] | None = None) -> int:
         # the exclusive read-only hardware service both populate it, so sync
         # must never hide physical observations when simulator is disabled.
         inventory = store.list_instruments
+        simulator = None
         if args.simulator_instruments:
             if args.simulator_instruments < 1:
                 parser.error("--simulator-instruments must be positive")
@@ -52,7 +53,9 @@ def main(argv: list[str] | None = None) -> int:
             # Instantiate once to register stable simulated identities; the
             # common store inventory keeps physical and simulated instruments.
             simulator.inventory()
-        manual_sink = (SimulatorDeviceCommandSink() if args.simulator_instruments
+        manual_sink = (simulator.device_sink if simulator is not None
+                       else
+                       SimulatorDeviceCommandSink() if args.simulator_instruments
                        else HardwareIPCDeviceCommandSink(store))
         manual_executor = ManualCommandExecutor(store, manual_sink)
         try:
