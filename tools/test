@@ -1,19 +1,157 @@
 #!/usr/bin/env bash
 set -euo pipefail
-run_component() {
-  local component=$1 workers=$2; shift 2
-  case "$component" in
-    controller) PYTHONPATH=evolver-controller/src uv run --project . pytest -o pythonpath=evolver-controller/src -n "$workers" -q evolver-controller/tests "$@" ;;
-    hardware) PYTHONPATH=evolver-hardware/src uv run --project . pytest -o pythonpath=evolver-hardware/src -n "$workers" -q evolver-hardware/tests "$@" ;;
-    server) PYTHONPATH=evolver-server/src uv run --project . pytest -o pythonpath=evolver-server/src -n "$workers" -q evolver-server/tests "$@" ;;
-    metactl) PYTHONPATH=metactl uv run --project . pytest -o pythonpath=metactl -n "$workers" -q metactl/tests "$@" ;;
-    root) uv run pytest -n "$workers" -q "$@" ;;
-    *) echo "unknown component: $component" >&2; return 2;;
+
+readonly SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+readonly ROOT_DIR=$(cd -- "$SCRIPT_DIR/.." && pwd)
+readonly COMPONENTS=(root controller hardware server metactl)
+
+die() {
+  echo "tools/test: $*" >&2
+  exit 2
+}
+
+validate_workers() {
+  local value=${PYTEST_WORKERS:-auto}
+  [[ "$value" == auto || "$value" =~ ^[0-9]+$ ]] ||
+    die "PYTEST_WORKERS must be 'auto' or a non-negative integer (got '$value')"
+}
+
+component_pythonpath() {
+  case "$1" in
+    root) printf '%s\n' . ;;
+    controller) printf '%s\n' evolver-controller/src ;;
+    hardware) printf '%s\n' evolver-hardware/src ;;
+    server) printf '%s\n' evolver-server/src ;;
+    metactl) printf '%s\n' metactl ;;
+    *) die "unknown component: $1" ;;
   esac
 }
-case "${1:-fast}" in
-  fast) shift; workers=${PYTEST_WORKERS:-8}; run_component root "$workers" "$@"; for c in controller hardware server metactl; do run_component "$c" "$workers" "$@" & done; wait ;;
-  serial) shift; run_component root 0 "$@" ;;
-  component) [[ $# -ge 2 ]] || { echo 'usage: tools/test component <controller|hardware|server|metactl|root>' >&2; exit 2; }; component=$2; shift 2; run_component "$component" "${PYTEST_WORKERS:-auto}" "$@" ;;
-  *) echo 'usage: tools/test [fast|serial|component <name>]' >&2; exit 2;;
+
+component_tests() {
+  case "$1" in
+    root) printf '%s\n' '' ;;
+    controller) printf '%s\n' evolver-controller/tests ;;
+    hardware) printf '%s\n' evolver-hardware/tests ;;
+    server) printf '%s\n' evolver-server/tests ;;
+    metactl) printf '%s\n' metactl/tests ;;
+    *) die "unknown component: $1" ;;
+  esac
+}
+
+run_suite() {
+  local component=$1 workers=$2 marker=$3 coverage_file=$4
+  shift 4
+  local pythonpath tests
+  pythonpath=$(component_pythonpath "$component")
+  tests=$(component_tests "$component")
+
+  local -a command=(uv run --project "$ROOT_DIR" pytest -q)
+  if [[ "$workers" != 0 ]]; then
+    command+=(-n "$workers")
+  fi
+  if [[ -n "$marker" ]]; then
+    command+=(-m "$marker")
+  fi
+  if [[ -n "$coverage_file" ]]; then
+    command+=(--cov --cov-report=term-missing)
+  fi
+  if [[ -n "$tests" ]]; then
+    command+=("$tests")
+  fi
+  command+=("$@")
+
+  echo "==> $component${marker:+ [$marker]}"
+  if [[ -n "$coverage_file" ]]; then
+    (cd "$ROOT_DIR" && PYTHONPATH="$pythonpath" COVERAGE_FILE="$coverage_file" "${command[@]}")
+  else
+    (cd "$ROOT_DIR" && PYTHONPATH="$pythonpath" "${command[@]}")
+  fi
+}
+
+declare -a CHILD_PIDS=()
+cleanup_children() {
+  if ((${#CHILD_PIDS[@]})); then
+    kill "${CHILD_PIDS[@]}" 2>/dev/null || true
+  fi
+}
+trap cleanup_children INT TERM
+
+run_all_parallel() {
+  local workers=$1 marker=$2 coverage_dir=$3
+  shift 3
+  local component pid status=0 index=0
+  for component in "${COMPONENTS[@]}"; do
+    local coverage_file=''
+    if [[ -n "$coverage_dir" ]]; then
+      coverage_file="$coverage_dir/.coverage.$component"
+    fi
+    run_suite "$component" "$workers" "$marker" "$coverage_file" "$@" &
+    CHILD_PIDS[index]=$!
+    index=$((index + 1))
+  done
+  for pid in "${CHILD_PIDS[@]}"; do
+    if wait "$pid"; then
+      :
+    else
+      status=1
+    fi
+  done
+  return "$status"
+}
+
+run_all_serial() {
+  local workers=$1 marker=$2 coverage_dir=$3
+  shift 3
+  local component coverage_file
+  for component in "${COMPONENTS[@]}"; do
+    coverage_file=''
+    if [[ -n "$coverage_dir" ]]; then
+      coverage_file="$coverage_dir/.coverage.$component"
+    fi
+    run_suite "$component" "$workers" "$marker" "$coverage_file" "$@"
+  done
+}
+
+usage() {
+  cat >&2 <<'EOF'
+usage:
+  tools/test all [pytest args...]
+  tools/test fast [pytest args...]
+  tools/test serial [pytest args...]
+  tools/test integration [pytest args...]
+  tools/test simulator [pytest args...]
+  tools/test coverage [pytest args...]
+  tools/test component <root|controller|hardware|server|metactl> [pytest args...]
+
+PYTEST_WORKERS controls xdist workers for parallel lanes: auto (default) or a
+non-negative integer. Serial and coverage lanes run component processes in order.
+EOF
+  exit 2
+}
+
+mode=${1:-all}
+shift || true
+validate_workers
+workers=${PYTEST_WORKERS:-auto}
+
+case "$mode" in
+  all) run_all_parallel "$workers" '' '' "$@" ;;
+  fast) run_all_parallel "$workers" 'not integration and not simulator and not serial' '' "$@" ;;
+  serial) run_all_serial 0 serial '' "$@" ;;
+  integration) run_all_parallel "$workers" integration '' "$@" ;;
+  simulator) run_all_parallel "$workers" simulator '' "$@" ;;
+  coverage)
+    coverage_dir=$(mktemp -d "${TMPDIR:-/tmp}/meta-bal-coverage.XXXXXX")
+    cleanup_coverage() { rm -rf -- "$coverage_dir"; }
+    trap 'cleanup_children; cleanup_coverage' EXIT INT TERM
+    run_all_serial "$workers" '' "$coverage_dir" "$@"
+    ;;
+  component)
+    [[ $# -ge 1 ]] || usage
+    component=$1
+    shift
+    run_suite "$component" "$workers" '' '' "$@"
+    ;;
+  -h|--help) usage ;;
+  *) usage ;;
 esac

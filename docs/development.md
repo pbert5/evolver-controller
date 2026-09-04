@@ -10,9 +10,24 @@ is intentionally kept as a checkout-path component because its pinned child
 metadata is not buildable by setuptools; its tests and imports remain available
 from the root checkout without altering that child repository.
 
-Use `tools/test-fast` for the safe xdist lane, `tools/test-serial` for shared
-resource tests, and `tools/test component <controller|hardware|server|metactl|root>`
-for focused work. Override automatic workers with `PYTEST_WORKERS`.
+The root `tools/test` dispatcher owns the test topology. Use `tools/test-all`
+(or `tools/test all`) for the complete root plus component suite, and
+`tools/test-fast` for the xdist unit/contract lane. The fast lane excludes
+tests marked `integration`, `simulator`, or `serial`. Use
+`tools/test-serial`, `tools/test-integration`, and `tools/test-simulator` for
+the corresponding marker-selected lanes; serial component processes run in
+order with xdist disabled. `tools/test-coverage` runs the complete topology
+with isolated per-component coverage data and reports.
+
+For focused work, use `tools/test component
+<controller|hardware|server|metactl|root>`. Every component is invoked in its
+own pytest subprocess so its package/import environment remains isolated from
+the other components. `PYTEST_WORKERS` accepts `auto` (the default) or a
+non-negative integer and controls xdist workers for parallel lanes; invalid
+values fail before any test starts. Root pytest registers the lane markers and
+uses strict marker checking, so new lane-specific tests should use
+`@pytest.mark.integration`, `@pytest.mark.simulator`, or
+`@pytest.mark.serial` explicitly.
 
 The Common container forwards port 18086 as `Meta Ball API`. Services launched
 through the host Docker daemon should use `META_BAL_DEV_BIND_ADDRESS` and

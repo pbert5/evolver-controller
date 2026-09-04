@@ -13,6 +13,7 @@ members = ["evolver-controller", "evolver-hardware", "evolver-server"]
 [tool.pytest.ini_options]
 testpaths = ["private-schema/tests", "integration/tests"]
 pythonpath = [".", "metactl"]
+addopts = "--strict-markers"
 markers = [
   "unit: isolated unit tests",
   "contract: wire/API contract tests",
