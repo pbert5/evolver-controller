@@ -7,7 +7,7 @@ import pytest
 ROOT = Path(__file__).parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 import validate_schema_package as validator  # noqa: E402
-from compiler import DefinitionError, compile_definition, compile_program, load_trusted_action_registry  # noqa: E402
+from compiler import DefinitionError, compile_definition, compile_program, load_definition, load_trusted_action_registry  # noqa: E402
 from export_schema import export_manifest  # noqa: E402
 
 
