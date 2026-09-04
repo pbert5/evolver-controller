@@ -7,3 +7,4 @@ __pycache__/
 htmlcov/
 private-schema/*.yaml
 private-schema/*.yml
+.worktrees/*
