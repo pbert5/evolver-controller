@@ -370,7 +370,11 @@ def main(argv: list[str] | None = None) -> int:
                                             "owner_id": args.owner_id, "operator": args.operator,
                                             "physical": args.physical}, args.timeout)); return 0
             if args.hardware_command == "lease":
-                if args.lease_command == "acquire": payload = {"operation": "lease_acquire", "operator": args.operator, "ttl_seconds": args.ttl_seconds}
+                if args.lease_command == "acquire":
+                    binding = store.binding() or {}
+                    payload = {"operation": "lease_acquire", "operator": args.operator,
+                               "ttl_seconds": args.ttl_seconds,
+                               "controller_generation": int(binding.get("generation", 0))}
                 elif args.lease_command == "status": payload = {"operation": "lease_status"}
                 else: payload = {"operation": "lease_release", "operator": args.operator}
                 _emit(request(socket_path, payload, args.timeout)); return 0
