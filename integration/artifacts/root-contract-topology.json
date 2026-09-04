@@ -1,0 +1,16 @@
+{
+  "action_catalog_index": "metactl/applications/deployment/action-catalog.json",
+  "action_catalog_directory": "metactl/applications",
+  "server_action_manifest_route": "/api/actions",
+  "release_builder": "tools/build_evolver_release.py",
+  "release_manifest_required": [
+    "version",
+    "git_revision",
+    "platform",
+    "build_timestamp",
+    "install_type",
+    "protocol_version",
+    "artifacts",
+    "signature"
+  ]
+}
