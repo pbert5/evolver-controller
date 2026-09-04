@@ -15,7 +15,7 @@ from .identity import (ALIAS_SCHEME, canonical_samd21_usb_serial,
                        firmware_alias_for_usb_serial, samd21_hardware_fingerprint,
                        validate_usb_match)
 from .actuator import (DeviceCommandSink, HardwareDeviceCommandSink, HardwareIPCDeviceCommandSink, ManualCommandExecutor, RunActuatorExecutor,
-                       SimulatorDeviceCommandSink, compile_device_command)
+                       SimulatorDeviceCommandSink, compile_device_command, compile_trusted_action)
 from .domain import plan_calibrated_dispense, validate_bounded_operation
 from .operator import (ALLOWED_OPERATIONS, DEFAULT_SOCKET as DEFAULT_OPERATOR_SOCKET,
                        OperatorClient, OperatorError, OperatorProtocolError, OperatorServer, OperatorUnavailable)
@@ -29,6 +29,6 @@ __all__ = ["BundleResolutionError", "CalibrationPreflightError", "calibration_ar
                      "ALIAS_SCHEME", "canonical_samd21_usb_serial", "firmware_alias_for_usb_serial",
                      "samd21_hardware_fingerprint", "validate_usb_match",
                      "DeviceCommandSink", "HardwareDeviceCommandSink", "HardwareIPCDeviceCommandSink", "ManualCommandExecutor", "RunActuatorExecutor", "SimulatorDeviceCommandSink",
-                     "compile_device_command", "plan_calibrated_dispense", "validate_bounded_operation",
+                     "compile_device_command", "compile_trusted_action", "plan_calibrated_dispense", "validate_bounded_operation",
                      "ALLOWED_OPERATIONS", "DEFAULT_OPERATOR_SOCKET",
                      "OperatorClient", "OperatorError", "OperatorProtocolError", "OperatorServer", "OperatorUnavailable"]
