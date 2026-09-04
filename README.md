@@ -8,6 +8,9 @@ implementation owner.
 
 See [docs/architecture.md](docs/architecture.md), [docs/extraction-map.md](docs/extraction-map.md), and [docs/development.md](docs/development.md).
 
+The implemented local operator executable is `evolverctl`; there is no
+separate `evoctl` command. See [docs/operator.md](docs/operator.md).
+
 For physical-controller development, open the `Meta Ball eVOLVER Edge`
 Dev Container. It provides a source-backed `evolverctl` and host Docker access
 for the root-owned edge Compose stack; the controller container never receives

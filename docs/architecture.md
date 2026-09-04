@@ -42,6 +42,11 @@ consumed by the integrated server projection. Revisit this decision when a
 second independently versioned consumer requires the same public parser or
 wire contract. No private BAL schema or lab data is part of the catalog.
 
+Catalog entries marked `planned` are discoverable metadata, not callable
+capabilities. Experiment enqueue/run and run-start remain planned. The local
+`evolverctl` surface is owned by the controller; `metactl` is the central API
+client and has no local EdgeStore access.
+
 Central is future/operator intent; edge is physical/current reality. ACKs are
 not physical observations. Controller communication is controller-initiated,
 authenticated, and generation fenced. Meta WebUI and BAL catalog code remain

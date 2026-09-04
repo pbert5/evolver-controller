@@ -9,8 +9,13 @@ verify it with `command -v codex` and `codex --version`. Codex login state and
 configuration persist in the shared `meta-ball-codex` volume mounted at
 `/home/vscode/.codex`; no credentials are included in the image. Outside the
 container, use `tools/dev-env`.
-The helper uses a profile-first command form: `tools/dev-env common exec
-<command...>` (Common Toolchain is the default profile).
+The helper uses the canonical profile-first form:
+`tools/dev-env common exec <command...>` (Common Toolchain is the default
+profile). The older action-first form, such as `tools/dev-env exec common
+<command...>`, remains accepted for compatibility. Use `tools/dev-env common
+smoke` to verify shared container tools and `tools/check-locks` to verify the
+root `uv.lock` and both Dev Container feature locks. Pass `--relock` only for
+an intentional dependency refresh.
 The three setuptools-based components are editable workspace members. `metactl`
 is intentionally kept as a checkout-path component because its pinned child
 metadata is not buildable by setuptools; its tests and imports remain available
@@ -49,8 +54,9 @@ and server tooling. It mounts the host Docker socket for bounded Compose
 development and the local operator runtime directory, never `/dev`. Its
 `evolverctl` launcher runs `uv run --project
 /workspaces/meta_bal/evolver/evolver-controller`, so edits in the current checkout are
-used immediately. Use `tools/dev-env up evolver-edge` or
-`tools/evolver-edge up --build` to manage the edge stack.
+used immediately. Use `tools/dev-env evolver-edge up` or
+`tools/evolver-edge up --build` to manage the edge stack. The first manages
+the Dev Container; the second manages Compose services through host Docker.
 
 The production-like edge stack has no PostgreSQL dependency. Durable SQLite
 state lives on the host at `/var/lib/evolver-controller`, while the hardware
