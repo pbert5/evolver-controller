@@ -1,17 +1,16 @@
 # eVOLVER operator guide
 
-The implemented local CLI is `evolverctl`; `evoctl` is not an alias. In the
-edge Dev Container run `evolverctl ...`; from the host use
-`tools/dev-env evolver-edge exec evolverctl ...`.
+The implemented local CLI is `evoctl`. In the edge Dev Container run
+`evoctl ...`; from the host use `tools/dev-env evolver-edge exec evoctl ...`.
 
 Read-only inspection:
 
 ```text
-evolverctl status
-evolverctl binding
-evolverctl runs
-evolverctl instruments
-evolverctl doctor
+evoctl status
+evoctl binding
+evoctl runs
+evoctl instruments
+evoctl doctor
 ```
 
 `--offline` reads the durable controller store without contacting the local

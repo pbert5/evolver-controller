@@ -3,7 +3,7 @@
 `evolver-server` owns central intent, enrollment, controller fencing, sync,
 telemetry, operator API, and its own database. `evolver-controller` owns the
 edge durable state, central-initiated-by-client sync, command execution,
-orphan behavior, `evolverctl`, and the local operator API. The preferred edge
+orphan behavior, `evoctl`, and the local operator API. The preferred edge
 deployment is the root-owned Docker Compose stack in `deploy/evolver-edge`:
 the controller has no `/dev` or Docker socket, while `evolver-hardware` is the
 exclusive privileged serial owner. Native/systemd installation remains a
@@ -44,7 +44,7 @@ wire contract. No private BAL schema or lab data is part of the catalog.
 
 Catalog entries marked `planned` are discoverable metadata, not callable
 capabilities. Experiment enqueue/run and run-start remain planned. The local
-`evolverctl` surface is owned by the controller; `metactl` is the central API
+`evoctl` surface is owned by the controller; `metactl` is the central API
 client and has no local EdgeStore access.
 
 Central is future/operator intent; edge is physical/current reality. ACKs are

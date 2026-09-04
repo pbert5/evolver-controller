@@ -57,7 +57,7 @@ def test_environment_lock_checker_has_explicit_relock_mode():
 
 def test_dev_env_smoke_covers_shared_and_edge_contracts():
     source = (ROOT / "tools/dev-env").read_text()
-    for command in ("rtk", "uv", "python", "pytest", "navi", "codex", "docker", "evolverctl", "metactl"):
+    for command in ("rtk", "uv", "python", "pytest", "navi", "codex", "docker", "evoctl", "metactl"):
         assert f"{command}" in source
     assert 'import yaml' in source
     assert 'test -d /run/evolver-controller' in source
@@ -70,8 +70,8 @@ def test_evolver_edge_devcontainer_is_source_backed_and_has_docker_without_seria
     mounts = "\n".join(config["mounts"])
     assert "/var/run/docker.sock" in mounts
     assert "/dev" not in mounts
-    launcher = ROOT / ".devcontainer/evolver-edge/scripts/evolverctl"
-    assert "uv run --project /workspaces/meta_bal/evolver/evolver-controller evolverctl" in launcher.read_text()
+    launcher = ROOT / ".devcontainer/evolver-edge/scripts/evoctl"
+    assert "uv run --project /workspaces/meta_bal/evolver/evolver-controller evoctl" in launcher.read_text()
     # The launcher deliberately points at the checkout, not an installed
     # wheel. A changed CLI module is therefore visible on the next invocation.
     assert "/workspaces/meta_bal/evolver/evolver-controller" in launcher.read_text()

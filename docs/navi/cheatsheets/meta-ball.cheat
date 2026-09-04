@@ -24,7 +24,7 @@ tools/dev-env common exec zsh
 tools/dev-env up evolver-edge
 
 # Check the edge runtime status
-tools/dev-env evolver-edge exec evolverctl status
+tools/dev-env evolver-edge exec evoctl status
 
 # Show the repository worktree status
 git status --short --branch

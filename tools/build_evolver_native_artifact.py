@@ -139,7 +139,7 @@ def main() -> int:
             bindir = scratch / "bin"
             bindir.mkdir()
             for name, module, callable_name in (
-                ("evolverctl", "meta_webui_application_backend.evolver_edge.cli", "main"),
+                ("evoctl", "meta_webui_application_backend.evolver_edge.cli", "main"),
                 ("evolver-controller", "meta_webui_application_backend.evolver_edge.service", "main"),
                 ("evolver-hardware", "meta_webui_application_backend.evolver_edge.hardware_service", "main"),
             ):

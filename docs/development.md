@@ -52,7 +52,7 @@ This slimmer profile keeps Python, uv, RTK, Git, zsh/tmux, Docker client, and
 Python/Docker editor support, but omits Node, Chromium, WebUI dependencies,
 and server tooling. It mounts the host Docker socket for bounded Compose
 development and the local operator runtime directory, never `/dev`. Its
-`evolverctl` launcher runs `uv run --project
+`evoctl` launcher runs `uv run --project
 /workspaces/meta_bal/evolver/evolver-controller`, so edits in the current checkout are
 used immediately. Use `tools/dev-env evolver-edge up` or
 `tools/evolver-edge up --build` to manage the edge stack. The first manages
