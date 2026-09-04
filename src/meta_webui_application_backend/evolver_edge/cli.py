@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .bundle import resolve_bundle
+from .domain import plan_calibrated_dispense, validate_bounded_operation
 from .store import EdgeStore, EdgeStoreError, canonical_digest
 from .sync import SyncClient
 from .install import (detect_backend, inspect_installation, repair_installation, status_json, systemd_unit,
@@ -58,6 +59,7 @@ def _compatibility_argv(argv: list[str]) -> list[str]:
         (("local", "run"), ("run",)),
         (("local", "diagnostics"), ("doctor",)),
         (("local", "diagnostic"), ("doctor",)),
+        (("control",), ("hardware",)),
         (("local", "status"), ("status",)),
         (("local", "server"), ("status",)),
         (("local", "binding"), ("binding",)),
@@ -123,6 +125,21 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("controllers"); commands.add_parser("instruments")
     instrument = commands.add_parser("instrument"); instrument_sub = instrument.add_subparsers(dest="instrument_command", required=True)
     show = instrument_sub.add_parser("show"); show.add_argument("instrument_id")
+    calibration = commands.add_parser("calibration", help="inspect stored calibration evidence")
+    calibration_sub = calibration.add_subparsers(dest="calibration_command", required=True)
+    artifacts = calibration_sub.add_parser("artifacts")
+    artifacts.add_argument("--instrument-id")
+    preflight = calibration_sub.add_parser("preflight")
+    preflight.add_argument("references", help="JSON calibration references")
+    preflight.add_argument("--requirements", default="[]", help="JSON calibration requirements")
+    dispense = commands.add_parser("dispense", help="plan a calibrated dispense without actuating hardware")
+    dispense.add_argument("--artifact", required=True, type=Path, help="JSON pump calibration artifact")
+    dispense.add_argument("--volume-ul", required=True, type=float)
+    dispense.add_argument("--channel", required=True, type=int)
+    dispense.add_argument("--maximum-duration-ms", type=int, default=1000)
+    validation = commands.add_parser("validation", help="validate a bounded operator operation")
+    validation.add_argument("operation", choices=("safe_stop", "pulse_pump", "set_stir", "pulse_heater"))
+    validation.add_argument("--parameters", default="{}", help="JSON operation parameters")
     tui = commands.add_parser("tui", help="run the local configured Textual operator UI")
     tui.add_argument("--page", choices=("overview", "controllers", "instruments", "runs", "recovery", "maintenance"), default="overview")
     install = commands.add_parser("install-status"); install.add_argument("--unit", action="store_true")
@@ -252,6 +269,21 @@ def main(argv: list[str] | None = None) -> int:
                               durable_state_present=durable_state_present)
         _emit(plan.__dict__)
         return 2 if plan.blocked_reasons else 0
+    if args.command == "dispense":
+        try:
+            artifact = json.loads(args.artifact.read_text(encoding="utf-8"))
+            _emit(plan_calibrated_dispense(artifact=artifact, volume_ul=args.volume_ul,
+                                           channel=args.channel, maximum_duration_ms=args.maximum_duration_ms))
+            return 0
+        except (EdgeStoreError, OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+            _emit({"error": str(error)}); return 2
+    if args.command == "validation":
+        try:
+            _emit({"operation": args.operation,
+                   "parameters": validate_bounded_operation(args.operation, json.loads(args.parameters))})
+            return 0
+        except (EdgeStoreError, TypeError, ValueError, json.JSONDecodeError) as error:
+            _emit({"error": str(error)}); return 2
     with EdgeStore(_root(args.state_root)) as store:
         if args.command == "record-installed-release":
             try:
@@ -314,6 +346,15 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "controllers": _emit([store.identity()]); return 0
         if args.command == "instruments": _emit(store.list_instruments()); return 0
+        if args.command == "calibration":
+            try:
+                if args.calibration_command == "artifacts":
+                    _emit(store.calibration_artifacts(instrument_id=args.instrument_id)); return 0
+                references = json.loads(args.references)
+                requirements = json.loads(args.requirements)
+                _emit(store.calibration_preflight(references, requirements=requirements)); return 0
+            except (EdgeStoreError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+                _emit({"error": str(error)}); return 2
         if args.command == "instrument":
             try:
                 _emit(store.instrument(args.instrument_id)); return 0

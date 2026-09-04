@@ -107,6 +107,38 @@ def test_cli_inspection_redacts_nested_credentials(tmp_path, monkeypatch, capsys
     assert "<redacted>" in output or command == ("doctor",)
 
 
+def test_cli_control_mapping_reuses_hardware_command_parser():
+    assert _compatibility_argv(["control", "actuate", "pulse_pump"]) == [
+        "hardware", "actuate", "pulse_pump"]
+
+
+def test_cli_validation_delegates_to_bounded_domain(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["evoctl", "--state-root", str(tmp_path), "validation",
+                                        "pulse_pump", "--parameters", '{"channel": 2, "duration_ms": 40}'])
+    assert main() == 0
+    assert json.loads(capsys.readouterr().out)["parameters"] == {
+        "channel": 2, "direction": "forward", "duration_ms": 40}
+
+
+def test_cli_dispense_is_a_calibrated_plan_only(tmp_path, monkeypatch, capsys):
+    artifact = tmp_path / "pump.json"
+    artifact.write_text(json.dumps({"id": "pump", "calibration_type": "pump_flow_rate",
+                                    "assessment": {"status": "valid"},
+                                    "coefficients": {"slope": 2, "intercept": 0}}))
+    monkeypatch.setattr(sys, "argv", ["evoctl", "dispense", "--artifact", str(artifact),
+                                        "--volume-ul", "80", "--channel", "1"])
+    assert main() == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["operation"] == "pulse_pump"
+    assert result["parameters"]["duration_ms"] == 40
+
+
+def test_cli_calibration_artifacts_reads_edge_store(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["evoctl", "--state-root", str(tmp_path), "calibration", "artifacts"])
+    assert main() == 0
+    assert json.loads(capsys.readouterr().out) == []
+
+
 def _bundle() -> dict[str, object]:
     value: dict[str, object] = {"id": "bundle", "name": "bundle", "schema_version": "1", "execution_mode": "declarative_state_machine",
                                 "source": {}, "resolved_definition": {}, "execution_plan": {}, "runtime_parameters": [], "source_metadata": []}
