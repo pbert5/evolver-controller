@@ -159,7 +159,7 @@ case "$mode" in
     pythonpath=$(component_pythonpath "$component")
     # Evidence targets are selected explicitly; do not append the full suite.
     # Keep the component import environment and root-owned uv workspace.
-    (cd "$ROOT_DIR" && PYTHONPATH="$pythonpath" uv run --project "$ROOT_DIR" --package metactl --extra dev pytest -q "$@")
+    (cd "$ROOT_DIR" && PYTHONPATH="$pythonpath" uv run --project "$ROOT_DIR" --all-packages --all-extras pytest -q "$@")
     ;;
   all) run_all_parallel "$workers" '' '' "$@" ;;
   fast) run_all_parallel "$workers" 'not integration and not simulator and not serial' '' "$@" ;;
