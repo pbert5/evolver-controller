@@ -138,6 +138,7 @@ usage:
   tools/test simulator [pytest args...]
   tools/test coverage [pytest args...]
   tools/test component <root|controller|hardware|server|metactl> [pytest args...]
+  tools/test evidence <root|controller|hardware|server|metactl> <pytest node IDs...>
 
 PYTEST_WORKERS controls xdist workers for parallel lanes: auto (default) or a
 non-negative integer. Serial and coverage lanes run component processes in order.
@@ -151,6 +152,15 @@ validate_workers
 workers=${PYTEST_WORKERS:-auto}
 
 case "$mode" in
+  evidence)
+    [[ $# -ge 2 ]] || usage
+    component=$1
+    shift
+    pythonpath=$(component_pythonpath "$component")
+    # Evidence targets are selected explicitly; do not append the full suite.
+    # Keep the component import environment and root-owned uv workspace.
+    (cd "$ROOT_DIR" && PYTHONPATH="$pythonpath" uv run --project "$ROOT_DIR" --package metactl --extra dev pytest -q "$@")
+    ;;
   all) run_all_parallel "$workers" '' '' "$@" ;;
   fast) run_all_parallel "$workers" 'not integration and not simulator and not serial' '' "$@" ;;
   # The serial lane is intentionally conservative: it runs every repository
