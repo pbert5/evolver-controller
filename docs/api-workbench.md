@@ -63,7 +63,9 @@ each full catalog before it becomes an endpoint registry.
 Repository plus live mode compares action IDs, routes, parameters, safety,
 permissions, schemas and other contract metadata. Intentional route aliases
 remain separate actions. Actions without an API mapping stay visible but cannot
-be sent. Unavailable discovery is an error, never a claim of zero drift. A server
+be sent. Requests to changed or missing actions are blocked after a drift
+comparison; resolve the mismatch or inspect the live catalog directly.
+Unavailable discovery is an error, never a claim of zero drift. A server
 exposing only the eVOLVER application cannot establish availability for other
 applications or for routes outside its discovery contract.
 

@@ -19,3 +19,11 @@ serial owner.
 
 The reference checkout under `refference/` is intentionally retained with its
 original spelling and is read-only source material.
+
+## API Workbench
+
+Run `rtk metactl api tui --repo .` inside the Server Dev Container to explore
+the action/API contract without starting a server. Add `--live` for discovery
+and drift checks. See [API Workbench](docs/api-workbench.md) for imports,
+fixtures, request execution, testing and safety controls.
+

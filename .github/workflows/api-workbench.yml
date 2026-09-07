@@ -22,8 +22,6 @@ jobs:
         run: rtk git submodule update --init metactl evolver/evolver-server evolver/evolver-controller evolver/evolver-hardware
       - name: Resolve updated workspace lock
         run: rtk tools/check-locks --relock
-      - name: Export lock snapshot for connector review
-        run: rtk proxy python -c 'import base64,gzip,pathlib; print("WORKBENCH_LOCK=" + base64.b64encode(gzip.compress(pathlib.Path("uv.lock").read_bytes())).decode())'
       - uses: actions/upload-artifact@v4
         with:
           name: workspace-lock
