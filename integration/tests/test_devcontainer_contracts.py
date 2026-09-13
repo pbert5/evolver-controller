@@ -69,7 +69,7 @@ def test_shared_dockerfile_owns_stages_and_tool_versions():
     assert "FROM mcr.microsoft.com/vscode/devcontainers/python:1-3.12-bookworm AS base" in dockerfile
     assert "FROM base AS server" in dockerfile
     assert "FROM base AS evolver-edge" in dockerfile
-    for arg in ("UV_VERSION=0.8.14", "RTK_VERSION=v0.47.0", "NAVI_VERSION=v2.24.0"):
+    for arg in ("UV_VERSION=0.8.14", "RTK_VERSION=v0.47.0", "NAVI_VERSION=v2.24.0", "ZOXIDE_VERSION=0.9.8"):
         assert dockerfile.count(f"ARG {arg}") == 1
     assert not (ROOT / ".devcontainer/common").exists()
 
