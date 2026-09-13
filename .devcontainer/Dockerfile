@@ -24,12 +24,20 @@ RUN rm -f /etc/apt/sources.list.d/yarn.list \
     && codex --version \
     && mkdir -p /opt/meta-ball/bin /workspaces \
     && chown -R vscode:vscode /opt/meta-ball /workspaces
-COPY .devcontainer/dotfiles/.zshrc .devcontainer/dotfiles/.tmux.conf /tmp/
-RUN install -o vscode -g vscode -m 0644 /tmp/.zshrc /home/vscode/.zshrc \
+COPY .devcontainer/dotfiles/meta-ball.zsh .devcontainer/dotfiles/.tmux.conf /tmp/
+RUN install -o vscode -g vscode -m 0644 /tmp/meta-ball.zsh /home/vscode/.meta-ball.zsh \
+    && if [ -f /home/vscode/.zshrc ]; then \
+         grep -qxF 'source /home/vscode/.meta-ball.zsh' /home/vscode/.zshrc || \
+           printf '\n# Meta BAL repository shell additions\nsource /home/vscode/.meta-ball.zsh\n' >> /home/vscode/.zshrc; \
+       else \
+         printf 'source /home/vscode/.meta-ball.zsh\n' > /home/vscode/.zshrc; \
+         chown vscode:vscode /home/vscode/.zshrc; \
+       fi \
+    && usermod --shell /usr/bin/zsh vscode \
     && install -o vscode -g vscode -m 0644 /tmp/.tmux.conf /home/vscode/.tmux.conf \
-    && rm -f /tmp/.zshrc /tmp/.tmux.conf
+    && rm -f /tmp/meta-ball.zsh /tmp/.tmux.conf
 USER vscode
-ENV PATH="/home/vscode/.local/bin:${PATH}" UV_LINK_MODE=copy
+ENV PATH="/home/vscode/.local/bin:${PATH}" UV_LINK_MODE=copy SHELL=/usr/bin/zsh
 
 FROM base AS server
 USER root

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 
@@ -11,6 +12,30 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_DIR = ROOT / "docs" / "navi" / "cheatsheets"
 OUTPUT = ROOT / "docs" / "navi" / "generated" / "meta-ball.cheat"
 HEADER = """# GENERATED FILE. DO NOT EDIT.\n# Run tools/generate-navi-cheats after changing docs/navi/cheatsheets/.\n"""
+
+
+def action_entries() -> str:
+    """Render one searchable entry for every deployment catalog action."""
+    index_path = ROOT / "metactl" / "applications" / "deployment" / "action-catalog.json"
+    if not index_path.is_file():
+        return ""
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    entries: list[str] = []
+    for reference in index["catalogs"]:
+        catalog = json.loads((index_path.parent / reference["path"]).read_text(encoding="utf-8"))
+        for action in catalog["actions"]:
+            action_id = action["id"]
+            tags = " ".join(action.get("tags", []))
+            safety = action.get("safety", {})
+            effect = safety.get("effect") or ("mutation" if "mutat" in tags else "read-only")
+            warning = " mutation confirmation-required" if effect != "read-only" else ""
+            args = "".join(f" --{name.replace('_', '-')} <{name}>" for name, spec in action.get("parameters", {}).items()
+                           if spec.get("required"))
+            entries.append("\n".join([
+                f"% Meta BAL action {action_id} {action.get('title', '')} {tags} {effect}{warning}",
+                f"metactl {action_id}{args}",
+            ]))
+    return "\n\n".join(entries)
 
 
 def render() -> str:
@@ -24,6 +49,9 @@ def render() -> str:
         if not text:
             raise SystemExit(f"Navi source is empty: {source}")
         sections.append(text)
+    generated_actions = action_entries()
+    if generated_actions:
+        sections.append("% Generated metactl action catalog\n" + generated_actions)
     return HEADER + "\n\n".join(sections) + "\n"
 
 

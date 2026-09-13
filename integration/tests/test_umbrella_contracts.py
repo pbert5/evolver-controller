@@ -80,7 +80,8 @@ def test_retired_execution_and_native_deployment_identifiers_cannot_return() -> 
     for root in roots:
         paths = (root,) if root.is_file() else root.rglob("*")
         for path in paths:
-            if not path.is_file() or path.suffix in {".pyc", ".lock"} or "tests" in path.parts:
+            if (not path.is_file() or path.suffix in {".pyc", ".lock"}
+                    or "tests" in path.parts or ".pytest_cache" in path.parts):
                 continue
             text = path.read_text(encoding="utf-8", errors="ignore")
             assert not any(marker in text for marker in forbidden), f"retired identifier in {path}"

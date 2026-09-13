@@ -74,6 +74,19 @@ def test_shared_dockerfile_owns_stages_and_tool_versions():
     assert not (ROOT / ".devcontainer/common").exists()
 
 
+def test_interactive_shell_layers_on_base_zsh_and_keeps_bash_available():
+    dockerfile = (ROOT / ".devcontainer/Dockerfile").read_text()
+    fragment = (ROOT / ".devcontainer/dotfiles/meta-ball.zsh").read_text()
+    dev_env = (ROOT / "tools/dev-env").read_text()
+    assert "meta-ball.zsh" in dockerfile
+    assert "install -o vscode -g vscode -m 0644 /tmp/.zshrc" not in dockerfile
+    assert "usermod --shell /usr/bin/zsh vscode" in dockerfile
+    assert "SHELL=/usr/bin/zsh" in dockerfile
+    assert "tools/dev-env" in dev_env and "shell)" in dev_env and "zsh -l -i" in dev_env
+    assert "tools/navi-widget.zsh" in fragment
+    assert "zoxide init zsh" in fragment
+
+
 def test_cache_contract_is_worktree_scoped_and_edge_runtime_is_stable():
     server = json.loads((ROOT / ".devcontainer/server/devcontainer.json").read_text())
     edge = json.loads((ROOT / ".devcontainer/evolver-edge/devcontainer.json").read_text())

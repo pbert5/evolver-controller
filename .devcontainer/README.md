@@ -10,3 +10,8 @@ Each worktree gets an isolated uv cache volume named
 `/home/vscode/.cache/uv`. The edge profile additionally mounts the stable
 `evolver-edge-runtime` volume at `/run/evolver-controller`; that volume is the
 only shared runtime state between the edge stack and its Dev Container.
+
+Zsh is the canonical interactive shell in both profiles. Use
+`tools/dev-env server shell` to enter it explicitly, or use the configured VS
+Code terminal profile. `tools/dev-env server exec <command...>` remains the
+non-interactive command path, including for Bash scripts.

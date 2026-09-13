@@ -26,7 +26,7 @@ id="${slug:-worktree}-${hash}"
 name="meta-ball-${id}-${profile}"
 config="$ROOT/.devcontainer/${profile}/devcontainer.json"
 cd "$ROOT"
-usage() { echo 'usage: tools/dev-env [server|evolver-edge] {identity|check|status|network|smoke|up|exec <command...>|rebuild|down|build}'; }
+usage() { echo 'usage: tools/dev-env [server|evolver-edge] {identity|check|status|network|smoke|up|shell|exec <command...>|rebuild|down|build}'; }
 container_id() { docker ps -aq --filter "label=devcontainer.local_folder=$ROOT" --filter "label=devcontainer.config_file=$config" | head -1; }
 state() { local id; id=$(container_id); [[ -n "$id" ]] && docker inspect --format '{{.State.Status}}' "$id" || echo absent; }
 case "$action" in
@@ -37,6 +37,7 @@ case "$action" in
   build) export META_BALL_WORKTREE_ID="$id"; devcontainer build --workspace-folder "$ROOT" --config "$config" ;;
   smoke) export META_BALL_WORKTREE_ID="$id"; if [[ "$profile" == server ]]; then smoke='command -v rtk uv python pytest navi codex docker >/dev/null; uv run --project /workspaces/meta_bal python -c "import yaml"; uv run --project /workspaces/meta_bal/evolver/evolver-controller evoctl --help >/dev/null; uv run --project /workspaces/meta_bal/metactl metactl --help >/dev/null; navi --version >/dev/null; codex --version >/dev/null; docker --version >/dev/null'; else smoke='command -v rtk uv python navi codex docker >/dev/null; uv run --project /workspaces/meta_bal/evolver/evolver-controller evoctl --help >/dev/null; test -d /run/evolver-controller'; fi; devcontainer exec --workspace-folder "$ROOT" --config "$config" bash -lc "set -euo pipefail; $smoke; echo \"$profile smoke checks passed\"" ;;
   up|rebuild) export META_BALL_WORKTREE_ID="$id"; if [[ "$action" == rebuild ]]; then old=$(container_id); [[ -z "$old" ]] || docker rm -f "$old" >/dev/null; fi; devcontainer up --workspace-folder "$ROOT" --config "$config" ;;
+  shell) export META_BALL_WORKTREE_ID="$id"; devcontainer exec --workspace-folder "$ROOT" --config "$config" zsh -l -i ;;
   exec) [[ ${#action_args[@]} -gt 0 ]] || { usage; exit 2; }; export META_BALL_WORKTREE_ID="$id"; devcontainer exec --workspace-folder "$ROOT" --config "$config" "${action_args[@]}" ;;
   down) old=$(container_id); [[ -z "$old" ]] || docker rm -f "$old" ;;
   *) usage; exit 2;;

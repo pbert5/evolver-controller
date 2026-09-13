@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import subprocess
 
 import pytest
@@ -24,6 +25,22 @@ def test_generator_is_deterministic_and_uses_all_sources():
         assert source.read_text().strip() in generated
 
 
+def test_every_deployment_action_has_a_generated_search_entry():
+    index = json.loads((ROOT / "metactl/applications/deployment/action-catalog.json").read_text())
+    generated = (ROOT / "docs/navi/generated/meta-ball.cheat").read_text()
+    for reference in index["catalogs"]:
+        catalog = json.loads((ROOT / "metactl/applications/deployment" / reference["path"]).read_text())
+        for action in catalog["actions"]:
+            assert f"metactl {action['id']}" in generated
+
+
+def test_curated_navi_catalog_covers_primary_developer_lanes():
+    generated = (ROOT / "docs/navi/generated/meta-ball.cheat").read_text().lower()
+    for phrase in ("server shell", "evolver-edge up", "tools/test all", "postgres",
+                   "metactl api tui", "recovery", "calibration", "release"):
+        assert phrase in generated
+
+
 def test_zsh_widget_is_safe_and_both_profiles_wire_it():
     widget = (ROOT / "tools/navi-widget.zsh").read_text()
     assert "zle .accept-line" in widget
@@ -32,9 +49,9 @@ def test_zsh_widget_is_safe_and_both_profiles_wire_it():
     assert "zle -N meta-ball-navi-accept-line" in widget
 
     for profile in ("server", "evolver-edge"):
-        zshrc = (ROOT / ".devcontainer/dotfiles/.zshrc").read_text()
-        assert "NAVI_PATH=\"${NAVI_PATH:-/workspaces/meta_bal/docs/navi/generated}\"" in zshrc
-        assert "tools/navi-widget.zsh" in zshrc
+        fragment = (ROOT / ".devcontainer/dotfiles/meta-ball.zsh").read_text()
+        assert "NAVI_PATH=\"${NAVI_PATH:-/workspaces/meta_bal/docs/navi/generated}\"" in fragment
+        assert "tools/navi-widget.zsh" in fragment
 
 
 def test_parent_docs_do_not_reintroduce_retired_evoctl_claim():

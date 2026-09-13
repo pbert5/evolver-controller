@@ -12,6 +12,11 @@ Generation is deterministic: source files are read in bytewise path order and
 the output has a stable header and newline policy. CI and local tests use
 `tools/generate-navi-cheats --check` to detect stale generated content.
 
+The generator also derives a granular entry for every action in the metactl
+deployment catalog. Curated cheatsheets describe repository workflows; the
+catalog remains authoritative for action IDs, required parameters, tags, and
+safety wording.
+
 The container zsh profiles set `NAVI_PATH` to the generated directory and load
 `tools/navi-widget.zsh`. Pressing Enter on an empty prompt opens Navi and puts
 the selected command into the prompt; it does not execute the selected command.
