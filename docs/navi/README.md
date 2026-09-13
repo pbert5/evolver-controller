@@ -5,12 +5,12 @@ The files in `cheatsheets/` are the editable source for this repository's
 `generated/meta-ball.cheat` file is produced by:
 
 ```text
-tools/generate-navi-cheats
+tools/generate_navi_cheats
 ```
 
 Generation is deterministic: source files are read in bytewise path order and
 the output has a stable header and newline policy. CI and local tests use
-`tools/generate-navi-cheats --check` to detect stale generated content.
+`tools/generate_navi_cheats --check` to detect stale generated content.
 
 The generator also derives a granular entry for every action in the metactl
 deployment catalog. Curated cheatsheets describe repository workflows; the

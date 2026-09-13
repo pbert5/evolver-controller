@@ -24,7 +24,7 @@ less docs/operator.md
 tools/dev-env server up
 
 # Open a shell in the Server Dev Container
-tools/dev-env server exec zsh
+tools/dev-env server shell
 
 # Start the eVOLVER Edge Dev Container
 tools/dev-env evolver-edge up
@@ -62,7 +62,7 @@ tools/test coverage
 tools/test frontend
 tools/test e2e
 tools/test-postgres-acceptance
-tools/generate-navi-cheats --check
+tools/generate_navi_cheats --check
 metactl actions list --filter calibration
 
 # Meta BAL discovery and API Workbench

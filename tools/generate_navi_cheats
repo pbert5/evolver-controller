@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_DIR = ROOT / "docs" / "navi" / "cheatsheets"
 OUTPUT = ROOT / "docs" / "navi" / "generated" / "meta-ball.cheat"
-HEADER = """# GENERATED FILE. DO NOT EDIT.\n# Run tools/generate-navi-cheats after changing docs/navi/cheatsheets/.\n"""
+HEADER = """# GENERATED FILE. DO NOT EDIT.\n# Run tools/generate_navi_cheats after changing docs/navi/cheatsheets/.\n"""
 
 
 def action_entries() -> str:

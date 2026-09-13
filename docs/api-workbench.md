@@ -7,14 +7,14 @@ pins both the client and the server discovery implementation.
 ## Run inside the Server Dev Container
 
 ```sh
-rtk metactl api tui --repo .
-rtk metactl api tui --repo . --live
-rtk metactl api tui --server http://127.0.0.1:18087
-rtk metactl api check --repo . --live
-rtk metactl api check --repo . --audit
-rtk metactl api test evolver.edge.status --repo . --dry-run
-rtk metactl api test evolver.edge.status --repo . --trust-tests
-rtk metactl api test --repo . --app evolver --trust-tests
+metactl api tui --repo .
+metactl api tui --repo . --live
+metactl api tui --server http://127.0.0.1:18087
+metactl api check --repo . --live
+metactl api check --repo . --audit
+metactl api test evolver.edge.status --repo . --dry-run
+metactl api test evolver.edge.status --repo . --trust-tests
+metactl api test --repo . --app evolver --trust-tests
 ```
 
 From a host, enter the profile with `rtk tools/dev-env server up`, then use
@@ -70,9 +70,9 @@ exposing only the eVOLVER application cannot establish availability for other
 applications or for routes outside its discovery contract.
 
 ```sh
-rtk metactl api tui --openapi ./openapi.yaml --server http://localhost:9000
-rtk metactl api tui --openapi https://example.test/openapi.json --server https://example.test
-rtk metactl api tui --repo . --fixture metactl/examples/api-workbench-responses.json
+metactl api tui --openapi ./openapi.yaml --server http://localhost:9000
+metactl api tui --openapi https://example.test/openapi.json --server https://example.test
+metactl api tui --repo . --fixture metactl/examples/api-workbench-responses.json
 ```
 
 OpenAPI 3.0 and 3.1 imports support JSON bodies, local references, scalar
