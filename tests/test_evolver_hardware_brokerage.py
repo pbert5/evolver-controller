@@ -5,7 +5,6 @@ import pytest
 from meta_webui_application_backend.evolver_edge.hardware_broker import (HardwareBroker,
                                                                            HardwareBrokerProtocolError,
                                                                            HardwareBrokerUnavailable)
-from meta_webui_application_backend.evolver_edge.hardware_ipc import DEFAULT_SOCKET as DEFAULT_HARDWARE_SOCKET
 from meta_webui_application_backend.evolver_edge.store import EdgeStore, LeaseValidationError
 
 
@@ -53,11 +52,14 @@ def test_explicit_hardware_socket_overrides_environment(tmp_path, monkeypatch):
 
 def test_hardware_socket_defaults_when_unconfigured(tmp_path, monkeypatch):
     monkeypatch.delenv("EVOLVER_HARDWARE_SOCKET", raising=False)
+    calls = []
 
     with _store(tmp_path / "state") as store:
-        broker = HardwareBroker(store, request=lambda *_: {})
+        broker = HardwareBroker(store, request=lambda path, payload, timeout: calls.append(path) or {})
+        broker.discover(operator="ash")
 
-    assert broker.socket_path == DEFAULT_HARDWARE_SOCKET
+    assert calls == ["/run/evolver-hardware/hardware.sock"]
+    assert "/run/evolver-controller/hardware.sock" not in calls
 
 
 def test_hardware_ipc_failures_map_to_typed_errors(tmp_path):
