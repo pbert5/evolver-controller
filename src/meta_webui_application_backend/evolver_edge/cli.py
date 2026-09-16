@@ -16,7 +16,8 @@ from .install import inspect_installation
 from .lifecycle import plan_lifecycle
 from .update import ComposeUpdateBackend, UpdateManager, UpdatePolicy, record_installed_release
 from .doctor import doctor_report
-from .operator import DEFAULT_SOCKET as DEFAULT_OPERATOR_SOCKET, OperatorUnavailable, request as operator_request
+from .operator import (DEFAULT_SOCKET as DEFAULT_OPERATOR_SOCKET, OperatorClient,
+                       OperatorProtocolError, OperatorUnavailable, request as operator_request)
 
 
 def _root(value: str | None) -> Path:
@@ -40,6 +41,17 @@ def _redact(value: Any) -> Any:
 
 def _emit(value: Any) -> None:
     print(json.dumps(_redact(value), indent=2, sort_keys=True, default=str))
+
+
+def _operator_exit_code(error: Exception) -> int:
+    return 69 if isinstance(error, OperatorUnavailable) else 64
+
+
+def _offline_state_path(state_root: Path) -> Path:
+    database = state_root / "edge.sqlite3"
+    if not database.is_file():
+        raise EdgeStoreError(f"offline state is missing at {database}; provide a valid --state-root")
+    return database
 
 
 def _compatibility_argv(argv: list[str]) -> list[str]:
@@ -206,27 +218,45 @@ def main(argv: list[str] | None = None) -> int:
     # Normalize only the command portion so ``--state-root PATH server`` is
     # equivalent to ``server --state-root PATH`` without changing parsing.
     prefix: list[str] = []
-    while raw_arguments and raw_arguments[0] == "--state-root":
-        prefix.extend(raw_arguments[:2])
-        raw_arguments = raw_arguments[2:]
+    while raw_arguments:
+        if raw_arguments[0] == "--offline":
+            prefix.append(raw_arguments.pop(0))
+        elif raw_arguments[0] in {"--state-root", "--operator-socket"} and len(raw_arguments) > 1:
+            prefix.extend(raw_arguments[:2])
+            raw_arguments = raw_arguments[2:]
+        else:
+            break
     arguments = [*prefix, *_compatibility_argv(raw_arguments)]
     args = build_parser().parse_args(arguments)
-    # Inspection normally goes through the controller-owned operator service.
-    # Falling back preserves the historical CLI when invoked during startup or
-    # on an intentionally stopped service; --offline makes that choice explicit.
+    live_operations = {"status", "binding", "runs", "instruments", "doctor"}
     offline_read = args.offline
-    if args.command in {"status", "runs", "instruments", "doctor"} and not offline_read:
+    # Live read models have one control plane. A failed socket is reported to
+    # the operator; it is never converted into a direct SQLite read.
+    if not args.offline and args.command in live_operations:
         try:
-            result = operator_request(args.command, args.operator_socket)
+            result = operator_request(args.command, args.operator_socket, params={})
             _emit(result)
             if args.command == "doctor" and result.get("summary", {}).get("FAIL"):
                 return 2
             return 0
-        except OperatorUnavailable:
-            # Startup and container shutdown can briefly leave the socket
-            # unavailable.  Retain the legacy direct-store read, explicitly
-            # treating it as offline so doctor never probes central here.
-            offline_read = True
+        except (OperatorUnavailable, OperatorProtocolError) as error:
+            print(f"{error.kind}: {error}", file=sys.stderr)
+            return _operator_exit_code(error)
+    if not args.offline and args.command == "hardware":
+        params = {"operation": "discover" if args.hardware_command == "discover" else
+                  "protocol_test" if args.hardware_command == "protocol-test" else args.hardware_command}
+        try:
+            _emit(operator_request("hardware", args.operator_socket, params=params))
+            return 0
+        except (OperatorUnavailable, OperatorProtocolError) as error:
+            print(f"{error.kind}: {error}", file=sys.stderr)
+            return _operator_exit_code(error)
+    if args.offline and args.command in live_operations:
+        try:
+            _offline_state_path(_root(args.state_root))
+        except EdgeStoreError as error:
+            print(f"offline state unavailable: {error}; --offline requires existing controller state", file=sys.stderr)
+            return 66
     if args.command == "lifecycle-plan":
         if args.current_state is not None:
             snapshot = json.loads(args.current_state.read_text(encoding="utf-8"))
@@ -264,6 +294,16 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         except (EdgeStoreError, TypeError, ValueError, json.JSONDecodeError) as error:
             _emit({"error": str(error)}); return 2
+    if args.command == "tui" and not args.offline:
+        from .tui import TUIUnavailableError, run
+        try:
+            return run(OperatorClient(args.operator_socket), page=args.page)
+        except TUIUnavailableError as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        except OperatorUnavailable as error:
+            print(f"{error}; use --offline tui for local durable state", file=sys.stderr)
+            return 69
     with EdgeStore(_root(args.state_root)) as store:
         if args.command == "record-installed-release":
             try:
@@ -341,8 +381,12 @@ def main(argv: list[str] | None = None) -> int:
             except KeyError:
                 _emit({"id": args.instrument_id, "error": "instrument not found"}); return 1
         if args.command == "tui":
-            from .tui import run as run_tui
-            return run_tui(store, page=args.page)
+            from .tui import TUIUnavailableError, run_offline
+            try:
+                return run_offline(store, page=args.page)
+            except TUIUnavailableError as error:
+                print(str(error), file=sys.stderr)
+                return 2
         if args.command == "simulator":
             # Simulator support is part of this distribution.  Constructing it
             # also derives stable inventory from the durable controller id, so

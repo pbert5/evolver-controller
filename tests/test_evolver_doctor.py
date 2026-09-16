@@ -37,8 +37,10 @@ def test_doctor_warns_for_orphaned_sync_and_unprovisioned_physical_hardware(tmp_
 
 
 def test_cli_doctor_returns_nonzero_only_for_durable_recovery_failure(tmp_path: Path, capsys, monkeypatch) -> None:
+    with EdgeStore(tmp_path):
+        pass
     monkeypatch.setattr("meta_webui_application_backend.evolver_edge.cli.doctor_report", lambda _store, **_kwargs: {
         "summary": {"PASS": 1, "WARN": 0, "FAIL": 1}, "checks": []
     })
-    assert main(["--state-root", str(tmp_path), "doctor"]) == 2
+    assert main(["--offline", "--state-root", str(tmp_path), "doctor"]) == 2
     assert '"FAIL": 1' in capsys.readouterr().out
