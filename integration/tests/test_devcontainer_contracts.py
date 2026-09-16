@@ -98,6 +98,26 @@ def test_cache_contract_is_worktree_scoped_and_edge_runtime_is_stable():
     assert "evolver-edge-runtime,target=/run/evolver-controller" not in server_mounts
 
 
+def test_evolver_edge_persists_state_and_bootstraps_non_root_storage():
+    edge = json.loads((ROOT / ".devcontainer/evolver-edge/devcontainer.json").read_text())
+    edge_mounts = "\n".join(edge["mounts"])
+    bootstrap = (ROOT / ".devcontainer/evolver-edge/scripts/bootstrap-evolver-edge").read_text()
+
+    assert "source=evolver-edge-state,target=/var/lib/evolver-controller" in edge_mounts
+    assert "source=evolver-edge-runtime,target=/run/evolver-controller" in edge_mounts
+    assert "sudo install -d" in bootstrap
+    assert "sudo chown vscode:vscode" in bootstrap
+    assert "/var/lib/evolver-controller" in bootstrap
+    assert "/run/evolver-controller" in bootstrap
+
+
+def test_evolver_edge_state_volume_is_named_for_recreate_persistence():
+    config = json.loads((ROOT / ".devcontainer/evolver-edge/devcontainer.json").read_text())
+    edge_mounts = "\n".join(config["mounts"])
+
+    assert "source=evolver-edge-state,target=/var/lib/evolver-controller" in edge_mounts
+
+
 def test_evolver_edge_devcontainer_is_source_backed_and_has_docker_without_serial():
     config = json.loads((ROOT / ".devcontainer/evolver-edge/devcontainer.json").read_text())
     assert config["name"] == "Meta Ball eVOLVER Edge"

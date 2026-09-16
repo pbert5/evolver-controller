@@ -7,9 +7,11 @@ add only their profile-specific tools and launchers.
 
 Each worktree gets an isolated uv cache volume named
 `meta-ball-${META_BALL_WORKTREE_ID}-uv-cache`, mounted at
-`/home/vscode/.cache/uv`. The edge profile additionally mounts the stable
-`evolver-edge-runtime` volume at `/run/evolver-controller`; that volume is the
-only shared runtime state between the edge stack and its Dev Container.
+`/home/vscode/.cache/uv`. The edge profile mounts the stable
+`evolver-edge-state` volume at `/var/lib/evolver-controller` for durable
+controller state and the stable `evolver-edge-runtime` volume at
+`/run/evolver-controller` for runtime sockets. The bootstrap makes both
+directories owned by `vscode`.
 
 Zsh is the canonical interactive shell in both profiles. Use
 `tools/dev-env server shell` to enter it explicitly, or use the configured VS
