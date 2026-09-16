@@ -7,6 +7,8 @@ web_search = "live"
 [agents]
 enabled = true
 max_concurrent_threads_per_session = 8
+# Permit root -> stream-router -> leaf, while bounding deeper recursion.
+max_depth = 2
 
 [features]
 # Keep the workspace's nested-agent and lifecycle-hook controls explicit.
