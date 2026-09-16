@@ -5,7 +5,8 @@ control plane. It is intentionally distinct from `metactl api tui`, which is
 the developer/API Workbench.
 
 > `metactl tui` is the operator console. The developer/API Workbench remains
-> separately addressable as `metactl api tui`.
+> separately addressable as `metactl api tui`. The `metactl doctor` workflow
+> remains pending its repair and is not part of this availability claim.
 
 ## Startup contract
 

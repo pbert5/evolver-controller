@@ -4,10 +4,10 @@ This page defines the ordinary operator path. The goal is to reach the central
 stack without manually reconstructing its URL, container network, or auth
 configuration.
 
-> The pinned client provides `metactl tui` for the operator console,
-> `metactl doctor` for read-only diagnostics, and `metactl api tui` for the API
-> Workbench. The parent repository's `tools/metactl` launcher runs that client
-> in the current checkout's Server Dev Container.
+> The pinned client provides `metactl tui` for the operator console and
+> `metactl api tui` for the API Workbench. The parent repository's
+> `tools/metactl` launcher runs that client in the current checkout's Server
+> Dev Container. The `metactl doctor` workflow remains pending its repair.
 
 ## Managed development checkout
 
@@ -20,7 +20,6 @@ rtk tools/dev-env server up
 The target host-side convenience path is:
 
 ```text
-rtk tools/metactl doctor
 rtk tools/metactl tui
 ```
 
@@ -31,7 +30,6 @@ client.
 Inside the Server Dev Container, the equivalent path is:
 
 ```text
-metactl doctor
 metactl tui
 ```
 
@@ -41,18 +39,11 @@ non-secret session defaults through the shared
 not need `--repo`, `--live`, or a manually discovered host/container address for
 normal Meta Ball development.
 
-## What doctor proves
+## Doctor status
 
-`metactl doctor` is read-only. It reports, without printing secret values:
-
-- the resolved central target and where that value came from;
-- whether the target is reachable;
-- whether authentication material is configured, without displaying it;
-- live action-discovery status, version, and action count;
-- local versus live catalog drift when a local catalog is available;
-- remediation commands when discovery is unavailable.
-
-A failed doctor check must not silently switch to offline repository browsing.
+The `metactl doctor` contract is pending its repair. Do not treat it as a
+proven diagnostic workflow until that repair lands; use the managed target and
+the explicit status, network, and smoke checks while it is pending.
 
 ## Direct CLI examples
 

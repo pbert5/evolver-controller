@@ -7,8 +7,9 @@ database, direct EdgeStore access, SSH transport, or duplicated domain logic.
 > This documentation describes the approved operator experience implemented by
 > the pinned client and the repository-owned Server Dev Container. The client
 > provides the action catalog, grouped command aliases, first-class nested help,
-> the operator TUI, and `metactl doctor`; the parent repository supplies the
-> managed central-target bootstrap.
+> and the operator TUI; the parent repository supplies the managed
+> central-target bootstrap. The `metactl doctor` contract remains pending its
+> repair and is not claimed here as an available workflow.
 
 ## Start here
 
@@ -30,11 +31,9 @@ The intended first-run experience is:
 
 ```text
 # from the repository host
-tools/metactl doctor
 tools/metactl tui
 
 # from inside the Server Dev Container
-metactl doctor
 metactl tui
 ```
 

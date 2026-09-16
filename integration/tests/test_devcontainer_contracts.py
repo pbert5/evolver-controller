@@ -130,7 +130,12 @@ def test_dev_env_check_validates_the_managed_metactl_target():
     assert "http://127.0.0.1:18087" in source
 
 
-def test_dev_env_check_rejects_meta_webui_names_with_central_url_suffix(tmp_path):
+@pytest.mark.parametrize("variable_name", [
+    "META_WEBUI_METACTL_CENTRAL_URL_SUFFIX",
+    "PREFIX_META_WEBUI_METACTL_CENTRAL_URL",
+    "meta_webui_metactl_central_url",
+])
+def test_dev_env_check_rejects_meta_webui_names_that_are_not_exact(tmp_path, variable_name):
     checkout = tmp_path / "checkout"
     (checkout / "tools").mkdir(parents=True)
     (checkout / ".devcontainer/server").mkdir(parents=True)
@@ -143,13 +148,23 @@ def test_dev_env_check_rejects_meta_webui_names_with_central_url_suffix(tmp_path
 
     config_path = checkout / ".devcontainer/server/devcontainer.json"
     config = json.loads(config_path.read_text())
-    config["containerEnv"]["META_WEBUI_METACTL_CENTRAL_URL_SUFFIX"] = "unexpected"
+    config["containerEnv"][variable_name] = "unexpected"
     config_path.write_text(json.dumps(config))
 
     result = subprocess.run([str(checkout / "tools/dev-env"), "server", "check"],
                             cwd=checkout, capture_output=True, text=True, check=False)
 
     assert result.returncode != 0
+
+
+def test_dev_env_identity_is_worktree_scoped_when_invoked_from_linked_worktree():
+    result = subprocess.run([str(ROOT / "tools/dev-env"), "server", "identity"],
+                            cwd=ROOT, capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    identity = result.stdout.strip()
+    assert identity.startswith("fix-documentation-")
+    assert len(identity.rsplit("-", 1)[-1]) == 10
+    assert all(character in "0123456789abcdef" for character in identity.rsplit("-", 1)[-1])
 
 
 def test_shared_dockerfile_owns_stages_and_tool_versions():

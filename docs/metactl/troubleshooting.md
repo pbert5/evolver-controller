@@ -1,8 +1,8 @@
 # metactl troubleshooting
 
-Use this page when the normal central operator path fails. Start with
-`metactl doctor` to turn environment and connection ambiguity into explicit,
-read-only checks.
+Use this page when the normal central operator path fails. Start with the
+managed environment checks below; the `metactl doctor` workflow remains
+pending its repair.
 
 ## The TUI says central is unavailable
 
@@ -15,15 +15,9 @@ rtk tools/dev-env server network
 rtk tools/dev-env server smoke
 ```
 
-Then run the source-backed client inside that environment:
-
-```text
-rtk tools/dev-env server exec metactl doctor
-```
-
 Do not fix a container-network problem by hardcoding a random host address into
-the TUI. Repair the repository-owned bootstrap so CLI, doctor, and TUI resolve
-the same central target.
+the TUI. Repair the repository-owned bootstrap so the CLI and TUI resolve the
+same central target.
 
 ## Authentication or permission failure
 
@@ -42,7 +36,6 @@ must reuse the shared transport and action catalog. Compare:
 
 ```text
 metactl controllers list --json
-metactl doctor
 metactl tui
 ```
 
