@@ -1,4 +1,6 @@
 import json
+import hashlib
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -133,6 +135,7 @@ def test_dev_env_check_validates_the_managed_metactl_target():
 @pytest.mark.parametrize("variable_name", [
     "META_WEBUI_METACTL_CENTRAL_URL_SUFFIX",
     "PREFIX_META_WEBUI_METACTL_CENTRAL_URL",
+    "PREFIXMETA_WEBUI_METACTL_CENTRAL_URL",
     "meta_webui_metactl_central_url",
 ])
 def test_dev_env_check_rejects_meta_webui_names_that_are_not_exact(tmp_path, variable_name):
@@ -158,13 +161,33 @@ def test_dev_env_check_rejects_meta_webui_names_that_are_not_exact(tmp_path, var
 
 
 def test_dev_env_identity_is_worktree_scoped_when_invoked_from_linked_worktree():
+    host_env = os.environ.copy()
+    configured_identity = host_env.get("META_BALL_WORKTREE_ID")
+    if configured_identity is None:
+        expected_hash = hashlib.sha256(str(ROOT.resolve()).encode()).hexdigest()[:10]
+        configured_identity = f"fix-documentation-{expected_hash}"
     result = subprocess.run([str(ROOT / "tools/dev-env"), "server", "identity"],
-                            cwd=ROOT, capture_output=True, text=True, check=False)
+                            cwd=ROOT, env=host_env, capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
     identity = result.stdout.strip()
-    assert identity.startswith("fix-documentation-")
-    assert len(identity.rsplit("-", 1)[-1]) == 10
-    assert all(character in "0123456789abcdef" for character in identity.rsplit("-", 1)[-1])
+    assert identity == configured_identity
+
+
+def test_dev_env_identity_is_preserved_when_invoked_in_canonical_container():
+    expected_identity = os.environ.get("META_BALL_WORKTREE_ID")
+    if expected_identity is None:
+        expected_hash = hashlib.sha256(str(ROOT.resolve()).encode()).hexdigest()[:10]
+        expected_identity = f"fix-documentation-{expected_hash}"
+    result = subprocess.run(
+        [str(ROOT / "tools/dev-env"), "server", "identity"],
+        cwd=ROOT,
+        env={"META_BALL_WORKTREE_ID": expected_identity},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == expected_identity
 
 
 def test_shared_dockerfile_owns_stages_and_tool_versions():
