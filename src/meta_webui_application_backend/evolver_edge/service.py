@@ -15,6 +15,11 @@ from .store import EdgeStore
 from .sync import SyncClient
 
 
+def build_hardware_broker(store: EdgeStore, socket_path: str | None = None) -> HardwareBroker:
+    """Construct the operator broker with optional explicit socket injection."""
+    return HardwareBroker(store, socket_path=socket_path)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="evolver-controller")
     parser.add_argument("--state-root", default=os.environ.get("EVOLVER_STATE_ROOT", "/var/lib/evolver-controller"))
@@ -33,7 +38,7 @@ def main(argv: list[str] | None = None) -> int:
             source="unix_operator_socket", permissions=frozenset({"hardware_maintenance"}))
         operator = OperatorServer(
             store, args.operator_socket, operator=local_operator,
-            hardware_broker=HardwareBroker(store)).start()
+            hardware_broker=build_hardware_broker(store)).start()
         previous_handlers: dict[int, object] = {}
 
         def stop(_signum: int, _frame: object) -> None:
