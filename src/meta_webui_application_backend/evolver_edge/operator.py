@@ -29,6 +29,12 @@ OPERATION_METADATA: dict[str, dict[str, str]] = {
     "runs": {"access": "read", "mode": "live"},
     "status": {"access": "read", "mode": "live"},
     "hardware": {"access": "mutate", "mode": "live"},
+    "run": {"access": "mutate", "mode": "live"},
+    "instrument": {"access": "read", "mode": "live"},
+    "calibration": {"access": "read", "mode": "live"},
+    "hardware_lease": {"access": "mutate", "mode": "live"},
+    "hardware_layout": {"access": "mutate", "mode": "live"},
+    "hardware_provision_identity": {"access": "mutate", "mode": "live"},
 }
 ALLOWED_OPERATIONS = frozenset(OPERATION_METADATA)
 
@@ -95,6 +101,10 @@ def _dispatch(store: EdgeStore, operation: str, params: dict[str, Any], *,
         if hardware_operation not in {"discover", "protocol_test", "hardware_command"}:
             raise OperatorProtocolError("unsupported hardware operation", kind="unsupported_operation")
         if operator is None:
+            if hardware_operation in {"discover", "protocol_test"}:
+                raise OperatorProtocolError(
+                    "maintenance operation must be delegated to the hardware service",
+                    kind="maintenance_delegated")
             raise OperatorProtocolError("authenticated operator attribution is required", kind="unauthorized")
         body = _hardware_request(params, operator.subject)
         if hardware_operation == "hardware_command":
@@ -107,8 +117,6 @@ def _dispatch(store: EdgeStore, operation: str, params: dict[str, Any], *,
             raise OperatorProtocolError(result.get("error", "hardware operation failed"),
                                         kind=result.get("kind", "hardware_error"))
         return result
-    if params:
-        raise OperatorProtocolError("params must be empty for this operation", kind="invalid_request")
     if operation == "capabilities":
         return {"protocol_version": PROTOCOL_VERSION, "operations": OPERATION_METADATA,
                 "read_only": False, "transport": "unix"}
@@ -122,7 +130,124 @@ def _dispatch(store: EdgeStore, operation: str, params: dict[str, Any], *,
         return store.list_instruments()
     if operation == "doctor":
         return doctor_report(store)
+    if operation == "instrument":
+        _only(params, {"instrument_id"}, operation)
+        try:
+            return store.instrument(_required_string(params, "instrument_id"))
+        except KeyError as error:
+            raise OperatorProtocolError("instrument not found", kind="not_found") from error
+    if operation == "calibration":
+        _only(params, {"action", "instrument_id", "references", "requirements"}, operation)
+        action = params.get("action")
+        if action == "artifacts":
+            instrument_id = params.get("instrument_id")
+            if instrument_id is not None and (not isinstance(instrument_id, str) or not instrument_id):
+                raise OperatorProtocolError("instrument_id must be a non-empty string", kind="invalid_request")
+            return store.calibration_artifacts(instrument_id=instrument_id)
+        if action == "preflight" and isinstance(params.get("references"), list) and isinstance(params.get("requirements", []), list):
+            return store.calibration_preflight(params["references"], requirements=params.get("requirements", []))
+        raise OperatorProtocolError("calibration action must be artifacts or preflight", kind="invalid_request")
+    if operation == "run":
+        _only(params, {"action", "run_id", "based_on_revision"}, operation)
+        action = params.get("action")
+        run_id = _required_string(params, "run_id")
+        if action == "show":
+            try:
+                return store.run(run_id)
+            except KeyError as error:
+                raise OperatorProtocolError("run not found", kind="not_found") from error
+        if action == "events":
+            return store.events_after(run_id)
+        if action == "telemetry":
+            return [item for stream in store.telemetry_streams() if run_id in stream for item in store.telemetry_after(stream)]
+        if action in {"pause", "resume", "stop"}:
+            revision = params.get("based_on_revision")
+            if isinstance(revision, bool) or not isinstance(revision, int):
+                raise OperatorProtocolError("based_on_revision must be an integer", kind="invalid_request")
+            try:
+                return store.transition_run(run_id=run_id, state={"pause": "paused", "resume": "running", "stop": "stopped"}[action], based_on_revision=revision)
+            except KeyError as error:
+                raise OperatorProtocolError("run not found", kind="not_found") from error
+        raise OperatorProtocolError("run action is unsupported", kind="unsupported_operation")
+    if operation == "hardware_lease":
+        _only(params, {"action", "operator", "ttl_seconds"}, operation)
+        action = params.get("action")
+        if action == "status":
+            return store.local_commissioning_lease_status()
+        subject = _operator_subject(operator)
+        if params.get("operator") not in {None, subject}:
+            raise OperatorProtocolError("operator does not match authenticated operator", kind="unauthorized")
+        try:
+            if action == "acquire":
+                return store.acquire_local_commissioning_lease(subject, params.get("ttl_seconds", 900))
+            if action == "release":
+                return store.release_local_commissioning_lease(subject)
+        except Exception as error:
+            raise OperatorProtocolError(str(error), kind="lease_error") from error
+        raise OperatorProtocolError("lease action is unsupported", kind="unsupported_operation")
+    if operation == "hardware_layout":
+        _only(params, {"instrument_id", "target_identity", "operator", "positions"}, operation)
+        subject = _operator_subject(operator)
+        if params.get("operator") not in {None, subject}:
+            raise OperatorProtocolError("operator does not match authenticated operator", kind="unauthorized")
+        target = _required_string(params, "target_identity")
+        instrument_id = params.get("instrument_id")
+        if instrument_id is None:
+            instrument = next((item for item in store.list_instruments()
+                               if item.get("device_identity") == target), None)
+            if not isinstance(instrument, dict):
+                raise OperatorProtocolError("layout target identity is not registered", kind="not_found")
+            instrument_id = instrument["id"]
+        instrument_id = _required_string({"instrument_id": instrument_id}, "instrument_id")
+        positions = params.get("positions")
+        if not isinstance(positions, dict):
+            raise OperatorProtocolError("positions must be an object", kind="invalid_request")
+        try:
+            return store.record_physical_layout(instrument_id=instrument_id, positions={int(key): value for key, value in positions.items()}, operator=subject, device_identity=target)
+        except (ValueError, KeyError) as error:
+            raise OperatorProtocolError(str(error), kind="layout_error") from error
+    if operation == "hardware_provision_identity":
+        _only(params, {"device_id", "owner_id", "operator", "physical"}, operation)
+        subject = _operator_subject(operator)
+        if params.get("operator") not in {None, subject}:
+            raise OperatorProtocolError("operator does not match authenticated operator", kind="unauthorized")
+        if params.get("physical") is not True:
+            raise OperatorProtocolError("identity provisioning requires physical opt-in", kind="unsafe")
+        if hardware_broker is None:
+            raise OperatorProtocolError("identity provisioning must be delegated to the hardware service", kind="maintenance_delegated")
+        device_id = _required_string(params, "device_id")
+        owner_id = _required_string(params, "owner_id")
+        try:
+            return hardware_broker.request(hardware_broker.socket_path, {
+                "operation": "provision_identity", "device_id": device_id,
+                "owner_id": owner_id, "operator": subject, "physical": True,
+            }, hardware_broker.timeout)
+        except Exception as error:
+            raise OperatorProtocolError(str(error), kind="hardware_error") from error
+    if operation not in {"status", "binding", "runs", "instruments", "doctor", "capabilities"}:
+        raise OperatorProtocolError(f"unsupported operator operation: {operation}", kind="unsupported_operation")
+    if params:
+        raise OperatorProtocolError("params must be empty for this operation", kind="invalid_request")
     raise OperatorProtocolError(f"unsupported operator operation: {operation}", kind="unsupported_operation")
+
+
+def _only(params: dict[str, Any], allowed: set[str], operation: str) -> None:
+    unknown = sorted(set(params) - allowed)
+    if unknown:
+        raise OperatorProtocolError(f"unknown {operation} request fields: {', '.join(unknown)}", kind="invalid_request")
+
+
+def _required_string(params: dict[str, Any], name: str) -> str:
+    value = params.get(name)
+    if not isinstance(value, str) or not value:
+        raise OperatorProtocolError(f"{name} must be a non-empty string", kind="invalid_request")
+    return value
+
+
+def _operator_subject(operator: "OperatorIdentity | None") -> str:
+    if operator is None:
+        raise OperatorProtocolError("authenticated operator attribution is required", kind="unauthorized")
+    return operator.subject
 
 
 def _hardware_request(params: dict[str, Any], subject: str) -> dict[str, Any]:

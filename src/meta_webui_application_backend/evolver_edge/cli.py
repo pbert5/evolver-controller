@@ -5,6 +5,8 @@ import argparse
 import json
 import os
 import sys
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +19,152 @@ from .lifecycle import plan_lifecycle
 from .update import ComposeUpdateBackend, UpdateManager, UpdatePolicy, record_installed_release
 from .doctor import doctor_report
 from .operator import (DEFAULT_SOCKET as DEFAULT_OPERATOR_SOCKET, OperatorClient,
-                       OperatorProtocolError, OperatorUnavailable, request as operator_request)
+                       OperatorError, OperatorProtocolError, OperatorUnavailable,
+                       request as operator_request)
+
+
+class CommandRegistryError(ValueError):
+    """The CLI command is not part of the frozen controller contract."""
+
+
+class CommandMode(str, Enum):
+    LIVE = "LIVE"
+    LOCAL = "LOCAL"
+    MAINTENANCE = "MAINTENANCE"
+
+
+@dataclass(frozen=True)
+class CommandSpec:
+    mode: CommandMode
+    disposition: str = "execute"
+    delegate: str | None = None
+
+
+_COMMAND_REGISTRY: dict[str, CommandSpec] = {
+    "status": CommandSpec(CommandMode.LIVE),
+    "binding": CommandSpec(CommandMode.LIVE),
+    "doctor": CommandSpec(CommandMode.LIVE),
+    "runs": CommandSpec(CommandMode.LIVE),
+    "controllers": CommandSpec(CommandMode.LIVE),
+    "instruments": CommandSpec(CommandMode.LIVE),
+    "instrument.show": CommandSpec(CommandMode.LIVE),
+    "run.show": CommandSpec(CommandMode.LIVE),
+    "run.events": CommandSpec(CommandMode.LIVE),
+    "run.telemetry": CommandSpec(CommandMode.LIVE),
+    "run.pause": CommandSpec(CommandMode.LIVE),
+    "run.resume": CommandSpec(CommandMode.LIVE),
+    "run.stop": CommandSpec(CommandMode.LIVE),
+    "calibration.artifacts": CommandSpec(CommandMode.LIVE),
+    "calibration.preflight": CommandSpec(CommandMode.LIVE),
+    "hardware.lease.acquire": CommandSpec(CommandMode.LIVE),
+    "hardware.lease.status": CommandSpec(CommandMode.LIVE),
+    "hardware.lease.release": CommandSpec(CommandMode.LIVE),
+    "hardware.layout": CommandSpec(CommandMode.LIVE),
+    "hardware.provision-identity": CommandSpec(CommandMode.LIVE),
+    "hardware.discover": CommandSpec(CommandMode.LIVE),
+    "hardware.protocol-test": CommandSpec(CommandMode.LIVE),
+    "hardware.actuate": CommandSpec(CommandMode.LIVE),
+    "hardware.quarantine-command": CommandSpec(CommandMode.MAINTENANCE, "rejected"),
+    "update.status": CommandSpec(CommandMode.MAINTENANCE, "delegated", "controller-service"),
+    "update.check": CommandSpec(CommandMode.MAINTENANCE, "delegated", "controller-service"),
+    "update.apply": CommandSpec(CommandMode.MAINTENANCE, "delegated", "controller-service"),
+    "enroll": CommandSpec(CommandMode.LOCAL),
+    "lifecycle-plan": CommandSpec(CommandMode.LOCAL),
+    "record-installed-release": CommandSpec(CommandMode.MAINTENANCE, "rejected"),
+    "export-state": CommandSpec(CommandMode.LOCAL),
+    "import-state": CommandSpec(CommandMode.LOCAL),
+    "recovery": CommandSpec(CommandMode.LOCAL),
+    "sync": CommandSpec(CommandMode.LOCAL),
+    "tui": CommandSpec(CommandMode.LOCAL),
+    "simulator": CommandSpec(CommandMode.LOCAL),
+    "firmware": CommandSpec(CommandMode.MAINTENANCE, "delegated", "hardware-service"),
+    "validation": CommandSpec(CommandMode.LOCAL),
+    "dispense": CommandSpec(CommandMode.LOCAL),
+}
+
+
+def command_spec(command: str) -> CommandSpec:
+    try:
+        return _COMMAND_REGISTRY[command]
+    except KeyError as error:
+        raise CommandRegistryError(f"command is not in the frozen registry: {command}") from error
+
+
+def maintenance_disposition(command: str) -> dict[str, str]:
+    spec = command_spec(command)
+    if spec.mode is not CommandMode.MAINTENANCE:
+        raise CommandRegistryError(f"command is not maintenance: {command}")
+    result = {"mode": spec.mode.value, "disposition": spec.disposition}
+    if spec.delegate is not None:
+        result["delegate"] = spec.delegate
+    return result
+
+
+def _live_request(args: argparse.Namespace) -> tuple[str, dict[str, Any]] | None:
+    """Translate a frozen LIVE CLI spelling into one typed operator request."""
+    key = args.command
+    if args.command == "run":
+        key = f"run.{args.run_command}"
+    elif args.command == "instrument":
+        key = "instrument.show"
+    elif args.command == "calibration":
+        key = f"calibration.{args.calibration_command}"
+    elif args.command == "hardware":
+        key = f"hardware.{args.hardware_command}"
+        if args.hardware_command == "lease":
+            key = f"hardware.lease.{args.lease_command}"
+    elif args.command == "update":
+        key = f"update.{args.update_command}"
+    spec = command_spec(key)
+    if spec.mode is not CommandMode.LIVE:
+        return None
+    if args.command in {"status", "binding", "runs", "instruments", "doctor"}:
+        return args.command, {}
+    if args.command == "controllers":
+        return "status", {"view": "controllers"}
+    if args.command == "instrument":
+        return "instrument", {"instrument_id": args.instrument_id}
+    if args.command == "calibration":
+        if args.calibration_command == "artifacts":
+            return "calibration", {"action": "artifacts", "instrument_id": args.instrument_id}
+        return "calibration", {"action": "preflight", "references": json.loads(args.references),
+                                "requirements": json.loads(args.requirements)}
+    if args.command == "run":
+        params: dict[str, Any] = {"action": args.run_command, "run_id": args.run_id}
+        if args.run_command in {"pause", "resume", "stop"}:
+            params["based_on_revision"] = args.based_on_revision
+        return "run", params
+    if args.command == "hardware":
+        if args.hardware_command == "lease":
+            params = {"action": args.lease_command, "operator": getattr(args, "operator", None)}
+            if args.lease_command == "acquire":
+                params["ttl_seconds"] = args.ttl_seconds
+            return "hardware_lease", params
+        if args.hardware_command == "layout":
+            return "hardware_layout", {"target_identity": args.target, "operator": args.operator,
+                                        "positions": {str(args.channel): {"physical_side": args.physical_side,
+                                                                            "method": args.method}}}
+        if args.hardware_command == "provision-identity":
+            return "hardware_provision_identity", {"device_id": args.device_id, "owner_id": args.owner_id,
+                                                     "operator": args.operator, "physical": args.physical}
+        if args.hardware_command == "discover":
+            return "hardware", {"operation": "discover"}
+        if args.hardware_command == "protocol-test":
+            return "hardware", {"operation": "protocol_test"}
+        if args.hardware_command == "actuate":
+            parameters = {"channel": args.channel}
+            if args.operation == "set_output":
+                parameters.update(output="od_led", level=args.level)
+            elif args.operation == "pulse_pump":
+                parameters.update(duration_ms=args.duration_ms)
+            else:
+                parameters.update(duration_ms=args.duration_ms, level=args.level)
+            return "hardware", {"operation": "hardware_command", "operation_name": args.operation,
+                                 "target_identity": args.target, "parameters": parameters,
+                                 "physical": args.physical, "operator": args.operator,
+                                 "lease_token": args.lease_token, "lease_owner": args.operator,
+                                 "controller_generation": args.controller_generation}
+    raise CommandRegistryError(f"LIVE command has no operator translation: {key}")
 
 
 def _root(value: str | None) -> Path:
@@ -230,6 +377,40 @@ def main(argv: list[str] | None = None) -> int:
             break
     arguments = [*prefix, *_compatibility_argv(raw_arguments)]
     args = build_parser().parse_args(arguments)
+    live_request = None if args.offline else _live_request(args)
+    if live_request is not None:
+        operation, params = live_request
+        try:
+            result = operator_request(operation, args.operator_socket, params=params)
+            if args.command == "controllers":
+                result = [{**result["controller"], "binding": result["binding"],
+                           "inventory": operator_request("instruments", args.operator_socket, params={})}]
+            _emit(result)
+            return 0
+        except (OperatorUnavailable, OperatorProtocolError, EdgeStoreError, ValueError, TypeError, json.JSONDecodeError) as error:
+            print(f"{getattr(error, 'kind', 'operator_error')}: {error}", file=sys.stderr)
+            return _operator_exit_code(error) if isinstance(error, OperatorError) else 64
+    # Every non-LIVE operation must declare its local or maintenance behavior
+    # before the local store context is entered.  This prevents new commands
+    # from silently inheriting the old EdgeStore fallback.
+    command_key = args.command
+    if args.command == "run":
+        command_key = f"run.{args.run_command}"
+    elif args.command == "instrument":
+        command_key = "instrument.show"
+    elif args.command == "calibration":
+        command_key = f"calibration.{args.calibration_command}"
+    elif args.command == "update":
+        command_key = f"update.{args.update_command}"
+    elif args.command == "hardware":
+        command_key = f"hardware.{args.hardware_command}"
+        if args.hardware_command == "lease":
+            command_key = f"hardware.lease.{args.lease_command}"
+    spec = command_spec(command_key)
+    if spec.mode is CommandMode.MAINTENANCE and not (
+            args.command == "hardware" and args.hardware_command in {"discover", "protocol-test", "actuate"}):
+        _emit(maintenance_disposition(command_key))
+        return 2 if spec.disposition == "rejected" else 0
     live_operations = {"status", "binding", "runs", "instruments", "doctor"}
     offline_read = args.offline
     # Live read models have one control plane. A failed socket is reported to
