@@ -96,6 +96,13 @@ def test_cli_module_entrypoint_invokes_main(tmp_path, monkeypatch, capsys):
     assert json.loads(capsys.readouterr().out)["controller"]["id"]
 
 
+def test_cli_tui_reports_optional_environment_requirement(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["evoctl", "--state-root", str(tmp_path), "tui"])
+    assert main() == 2
+    result = json.loads(capsys.readouterr().out)
+    assert "local TUI is unavailable" in result["error"]
+
+
 @pytest.mark.parametrize("command", [("status",), ("binding",), ("doctor",)])
 def test_cli_inspection_redacts_nested_credentials(tmp_path, monkeypatch, capsys, command):
     with EdgeStore(tmp_path) as edge:

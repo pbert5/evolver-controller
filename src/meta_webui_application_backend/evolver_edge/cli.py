@@ -342,7 +342,11 @@ def main(argv: list[str] | None = None) -> int:
                 _emit({"id": args.instrument_id, "error": "instrument not found"}); return 1
         if args.command == "tui":
             from .tui import run as run_tui
-            return run_tui(store, page=args.page)
+            try:
+                return run_tui(store, page=args.page)
+            except RuntimeError as error:
+                _emit({"error": str(error)})
+                return 2
         if args.command == "simulator":
             # Simulator support is part of this distribution.  Constructing it
             # also derives stable inventory from the durable controller id, so

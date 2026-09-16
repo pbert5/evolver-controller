@@ -42,6 +42,12 @@ def test_compose_stack_preserves_isolated_hardware_and_controller_boundaries():
     assert "depends_on:" in compose
 
 
+def test_edge_devcontainer_uses_live_durable_controller_state():
+    config = (ROOT / ".devcontainer" / "evolver-edge" / "devcontainer.json").read_text(encoding="utf-8")
+    assert "source=/var/lib/evolver-controller,target=/var/lib/evolver-controller,type=bind" in config
+    assert "source=evolver-edge-state" not in config
+
+
 def test_installer_script_does_not_silently_select_a_native_backend():
     script = installer_script(default_server_url="https://edge.example")
     # The server-hosted legacy payload remains available for recovery, but it

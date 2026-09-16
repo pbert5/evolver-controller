@@ -5,9 +5,6 @@ import os
 from pathlib import Path
 from typing import Any, Mapping
 
-from config_compiler import compile_application
-from meta_webui_ui_runtime_textual import ApplicationLoader
-
 from .store import EdgeStore
 
 
@@ -58,6 +55,14 @@ def run(store: EdgeStore, *, page: str = "overview") -> int:
     during a central outage; reconnecting central does not replace or mutate
     local state from the TUI.
     """
+    try:
+        from config_compiler import compile_application
+        from meta_webui_ui_runtime_textual import ApplicationLoader
+    except ModuleNotFoundError as error:
+        missing = error.name or "a TUI dependency"
+        raise RuntimeError(
+            f"local TUI is unavailable: missing {missing}; use the Meta WebUI workbench environment"
+        ) from error
     page_id = _LOCAL_QUERY_PAGES.get(page, page)
     document = compile_application(_application_root()).app_config["definition"]
     app = ApplicationLoader(document, source_resolver=_local_source(store)).application(page_id, scope={"edge": {"status": "CENTRAL OFFLINE · EDGE RUNNING"}})
