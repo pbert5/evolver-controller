@@ -1,5 +1,14 @@
 @RTK.md
 
+# Codex workspace configuration
+
+Keep `.codex/config.toml` configured with `agents.enabled = true`,
+`agents.max_depth = 2`, and `agents.max_concurrent_threads_per_session = 8`.
+Use `features.multi_agent` and canonical `features.hooks`; `codex_hooks` is
+deprecated. The `test-architect` role is read-only but may use shell tools for
+harmless repository reconnaissance; it must not edit, commit, push, or mutate
+runtime state.
+
 # Repository agent guidance
 
 ## Development and test environment

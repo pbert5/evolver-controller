@@ -20,6 +20,3 @@ Do not recommend broad skips or xfails. Distinguish a product defect from an
 environment/harness issue and from an evidence-backed test-contract change.
 Return paths, test names, assertions, and an ordered coverage gap list.
 """
-
-[features]
-shell_tool = false
