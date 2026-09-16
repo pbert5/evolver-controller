@@ -10,19 +10,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Install repository command proxy
         run: |
-          curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | RTK_VERSION=v0.47.0 sh
+          curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/34fe2553192aef5f6ca19944cb52a272a5294c27/install.sh | RTK_VERSION=v0.47.0 sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
         with:
           version: '0.8.14'
       - name: Initialize active component pins
         run: rtk git submodule update --init metactl evolver/evolver-server evolver/evolver-controller evolver/evolver-hardware
       - name: Resolve updated workspace lock
         run: rtk tools/check-locks --relock
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: workspace-lock
           path: uv.lock
