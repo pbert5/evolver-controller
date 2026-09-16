@@ -173,6 +173,7 @@ source = { editable = "evolver/evolver-controller" }
 dependencies = [
     { name = "psycopg", extra = ["binary"] },
     { name = "pyserial" },
+    { name = "pyyaml" },
     { name = "zstandard" },
 ]
 
@@ -184,7 +185,6 @@ dev = [
 ]
 tui = [
     { name = "jsonschema" },
-    { name = "pyyaml" },
     { name = "textual" },
 ]
 
@@ -196,7 +196,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=6" },
     { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.8" },
-    { name = "pyyaml", marker = "extra == 'tui'", specifier = ">=6" },
+    { name = "pyyaml", specifier = ">=6" },
     { name = "textual", marker = "extra == 'tui'", specifier = ">=0.89,<2" },
     { name = "zstandard", specifier = "==0.25.0" },
 ]
