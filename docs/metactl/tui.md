@@ -19,7 +19,8 @@ between repository and live modes.
    [Operator Bootstrap](../_concepts/operator-bootstrap.md);
 2. show the resolved target and connection state in the header;
 3. perform a bounded read-only connection/discovery probe;
-4. load live central projections when the target is available;
+4. make live central projections available through the selected read actions
+   when the target is available;
 5. show a specific repair path when the managed target is unavailable;
 6. never silently fall back to offline repository browsing and make the user
    think they are viewing live state.
@@ -51,62 +52,72 @@ Developer
   API Workbench
 ```
 
-A representative controller view should expose current central projection,
-freshness, release, instruments, current run, recent/queued commands, recovery
-state, and the actions valid for that controller.
+The current TUI is an action browser, not a composite dashboard. Each section
+contains the implemented action entries present in the shared presentation
+model. Selecting an entry shows its title, human CLI path, stable action ID,
+catalog status, safety metadata, and catalog-defined parameter form. Results
+are displayed as the redacted response returned by the central transport.
 
-A representative run view should expose state, revision, assigned resources,
-controller/instrument relationships, recent commands, and valid pause/resume/
-stop actions.
+The sections currently map to these executable projections:
 
-Planned catalog actions may be discoverable, but must be visibly unavailable.
-They must never dispatch simply because the TUI can render them.
+- `Controllers`: controller list/show, freshness, refresh/rescan, release
+  assignment, commands, and recovery actions. Commands and recovery are
+  grouped under their own top-level sections only where the presentation model
+  places them there.
+- `Instruments`: instrument list/show actions.
+- `Runs`: run list/show and the cataloged pause/resume/stop actions. Run
+  revisions are supplied through the action's `expected_revision` parameter;
+  the TUI does not synthesize or display a separate revision dashboard.
+- `Releases`: the cataloged release action(s), currently release build.
+- `Recovery`: controller recovery request/status/diff actions.
+- `Overview` and `Experiments`: their cataloged actions, including planned
+  experiment actions when present.
+
+These entries query or mutate one selected action at a time. The TUI does not
+currently assemble a controller or run view containing freshness, release,
+instruments, current run, commands, recovery state, revisions, or valid
+actions in one screen. Use the individual actions (or the equivalent CLI
+commands) for those projections.
+
+Planned catalog actions may be discoverable, but are visibly marked
+`planned / unavailable` and never dispatch.
 
 Form values are converted and checked from the catalog fields themselves:
 `required`, `type`, `default`, and `enum` are applied before transport dispatch.
 The resulting request uses the same stable action ID and shared transport as
-the CLI. Read selections and controller/run views therefore represent central
-projections, not an offline cache.
+the CLI. Results from read actions represent central projections, not an
+offline cache; the current TUI does not provide aggregate controller/run
+views.
 
 ## Interaction model
 
-The baseline keyboard model should be small and teachable:
+The current interaction model is deliberately limited to the supported
+Textual controls:
 
-- `/`: focus search;
-- `?`: open contextual help;
-- `r`: refresh the current read projection;
-- `c`: show/copy the equivalent human CLI command for the selected action;
-- `a`: show the corresponding API Workbench command/context;
-- `q`: quit.
+- select a navigation entry and press Enter to show its action form;
+- enter values using the catalog parameter types, defaults, required fields,
+  and enums;
+- press Run to dispatch an implemented action after a clean live discovery
+  gate;
+- confirm the action ID in the modal for actions whose catalog safety metadata
+  requires confirmation;
+- select `Open API Workbench` to see the separate Workbench route.
+
+Search, contextual help, refresh, CLI copy, and API-context shortcut keys are
+not currently implemented by this application and are not part of its
+contract.
 
 Mutation and hardware actions must open an explicit action form and use catalog
 safety metadata. There should be no single-key mutation that bypasses review of
 parameters and confirmation.
 
-## Suggested layout
+## Current layout
 
-```text
-+ metactl | central: connected | operator: configured | SAFE ----------------+
-| / search                                                ? help   q quit     |
-+-------------------+----------------------------+----------------------------+
-| NAVIGATION        | CONTROLLERS                | edge-01                    |
-|                   |                            |                            |
-| Overview          | * edge-01 healthy      4s  | Connected                  |
-| Controllers       | * edge-02 healthy     12s  | Release 0.4.2              |
-| Instruments       | o edge-03 offline     14m  | 2 instruments              |
-| Runs              |                            | Run ALE-42                 |
-| Experiments       |                            |                            |
-| Releases          |                            | Actions                    |
-| Recovery          |                            | > Refresh                  |
-| Developer         |                            |   Rescan                   |
-|   API Workbench   |                            |   Commands                 |
-|                   |                            |   Recovery                 |
-+-------------------+----------------------------+----------------------------+
-| last: refresh queued | cmd-391 | press c for CLI, a for API context        |
-+----------------------------------------------------------------------------+
-```
-
-Exact colors and spacing may adapt to Textual and terminal width. The hierarchy,
+The screen has a header, a connection/status line, a grouped navigation tree,
+an action detail/parameter pane, a Run button, and a footer. The detail pane
+starts with guidance to use `metactl <noun> <action>` or
+`metactl api tui`; it is not a live aggregate of central entities. Exact
+colors and spacing may adapt to Textual and terminal width. The hierarchy,
 connection truthfulness, action visibility, and safety semantics are the
 contract.
 
@@ -140,11 +151,12 @@ Headless Textual tests should prove at least:
 
 - startup shows the resolved target and does not silently use offline mode;
 - navigation groups operator nouns, not raw route trees;
-- selecting a controller exposes its central projection and valid actions;
+- selecting a controller action exposes its catalog form, human CLI path, and
+  stable action ID;
 - planned actions are visible but not executable;
 - a read action dispatches through the shared transport;
 - a mutation requires the catalog-defined confirmation path;
-- copy/show command produces the same human path as CLI help;
+- the displayed human path comes from the shared presentation model;
 - queued/accepted responses are not labeled physical success;
 - no real hardware is required for tests.
 
