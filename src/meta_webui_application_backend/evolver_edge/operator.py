@@ -171,15 +171,15 @@ def _dispatch(store: EdgeStore, operation: str, params: dict[str, Any], *,
         raise OperatorProtocolError("run action is unsupported", kind="unsupported_operation")
     if operation == "hardware_lease":
         _only(params, {"action", "operator", "ttl_seconds"}, operation)
+        action = params.get("action")
+        if action == "status":
+            return store.local_commissioning_lease_status()
         subject = _operator_subject(operator)
         if params.get("operator") not in {None, subject}:
             raise OperatorProtocolError("operator does not match authenticated operator", kind="unauthorized")
-        action = params.get("action")
         try:
             if action == "acquire":
                 return store.acquire_local_commissioning_lease(subject, params.get("ttl_seconds", 900))
-            if action == "status":
-                return store.local_commissioning_lease_status()
             if action == "release":
                 return store.release_local_commissioning_lease(subject)
         except Exception as error:
