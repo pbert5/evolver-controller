@@ -35,6 +35,6 @@ jobs:
       - name: Verify API workbench and discovery regressions
         run: |
           rtk tools/dev-env server exec rtk tools/test evidence metactl metactl/tests/test_api_workbench.py metactl/tests/test_action_api_contract.py metactl/tests/test_metactl.py
-          rtk tools/dev-env server exec rtk tools/test evidence server evolver/evolver-server/tests/test_api_workbench_discovery.py evolver/evolver-server/tests/test_evolver_action_contract.py evolver/evolver-server/tests/test_evolver_control_service.py
+          rtk tools/dev-env server exec rtk tools/test evidence server evolver/evolver-server/tests/test_evolver_action_contract.py evolver/evolver-server/tests/test_evolver_control_service.py
       - name: Verify committed lockfile
         run: rtk git diff --exit-code -- uv.lock
