@@ -1,11 +1,31 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 socket_path="${EVOLVER_OPERATOR_SOCKET:-/run/evolver-controller/operator.sock}"
+helper_path="${EVOLVER_EDGE_HELPER:-/workspaces/meta_bal/tools/evolver-edge}"
+
+rescue_guidance() {
+  cat >&2 <<'EOF'
+Rescue is unavailable from the edge container. Run the canonical host rescue route:
+  tools/evolver-edge rescue recovery
+EOF
+  exit 69
+}
+
+if [[ "${1:-}" == rescue ]]; then
+  shift
+  [[ "$#" -gt 0 ]] || set -- recovery
+  [[ -x "$helper_path" ]] || rescue_guidance
+  exec "$helper_path" rescue "$@"
+fi
+
+for argument in "$@"; do
+  [[ "$argument" != --offline ]] || rescue_guidance
+done
 
 # Normal commands are live-only.  This preflight prevents the controller CLI
 # from interpreting a missing operator service as permission to read SQLite.
 case " $* " in
-  *" --offline "*|" rescue "*|" --help "*) ;;
+  *" --help "*) ;;
   *)
     if ! python - "$socket_path" <<'PY'
 import socket
@@ -33,11 +53,5 @@ EOF
     fi
     ;;
 esac
-
-if [[ "${1:-}" == rescue ]]; then
-  shift
-  [[ "$#" -gt 0 ]] || set -- recovery
-  exec uv run --project /workspaces/meta_bal/evolver/evolver-controller evoctl --offline "$@"
-fi
 
 exec uv run --project /workspaces/meta_bal/evolver/evolver-controller evoctl "$@"

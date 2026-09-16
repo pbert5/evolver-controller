@@ -36,24 +36,74 @@ def test_edge_evoctl_launcher_reports_unavailable_operator_without_falling_back(
     assert "tools/evolver-edge logs controller" in result.stderr
 
 
-def test_edge_evoctl_launcher_rescue_is_explicitly_offline(tmp_path):
+def test_edge_evoctl_launcher_delegates_rescue_to_edge_helper(tmp_path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     arguments = tmp_path / "arguments"
     _fake_command(bin_dir, "uv", f"printf '%s\\n' \"$@\" > '{arguments}'")
+    helper = tmp_path / "evolver-edge"
+    _fake_command(helper.parent, helper.name, f"printf '%s\\n' \"$@\" > '{tmp_path / 'helper-arguments'}'")
 
     result = subprocess.run(
         [str(ROOT / ".devcontainer/evolver-edge/scripts/evoctl"), "rescue", "recovery"],
         cwd=ROOT,
         env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
-             "EVOLVER_OPERATOR_SOCKET": str(tmp_path / "missing.sock")},
+             "EVOLVER_OPERATOR_SOCKET": str(tmp_path / "missing.sock"),
+             "EVOLVER_EDGE_HELPER": str(helper)},
         capture_output=True,
         text=True,
         check=False,
     )
 
     assert result.returncode == 0
-    assert arguments.read_text(encoding="utf-8").splitlines()[-2:] == ["--offline", "recovery"]
+    assert not arguments.exists()
+    assert (tmp_path / "helper-arguments").read_text(encoding="utf-8").splitlines() == ["rescue", "recovery"]
+
+
+def test_edge_evoctl_launcher_rejects_rescue_without_helper_with_canonical_guidance(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _fake_command(bin_dir, "uv", f"touch '{tmp_path / 'uv-invoked'}'")
+
+    result = subprocess.run(
+        [str(ROOT / ".devcontainer/evolver-edge/scripts/evoctl"), "rescue", "recovery"],
+        cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}",
+             "EVOLVER_OPERATOR_SOCKET": str(tmp_path / "missing.sock"),
+             "EVOLVER_EDGE_HELPER": str(tmp_path / "missing-helper")},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 69
+    assert not (tmp_path / "uv-invoked").exists()
+    assert result.stderr == (
+        "Rescue is unavailable from the edge container. Run the canonical host rescue route:\n"
+        "  tools/evolver-edge rescue recovery\n"
+    )
+
+
+def test_edge_evoctl_launcher_rejects_direct_offline_mode_with_canonical_guidance(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _fake_command(bin_dir, "uv", f"touch '{tmp_path / 'uv-invoked'}'")
+
+    result = subprocess.run(
+        [str(ROOT / ".devcontainer/evolver-edge/scripts/evoctl"), "--offline", "recovery"],
+        cwd=ROOT,
+        env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 69
+    assert not (tmp_path / "uv-invoked").exists()
+    assert result.stderr == (
+        "Rescue is unavailable from the edge container. Run the canonical host rescue route:\n"
+        "  tools/evolver-edge rescue recovery\n"
+    )
 
 
 def test_edge_helper_diagnose_preserves_compose_commands_and_gives_recovery_route(tmp_path):

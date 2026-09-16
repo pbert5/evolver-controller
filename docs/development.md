@@ -69,8 +69,9 @@ SQLite. Diagnose it with `tools/evolver-edge diagnose`, then use `status` and
 
 Offline reads are deliberately separate from live operation. For recovery or
 maintenance while the controller is stopped, use the explicit
-`tools/evolver-edge rescue recovery` route (or `evoctl rescue recovery` in the
-edge container). Do not use offline output as evidence of current central or
+`tools/evolver-edge rescue recovery` route. From inside the edge container,
+`evoctl rescue recovery` delegates to that helper; direct `evoctl --offline`
+is rejected. Do not use offline output as evidence of current central or
 physical-hardware state.
 
 The production-like edge stack has no PostgreSQL dependency. Durable SQLite
