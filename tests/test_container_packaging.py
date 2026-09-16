@@ -59,7 +59,12 @@ def test_dependency_manifest_matches_runtime_project_dependencies() -> None:
     project = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
 
-    dependencies = ("pyserial==3.5", "zstandard==0.25.0", "psycopg[binary]>=3.1")
+    dependencies = (
+        "pyserial==3.5",
+        "zstandard==0.25.0",
+        "psycopg[binary]>=3.1",
+        "PyYAML>=6",
+    )
     assert tuple(requirements) == dependencies
     for dependency in dependencies:
         assert dependency in project
