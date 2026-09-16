@@ -1,7 +1,46 @@
 from pathlib import Path
+import shutil
+import subprocess
+
+import pytest
 
 
 ROOT = Path(__file__).parents[1]
+
+
+def test_clean_controller_image_imports_yaml_and_live_operator_path() -> None:
+    if shutil.which("docker") is None:
+        pytest.fail("docker is required for the clean controller image smoke test")
+
+    image = f"evolver-controller-packaging-test:{__import__('os').getpid()}"
+    try:
+        subprocess.run(
+            ["docker", "build", "--no-cache", "--tag", image, str(ROOT)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        smoke = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--entrypoint",
+                "python",
+                image,
+                "-c",
+                (
+                    "import yaml; "
+                    "import meta_webui_application_backend.evolver_edge.service"
+                ),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert smoke.returncode == 0, smoke.stderr
+    finally:
+        subprocess.run(["docker", "image", "rm", "--force", image], check=False)
 
 
 def test_dockerfile_installs_dependencies_before_application_source() -> None:
