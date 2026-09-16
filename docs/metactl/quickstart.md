@@ -7,7 +7,8 @@ configuration.
 > The pinned client provides `metactl tui` for the operator console and
 > `metactl api tui` for the API Workbench. The parent repository's
 > `tools/metactl` launcher runs that client in the current checkout's Server
-> Dev Container. The `metactl doctor` workflow remains pending its repair.
+> Dev Container. The read-only `metactl doctor` workflow checks target,
+> reachability, discovery, and catalog drift.
 
 ## Managed development checkout
 
@@ -41,9 +42,14 @@ normal Meta Ball development.
 
 ## Doctor status
 
-The `metactl doctor` contract is pending its repair. Do not treat it as a
-proven diagnostic workflow until that repair lands; use the managed target and
-the explicit status, network, and smoke checks while it is pending.
+Run the read-only diagnostic report from inside the Server Dev Container:
+
+```text
+metactl doctor --format json
+```
+
+It reports the resolved target, reachability, action discovery, and local/live
+catalog drift. It does not perform mutations or claim physical success.
 
 ## Direct CLI examples
 

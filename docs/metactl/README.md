@@ -8,8 +8,8 @@ database, direct EdgeStore access, SSH transport, or duplicated domain logic.
 > the pinned client and the repository-owned Server Dev Container. The client
 > provides the action catalog, grouped command aliases, first-class nested help,
 > and the operator TUI; the parent repository supplies the managed
-> central-target bootstrap. The `metactl doctor` contract remains pending its
-> repair and is not claimed here as an available workflow.
+> central-target bootstrap. The read-only `metactl doctor` workflow reports
+> target, reachability, discovery, and catalog drift without exposing secrets.
 
 ## Start here
 

@@ -1,12 +1,12 @@
 # metactl operator TUI
 
-`metactl tui` is the target human operator console for the central Meta Ball
+`metactl tui` is the human operator console for the central Meta Ball
 control plane. It is intentionally distinct from `metactl api tui`, which is
 the developer/API Workbench.
 
 > `metactl tui` is the operator console. The developer/API Workbench remains
-> separately addressable as `metactl api tui`. The `metactl doctor` workflow
-> remains pending its repair and is not part of this availability claim.
+> separately addressable as `metactl api tui`. `metactl doctor` is the
+> read-only diagnostic workflow for target, discovery, and catalog drift.
 
 ## Startup contract
 

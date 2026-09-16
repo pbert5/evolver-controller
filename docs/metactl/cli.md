@@ -19,7 +19,7 @@ metactl
   actions
     list
     show
-  doctor          [pending repair]
+  doctor          [read-only diagnostics]
   status
   controllers
     list

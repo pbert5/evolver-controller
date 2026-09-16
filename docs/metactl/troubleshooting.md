@@ -1,8 +1,8 @@
 # metactl troubleshooting
 
 Use this page when the normal central operator path fails. Start with the
-managed environment checks below; the `metactl doctor` workflow remains
-pending its repair.
+read-only `metactl doctor --format json` report, then use the managed
+environment checks below.
 
 ## The TUI says central is unavailable
 
