@@ -61,9 +61,9 @@ _COMMAND_REGISTRY: dict[str, CommandSpec] = {
     "hardware.lease.release": CommandSpec(CommandMode.LIVE),
     "hardware.layout": CommandSpec(CommandMode.LIVE),
     "hardware.provision-identity": CommandSpec(CommandMode.LIVE),
-    "hardware.discover": CommandSpec(CommandMode.MAINTENANCE, "delegated", "hardware-service"),
-    "hardware.protocol-test": CommandSpec(CommandMode.MAINTENANCE, "delegated", "hardware-service"),
-    "hardware.actuate": CommandSpec(CommandMode.MAINTENANCE, "delegated", "hardware-service"),
+    "hardware.discover": CommandSpec(CommandMode.LIVE),
+    "hardware.protocol-test": CommandSpec(CommandMode.LIVE),
+    "hardware.actuate": CommandSpec(CommandMode.LIVE),
     "hardware.quarantine-command": CommandSpec(CommandMode.MAINTENANCE, "rejected"),
     "update.status": CommandSpec(CommandMode.MAINTENANCE, "delegated", "controller-service"),
     "update.check": CommandSpec(CommandMode.MAINTENANCE, "delegated", "controller-service"),
@@ -147,6 +147,23 @@ def _live_request(args: argparse.Namespace) -> tuple[str, dict[str, Any]] | None
         if args.hardware_command == "provision-identity":
             return "hardware_provision_identity", {"device_id": args.device_id, "owner_id": args.owner_id,
                                                      "operator": args.operator, "physical": args.physical}
+        if args.hardware_command == "discover":
+            return "hardware", {"operation": "discover"}
+        if args.hardware_command == "protocol-test":
+            return "hardware", {"operation": "protocol_test"}
+        if args.hardware_command == "actuate":
+            parameters = {"channel": args.channel}
+            if args.operation == "set_output":
+                parameters.update(output="od_led", level=args.level)
+            elif args.operation == "pulse_pump":
+                parameters.update(duration_ms=args.duration_ms)
+            else:
+                parameters.update(duration_ms=args.duration_ms, level=args.level)
+            return "hardware", {"operation": "hardware_command", "operation_name": args.operation,
+                                 "target_identity": args.target, "parameters": parameters,
+                                 "physical": args.physical, "operator": args.operator,
+                                 "lease_token": args.lease_token, "lease_owner": args.operator,
+                                 "controller_generation": args.controller_generation}
     raise CommandRegistryError(f"LIVE command has no operator translation: {key}")
 
 

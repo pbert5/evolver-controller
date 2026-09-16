@@ -26,8 +26,9 @@ from meta_webui_application_backend.evolver_edge.operator import OperatorUnavail
         ("hardware.lease.release", CommandMode.LIVE),
         ("hardware.layout", CommandMode.LIVE),
         ("hardware.provision-identity", CommandMode.LIVE),
-        ("hardware.discover", CommandMode.MAINTENANCE),
-        ("hardware.actuate", CommandMode.MAINTENANCE),
+        ("hardware.discover", CommandMode.LIVE),
+        ("hardware.protocol-test", CommandMode.LIVE),
+        ("hardware.actuate", CommandMode.LIVE),
         ("update.apply", CommandMode.MAINTENANCE),
         ("validation", CommandMode.LOCAL),
         ("dispense", CommandMode.LOCAL),
@@ -104,5 +105,5 @@ def test_maintenance_update_does_not_fallback_to_edge_store(
 
 def test_maintenance_operations_report_explicit_delegation(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "operator_request", lambda *_args, **_kwargs: pytest.fail("maintenance must not be implicit LIVE"))
-    result = cli.maintenance_disposition("hardware.discover")
-    assert result == {"mode": "MAINTENANCE", "disposition": "delegated", "delegate": "hardware-service"}
+    result = cli.maintenance_disposition("update.apply")
+    assert result == {"mode": "MAINTENANCE", "disposition": "delegated", "delegate": "controller-service"}
