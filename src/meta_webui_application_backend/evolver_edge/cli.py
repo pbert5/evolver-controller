@@ -111,6 +111,10 @@ def _live_request(args: argparse.Namespace) -> tuple[str, dict[str, Any]] | None
         key = f"calibration.{args.calibration_command}"
     elif args.command == "hardware":
         key = f"hardware.{args.hardware_command}"
+        if args.hardware_command == "lease":
+            key = f"hardware.lease.{args.lease_command}"
+    elif args.command == "update":
+        key = f"update.{args.update_command}"
     spec = command_spec(key)
     if spec.mode is not CommandMode.LIVE:
         return None
@@ -132,7 +136,7 @@ def _live_request(args: argparse.Namespace) -> tuple[str, dict[str, Any]] | None
         return "run", params
     if args.command == "hardware":
         if args.hardware_command == "lease":
-            params = {"action": args.lease_command, "operator": args.operator}
+            params = {"action": args.lease_command, "operator": getattr(args, "operator", None)}
             if args.lease_command == "acquire":
                 params["ttl_seconds"] = args.ttl_seconds
             return "hardware_lease", params

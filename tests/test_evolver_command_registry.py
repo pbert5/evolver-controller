@@ -60,6 +60,48 @@ def test_live_status_does_not_fallback_to_edge_store(monkeypatch: pytest.MonkeyP
     assert calls == [("status", {})]
 
 
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["runs"], ["binding"], ["controllers"], ["instruments"],
+        ["instrument", "show", "instrument-1"],
+        ["calibration", "artifacts"], ["run", "show", "run-1"],
+        ["hardware", "lease", "status"],
+    ],
+)
+def test_every_frozen_live_cli_path_skips_edge_store(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, argv: list[str]
+) -> None:
+    calls: list[str] = []
+
+    def operator(operation: str, _path: str, *, params: dict) -> object:
+        calls.append(operation)
+        return [] if operation in {"runs", "instruments", "calibration"} else {"controller": {}, "binding": {}}
+
+    class PoisonStore:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("LIVE command accessed EdgeStore")
+
+    monkeypatch.setattr(cli, "operator_request", operator)
+    monkeypatch.setattr(cli, "EdgeStore", PoisonStore)
+    monkeypatch.setattr(cli, "_emit", lambda _value: None)
+
+    assert cli.main(["--state-root", str(tmp_path), *argv]) == 0
+    assert calls
+
+
+def test_maintenance_update_does_not_fallback_to_edge_store(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    class PoisonStore:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("MAINTENANCE update accessed EdgeStore")
+
+    monkeypatch.setattr(cli, "EdgeStore", PoisonStore)
+    monkeypatch.setattr(cli, "_emit", lambda _value: None)
+    assert cli.main(["--state-root", str(tmp_path), "update", "status"]) == 0
+
+
 def test_maintenance_operations_report_explicit_delegation(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "operator_request", lambda *_args, **_kwargs: pytest.fail("maintenance must not be implicit LIVE"))
     result = cli.maintenance_disposition("hardware.discover")
