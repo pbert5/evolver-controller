@@ -46,15 +46,25 @@ def test_composed_simulator_acceptance_is_restart_safe_and_evidenced(harness):
     assert first.response["accepted_generation"] == 1
     assert first.response["commands"] == []
     capabilities = harness.operator_client.request("capabilities")
-    assert capabilities["protocol_version"] == 1
-    assert capabilities["operations"] == {
-        "binding": {"access": "read", "mode": "live"},
-        "capabilities": {"access": "read", "mode": "live"},
-        "doctor": {"access": "read", "mode": "live"},
-        "instruments": {"access": "read", "mode": "live"},
-        "runs": {"access": "read", "mode": "live"},
-        "status": {"access": "read", "mode": "live"},
-        "hardware": {"access": "mutate", "mode": "live"},
+    assert capabilities == {
+        "protocol_version": 1,
+        "operations": {
+            "binding": {"access": "read", "mode": "live"},
+            "capabilities": {"access": "read", "mode": "live"},
+            "doctor": {"access": "read", "mode": "live"},
+            "instruments": {"access": "read", "mode": "live"},
+            "runs": {"access": "read", "mode": "live"},
+            "status": {"access": "read", "mode": "live"},
+            "hardware": {"access": "mutate", "mode": "live"},
+            "run": {"access": "mutate", "mode": "live"},
+            "instrument": {"access": "read", "mode": "live"},
+            "calibration": {"access": "read", "mode": "live"},
+            "hardware_lease": {"access": "mutate", "mode": "live"},
+            "hardware_layout": {"access": "mutate", "mode": "live"},
+            "hardware_provision_identity": {"access": "mutate", "mode": "live"},
+        },
+        "read_only": False,
+        "transport": "unix",
     }
     controller_projection = harness.metactl_json("evolver.edge.controllers")["result"]["controllers"][0]
     assert controller_projection.get("controller_id", controller_projection.get("id")) == controller_id
