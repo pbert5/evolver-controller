@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -54,6 +55,36 @@ def test_environment_lock_checker_has_explicit_relock_mode():
                             capture_output=True, text=True, check=False)
     assert result.returncode == 0
     assert "[--relock]" in result.stdout
+
+
+def test_harness_scripts_work_when_worktree_gitdir_is_unavailable(tmp_path):
+    """Mounted worktrees may retain a .git pointer to a host-only path."""
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    (tmp_path / ".git").write_text("gitdir: /mypool/unavailable/.git/worktrees/checkout\n")
+    for name in ("dev-env", "check-locks"):
+        script = tools / name
+        script.write_bytes((ROOT / "tools" / name).read_bytes())
+        script.chmod(0o755)
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    (fake_bin / "git").write_text(
+        "#!/usr/bin/env bash\n"
+        "[[ $1 == -C && $3 == branch && $4 == --show-current ]] && echo mounted\n"
+    )
+    (fake_bin / "git").chmod(0o755)
+    env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"}
+
+    identity = subprocess.run([str(tools / "dev-env"), "identity"], env=env,
+                              capture_output=True, text=True, check=False)
+    assert identity.returncode == 0, identity.stderr
+    assert identity.stdout.strip().startswith("mounted-")
+
+    help_result = subprocess.run([str(tools / "check-locks"), "--help"], env=env,
+                                 capture_output=True, text=True, check=False)
+    assert help_result.returncode == 0, help_result.stderr
+    assert "tools/check-locks [--relock]" in help_result.stdout
 
 
 def test_dev_env_smoke_covers_shared_and_edge_contracts():
