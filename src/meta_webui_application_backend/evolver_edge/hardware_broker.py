@@ -1,6 +1,7 @@
 """Controller-owned brokerage boundary for the private hardware socket."""
 from __future__ import annotations
 
+import os
 from typing import Any, Callable, Mapping
 
 from .hardware import ACTUATOR_BOUNDS, validate_device_operation
@@ -21,6 +22,13 @@ class HardwareBrokerProtocolError(HardwareBrokerError):
 
 
 _ACTUATORS = frozenset({"safe_stop", "set_output", "pulse_pump", "set_stir", "pulse_heater"})
+# Controller-side default for the isolated hardware-service boundary.
+DEFAULT_HARDWARE_SOCKET = "/run/evolver-hardware/hardware.sock"
+
+
+def resolve_hardware_socket(socket_path: str | None = None) -> str:
+    """Resolve the controller-to-hardware IPC socket by explicit precedence."""
+    return socket_path if socket_path is not None else os.environ.get("EVOLVER_HARDWARE_SOCKET", DEFAULT_HARDWARE_SOCKET)
 
 
 def _map_ipc_error(error: BaseException) -> HardwareBrokerError:
@@ -34,11 +42,11 @@ class HardwareBroker:
     def __init__(self, store: EdgeStore, socket_path: str | None = None, *,
                  request: Callable[[str, dict[str, Any], float | None], dict[str, Any]] = ipc_request,
                  timeout: float = DEFAULT_IPC_TIMEOUT_SECONDS) -> None:
-        self.store, self.socket_path, self.request, self.timeout = store, socket_path, request, timeout
+        self.store, self.socket_path, self.request, self.timeout = store, resolve_hardware_socket(socket_path), request, timeout
 
     def _call(self, payload: dict[str, Any]) -> dict[str, Any]:
         try:
-            result = self.request(self.socket_path or "/run/evolver-controller/hardware.sock", payload, self.timeout)
+            result = self.request(self.socket_path, payload, self.timeout)
         except Exception as error:
             raise _map_ipc_error(error) from error
         if not isinstance(result, dict):
