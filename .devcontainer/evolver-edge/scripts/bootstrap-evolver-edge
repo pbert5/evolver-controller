@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 rtk --version >/dev/null
-for directory in /var/lib/evolver-controller /run/evolver-controller; do
-  sudo install -d -m 0750 "$directory"
-  sudo chown vscode:vscode "$directory"
-done
 uv sync --package evolver-controller --all-extras

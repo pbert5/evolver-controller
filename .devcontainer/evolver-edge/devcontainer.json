@@ -9,6 +9,6 @@
   "runArgs": ["--group-add=0"],
   "customizations": {"vscode": {"extensions": ["ms-python.python", "ms-python.vscode-pylance", "ms-python.debugpy", "openai.chatgpt", "ms-azuretools.vscode-containers", "ms-azuretools.vscode-docker", "jackiotyu.git-worktree-manager"], "settings": {"terminal.integrated.defaultProfile.linux": "zsh", "terminal.integrated.profiles.linux": {"zsh": {"path": "/usr/bin/zsh"}}}}},
   "containerEnv": {"META_BALL_WORKTREE_ID": "${localEnv:META_BALL_WORKTREE_ID}", "EVOLVER_OPERATOR_SOCKET": "/run/evolver-controller/operator.sock"},
-  "mounts": ["source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind", "source=meta-ball-${localEnv:META_BALL_WORKTREE_ID}-uv-cache,target=/home/vscode/.cache/uv,type=volume", "source=evolver-edge-state,target=/var/lib/evolver-controller,type=volume", "source=evolver-edge-runtime,target=/run/evolver-controller,type=volume"],
+  "mounts": ["source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind", "source=meta-ball-${localEnv:META_BALL_WORKTREE_ID}-uv-cache,target=/home/vscode/.cache/uv,type=volume", "source=evolver-edge-operator-runtime,target=/run/evolver-controller,type=volume"],
   "postCreateCommand": "bootstrap-evolver-edge"
 }
