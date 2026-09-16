@@ -14,28 +14,64 @@ OUTPUT = ROOT / "docs" / "navi" / "generated" / "meta-ball.cheat"
 HEADER = """# GENERATED FILE. DO NOT EDIT.\n# Run tools/generate_navi_cheats after changing docs/navi/cheatsheets/.\n"""
 
 
-def action_entries() -> str:
-    """Render one searchable entry for every deployment catalog action."""
+def catalog_actions() -> dict[str, dict]:
+    """Load the deployment catalog as an ID-indexed source of facts."""
     index_path = ROOT / "metactl" / "applications" / "deployment" / "action-catalog.json"
     if not index_path.is_file():
-        return ""
+        return {}
     index = json.loads(index_path.read_text(encoding="utf-8"))
-    entries: list[str] = []
+    actions: dict[str, dict] = {}
     for reference in index["catalogs"]:
         catalog = json.loads((index_path.parent / reference["path"]).read_text(encoding="utf-8"))
         for action in catalog["actions"]:
-            action_id = action["id"]
-            tags = " ".join(action.get("tags", []))
-            safety = action.get("safety", {})
-            effect = safety.get("effect") or ("mutation" if "mutat" in tags else "read-only")
-            warning = " mutation confirmation-required" if effect != "read-only" else ""
-            args = "".join(f" --{name.replace('_', '-')} <{name}>" for name, spec in action.get("parameters", {}).items()
-                           if spec.get("required"))
-            entries.append("\n".join([
-                f"% Meta BAL action {action_id} {action.get('title', '')} {tags} {effect}{warning}",
-                f"metactl {action_id}{args}",
-            ]))
-    return "\n\n".join(entries)
+            actions[action["id"]] = action
+    return actions
+
+
+def presentation_entries(actions: dict[str, dict]) -> tuple[str, set[str]]:
+    """Render human paths from the first-class CLI presentation tree."""
+    path = ROOT / "metactl" / "applications" / "deployment" / "metactl-cli.json"
+    if not path.is_file():
+        return "", set()
+    presentation = json.loads(path.read_text(encoding="utf-8"))
+    entries: list[str] = []
+    covered: set[str] = set()
+
+    def visit(node: object, parts: tuple[str, ...], positionals: tuple[str, ...] = ()) -> None:
+        if isinstance(node, dict) and isinstance(node.get("action_id"), str):
+            visit(node["action_id"], parts, positionals)
+            return
+        if isinstance(node, str):
+            action_id = node
+            metadata = actions.get(action_id, {})
+            covered.add(action_id)
+            status = metadata.get("status", "unknown")
+            marker = " [planned]" if status != "implemented" else ""
+            command = "metactl " + " ".join(parts + tuple(f"<{item}>" for item in positionals))
+            entries.append(f"% Meta BAL path {' '.join(parts)} [action_id={action_id}]{marker}\n{command}")
+            return
+        if not isinstance(node, dict):
+            return
+        next_positionals = tuple(node.get("positionals", positionals)) if isinstance(node.get("positionals", positionals), list) else positionals
+        for name, child in node.items():
+            if name != "positionals":
+                visit(child, parts + (name,), next_positionals)
+
+    visit(presentation.get("groups", {}), ())
+    return "\n\n".join(entries), covered
+
+
+def action_entries() -> str:
+    """Render presentation paths, plus stable-ID inventory entries not mapped to one."""
+    actions = catalog_actions()
+    presentation, covered = presentation_entries(actions)
+    inventory: list[str] = []
+    for action_id, action in actions.items():
+        tags = " ".join(action.get("tags", []))
+        status = action.get("status", "unknown")
+        marker = " [planned]" if status != "implemented" else ""
+        inventory.append(f"% Meta BAL action {action_id} [action_id={action_id}]{marker}\nmetactl {action_id}")
+    return "\n\n".join(part for part in (presentation, "\n\n".join(inventory)) if part)
 
 
 def render() -> str:

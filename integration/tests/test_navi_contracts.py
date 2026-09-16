@@ -34,6 +34,13 @@ def test_every_deployment_action_has_a_generated_search_entry():
             assert f"metactl {action['id']}" in generated
 
 
+def test_navi_uses_the_first_class_presentation_paths_with_action_metadata():
+    generated = (ROOT / "docs/navi/generated/meta-ball.cheat").read_text()
+    assert "% Meta BAL path controllers commands list [action_id=evolver.controllers.commands.list]" in generated
+    assert "% Meta BAL path controllers adopt [action_id=evolver.controllers.add]" in generated
+    assert "[planned]" in generated
+
+
 def test_curated_navi_catalog_covers_primary_developer_lanes():
     generated = (ROOT / "docs/navi/generated/meta-ball.cheat").read_text().lower()
     for phrase in ("server shell", "evolver-edge up", "tools/test all", "postgres",

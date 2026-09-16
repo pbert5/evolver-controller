@@ -95,146 +95,266 @@ docker compose -f deploy/evolver-edge/compose.yaml config
 docker compose -f deploy/postgres-acceptance/compose.yaml up --detach --wait postgres
 
 % Generated metactl action catalog
-% Meta BAL action core.access.status Show access configuration status core access read-only
+% Meta BAL path controllers commands list [action_id=evolver.controllers.commands.list]
+metactl controllers commands list <controller_id> <command_id>
+
+% Meta BAL path controllers commands show [action_id=evolver.controllers.commands.show]
+metactl controllers commands show <controller_id> <command_id>
+
+% Meta BAL path controllers commands watch [action_id=evolver.controllers.commands.show]
+metactl controllers commands watch <controller_id> <command_id>
+
+% Meta BAL path controllers manual lease show [action_id=evolver.controllers.manual.lease.show]
+metactl controllers manual lease show
+
+% Meta BAL path controllers manual lease revoke [action_id=evolver.controllers.manual.lease.revoke]
+metactl controllers manual lease revoke
+
+% Meta BAL path controllers manual lease emergency-release [action_id=evolver.controllers.manual.lease.emergency_release]
+metactl controllers manual lease emergency-release
+
+% Meta BAL path controllers manual command [action_id=evolver.controllers.manual.command]
+metactl controllers manual command
+
+% Meta BAL path controllers manual stir [action_id=evolver.controllers.manual.stir]
+metactl controllers manual stir
+
+% Meta BAL path controllers recovery request [action_id=evolver.controllers.recovery.request]
+metactl controllers recovery request
+
+% Meta BAL path controllers recovery status [action_id=evolver.controllers.recovery.status]
+metactl controllers recovery status
+
+% Meta BAL path controllers recovery diff [action_id=evolver.controllers.recovery.diff]
+metactl controllers recovery diff
+
+% Meta BAL path controllers release set [action_id=evolver.controllers.release.set]
+metactl controllers release set
+
+% Meta BAL path controllers list [action_id=evolver.controllers.list]
+metactl controllers list
+
+% Meta BAL path controllers show [action_id=evolver.controllers.show]
+metactl controllers show
+
+% Meta BAL path controllers freshness [action_id=evolver.controllers.freshness]
+metactl controllers freshness
+
+% Meta BAL path controllers add [action_id=evolver.controllers.add]
+metactl controllers add
+
+% Meta BAL path controllers adopt [action_id=evolver.controllers.add]
+metactl controllers adopt
+
+% Meta BAL path controllers refresh [action_id=evolver.controllers.refresh]
+metactl controllers refresh
+
+% Meta BAL path controllers rescan [action_id=evolver.controllers.rescan]
+metactl controllers rescan
+
+% Meta BAL path controllers archive [action_id=evolver.controllers.archive]
+metactl controllers archive
+
+% Meta BAL path controllers restore [action_id=evolver.controllers.restore]
+metactl controllers restore
+
+% Meta BAL path controllers measurements [action_id=evolver.controllers.measurements]
+metactl controllers measurements
+
+% Meta BAL path controllers telemetry [action_id=evolver.controllers.telemetry]
+metactl controllers telemetry
+
+% Meta BAL path controllers activities [action_id=evolver.controllers.activities]
+metactl controllers activities
+
+% Meta BAL path controllers events [action_id=evolver.controllers.events]
+metactl controllers events
+
+% Meta BAL path controllers evidence [action_id=evolver.controllers.evidence]
+metactl controllers evidence
+
+% Meta BAL path controllers logs [action_id=evolver.controllers.logs]
+metactl controllers logs
+
+% Meta BAL path instruments list [action_id=evolver.instruments.list]
+metactl instruments list
+
+% Meta BAL path instruments show [action_id=evolver.instruments.show]
+metactl instruments show
+
+% Meta BAL path runs list [action_id=evolver.runs.list]
+metactl runs list
+
+% Meta BAL path runs show [action_id=evolver.runs.show]
+metactl runs show
+
+% Meta BAL path runs pause [action_id=evolver.runs.pause]
+metactl runs pause
+
+% Meta BAL path runs resume [action_id=evolver.runs.resume]
+metactl runs resume
+
+% Meta BAL path runs stop [action_id=evolver.runs.stop]
+metactl runs stop
+
+% Meta BAL path experiments validate [action_id=evolver.experiments.validate]
+metactl experiments validate
+
+% Meta BAL path experiments describe [action_id=evolver.experiments.describe]
+metactl experiments describe
+
+% Meta BAL path experiments plan [action_id=evolver.experiments.plan]
+metactl experiments plan
+
+% Meta BAL path experiments enqueue [action_id=evolver.experiments.enqueue] [planned]
+metactl experiments enqueue
+
+% Meta BAL path experiments run [action_id=evolver.experiments.run] [planned]
+metactl experiments run
+
+% Meta BAL path releases build [action_id=evolver.release.build]
+metactl releases build
+
+% Meta BAL action core.access.status [action_id=core.access.status] [planned]
 metactl core.access.status
 
-% Meta BAL action evolver.release.build Build a production eVOLVER release evolver release mutating mutation mutation confirmation-required
+% Meta BAL action evolver.release.build [action_id=evolver.release.build]
 metactl evolver.release.build
 
-% Meta BAL action evolver.controllers.add Create controller enrollment evolver controllers enrollment read-only
-metactl evolver.controllers.add --server-url <server_url>
+% Meta BAL action evolver.controllers.add [action_id=evolver.controllers.add]
+metactl evolver.controllers.add
 
-% Meta BAL action evolver.edge.status Show central eVOLVER status evolver read-only read-only
+% Meta BAL action evolver.edge.status [action_id=evolver.edge.status]
 metactl evolver.edge.status
 
-% Meta BAL action evolver.edge.controllers List central controllers evolver controllers read-only read-only
+% Meta BAL action evolver.edge.controllers [action_id=evolver.edge.controllers]
 metactl evolver.edge.controllers
 
-% Meta BAL action evolver.edge.instruments List central instruments evolver instruments read-only read-only
+% Meta BAL action evolver.edge.instruments [action_id=evolver.edge.instruments]
 metactl evolver.edge.instruments
 
-% Meta BAL action evolver.edge.runs List central runs evolver runs read-only read-only
+% Meta BAL action evolver.edge.runs [action_id=evolver.edge.runs]
 metactl evolver.edge.runs
 
-% Meta BAL action evolver.controllers.list List controllers evolver controllers read-only read-only
+% Meta BAL action evolver.controllers.list [action_id=evolver.controllers.list]
 metactl evolver.controllers.list
 
-% Meta BAL action evolver.controllers.show Show a controller evolver controllers read-only read-only
-metactl evolver.controllers.show --controller-id <controller_id>
+% Meta BAL action evolver.controllers.show [action_id=evolver.controllers.show]
+metactl evolver.controllers.show
 
-% Meta BAL action evolver.controllers.freshness Show controller freshness evolver controllers read-only read-only
-metactl evolver.controllers.freshness --controller-id <controller_id>
+% Meta BAL action evolver.controllers.freshness [action_id=evolver.controllers.freshness]
+metactl evolver.controllers.freshness
 
-% Meta BAL action evolver.controllers.refresh Request controller refresh evolver controllers mutating mutation mutation confirmation-required
-metactl evolver.controllers.refresh --controller-id <controller_id>
+% Meta BAL action evolver.controllers.refresh [action_id=evolver.controllers.refresh]
+metactl evolver.controllers.refresh
 
-% Meta BAL action evolver.controllers.rescan Request hardware inventory rescan evolver controllers mutating read-only-hardware mutation mutation confirmation-required
-metactl evolver.controllers.rescan --controller-id <controller_id>
+% Meta BAL action evolver.controllers.rescan [action_id=evolver.controllers.rescan]
+metactl evolver.controllers.rescan
 
-% Meta BAL action evolver.controllers.archive Archive a controller evolver controllers mutating mutation mutation confirmation-required
-metactl evolver.controllers.archive --controller-id <controller_id>
+% Meta BAL action evolver.controllers.archive [action_id=evolver.controllers.archive]
+metactl evolver.controllers.archive
 
-% Meta BAL action evolver.controllers.restore Restore a controller evolver controllers mutating mutation mutation confirmation-required
-metactl evolver.controllers.restore --controller-id <controller_id>
+% Meta BAL action evolver.controllers.restore [action_id=evolver.controllers.restore]
+metactl evolver.controllers.restore
 
-% Meta BAL action evolver.controllers.release.set Set desired controller release evolver controllers release mutating mutation mutation confirmation-required
-metactl evolver.controllers.release.set --controller-id <controller_id> --release <release>
+% Meta BAL action evolver.controllers.release.set [action_id=evolver.controllers.release.set]
+metactl evolver.controllers.release.set
 
-% Meta BAL action evolver.controllers.commands.list List controller commands evolver commands read-only read-only
-metactl evolver.controllers.commands.list --controller-id <controller_id>
+% Meta BAL action evolver.controllers.commands.list [action_id=evolver.controllers.commands.list]
+metactl evolver.controllers.commands.list
 
-% Meta BAL action evolver.controllers.commands.show Show a controller command evolver commands read-only read-only
-metactl evolver.controllers.commands.show --controller-id <controller_id> --command-id <command_id>
+% Meta BAL action evolver.controllers.commands.show [action_id=evolver.controllers.commands.show]
+metactl evolver.controllers.commands.show
 
-% Meta BAL action evolver.controllers.manual.lease Acquire a manual control lease evolver controllers manual-control mutating mutation mutation confirmation-required
-metactl evolver.controllers.manual.lease --controller-id <controller_id>
+% Meta BAL action evolver.controllers.manual.lease [action_id=evolver.controllers.manual.lease]
+metactl evolver.controllers.manual.lease
 
-% Meta BAL action evolver.controllers.manual.lease.show Show the manual control lease evolver controllers manual-control read-only read-only
-metactl evolver.controllers.manual.lease.show --controller-id <controller_id>
+% Meta BAL action evolver.controllers.manual.lease.show [action_id=evolver.controllers.manual.lease.show]
+metactl evolver.controllers.manual.lease.show
 
-% Meta BAL action evolver.controllers.manual.lease.revoke Revoke a manual control lease evolver controllers manual-control mutating mutation mutation confirmation-required
-metactl evolver.controllers.manual.lease.revoke --controller-id <controller_id>
+% Meta BAL action evolver.controllers.manual.lease.revoke [action_id=evolver.controllers.manual.lease.revoke]
+metactl evolver.controllers.manual.lease.revoke
 
-% Meta BAL action evolver.controllers.manual.lease.emergency_release Emergency-release a manual control lease evolver controllers manual-control mutating mutation mutation confirmation-required
-metactl evolver.controllers.manual.lease.emergency_release --controller-id <controller_id>
+% Meta BAL action evolver.controllers.manual.lease.emergency_release [action_id=evolver.controllers.manual.lease.emergency_release]
+metactl evolver.controllers.manual.lease.emergency_release
 
-% Meta BAL action evolver.controllers.manual.command Queue a manual controller command evolver controllers manual-control mutating mutation mutation confirmation-required
-metactl evolver.controllers.manual.command --controller-id <controller_id> --operation <operation>
+% Meta BAL action evolver.controllers.manual.command [action_id=evolver.controllers.manual.command]
+metactl evolver.controllers.manual.command
 
-% Meta BAL action evolver.controllers.manual.stir Queue a bounded simulator-safe stir pulse evolver controllers manual-control stir mutating mutation mutation confirmation-required
-metactl evolver.controllers.manual.stir --controller-id <controller_id> --duration-ms <duration_ms>
+% Meta BAL action evolver.controllers.manual.stir [action_id=evolver.controllers.manual.stir]
+metactl evolver.controllers.manual.stir
 
-% Meta BAL action evolver.controllers.measurements Show controller measurements evolver measurements read-only read-only
-metactl evolver.controllers.measurements --controller-id <controller_id>
+% Meta BAL action evolver.controllers.measurements [action_id=evolver.controllers.measurements]
+metactl evolver.controllers.measurements
 
-% Meta BAL action evolver.controllers.telemetry Show controller telemetry evolver telemetry read-only read-only
-metactl evolver.controllers.telemetry --controller-id <controller_id>
+% Meta BAL action evolver.controllers.telemetry [action_id=evolver.controllers.telemetry]
+metactl evolver.controllers.telemetry
 
-% Meta BAL action evolver.controllers.activities Show controller activities evolver activities read-only read-only
-metactl evolver.controllers.activities --controller-id <controller_id>
+% Meta BAL action evolver.controllers.activities [action_id=evolver.controllers.activities]
+metactl evolver.controllers.activities
 
-% Meta BAL action evolver.controllers.events Show controller events evolver events read-only read-only
-metactl evolver.controllers.events --controller-id <controller_id>
+% Meta BAL action evolver.controllers.events [action_id=evolver.controllers.events]
+metactl evolver.controllers.events
 
-% Meta BAL action evolver.controllers.evidence Show controller evidence evolver evidence read-only read-only
-metactl evolver.controllers.evidence --controller-id <controller_id>
+% Meta BAL action evolver.controllers.evidence [action_id=evolver.controllers.evidence]
+metactl evolver.controllers.evidence
 
-% Meta BAL action evolver.controllers.logs Show controller logs evolver logs read-only read-only
-metactl evolver.controllers.logs --controller-id <controller_id>
+% Meta BAL action evolver.controllers.logs [action_id=evolver.controllers.logs]
+metactl evolver.controllers.logs
 
-% Meta BAL action evolver.controllers.recovery.request Request controller recovery manifest evolver recovery mutating mutation mutation confirmation-required
-metactl evolver.controllers.recovery.request --controller-id <controller_id>
+% Meta BAL action evolver.controllers.recovery.request [action_id=evolver.controllers.recovery.request]
+metactl evolver.controllers.recovery.request
 
-% Meta BAL action evolver.controllers.recovery.status Show controller recovery status evolver recovery read-only read-only
-metactl evolver.controllers.recovery.status --controller-id <controller_id>
+% Meta BAL action evolver.controllers.recovery.status [action_id=evolver.controllers.recovery.status]
+metactl evolver.controllers.recovery.status
 
-% Meta BAL action evolver.controllers.recovery.diff Show controller recovery diff evolver recovery read-only read-only
-metactl evolver.controllers.recovery.diff --controller-id <controller_id>
+% Meta BAL action evolver.controllers.recovery.diff [action_id=evolver.controllers.recovery.diff]
+metactl evolver.controllers.recovery.diff
 
-% Meta BAL action evolver.instruments.list List instruments evolver instruments read-only read-only
+% Meta BAL action evolver.instruments.list [action_id=evolver.instruments.list]
 metactl evolver.instruments.list
 
-% Meta BAL action evolver.instruments.show Show an instrument evolver instruments read-only read-only
-metactl evolver.instruments.show --instrument-id <instrument_id>
+% Meta BAL action evolver.instruments.show [action_id=evolver.instruments.show]
+metactl evolver.instruments.show
 
-% Meta BAL action evolver.runs.list List runs evolver runs read-only read-only
+% Meta BAL action evolver.runs.list [action_id=evolver.runs.list]
 metactl evolver.runs.list
 
-% Meta BAL action evolver.runs.show Show a run evolver runs read-only read-only
-metactl evolver.runs.show --run-id <run_id>
+% Meta BAL action evolver.runs.show [action_id=evolver.runs.show]
+metactl evolver.runs.show
 
-% Meta BAL action evolver.runs.pause Request run pause evolver runs mutating mutation mutation confirmation-required
-metactl evolver.runs.pause --run-id <run_id> --expected-revision <expected_revision>
+% Meta BAL action evolver.runs.pause [action_id=evolver.runs.pause]
+metactl evolver.runs.pause
 
-% Meta BAL action evolver.runs.resume Request run resume evolver runs mutating mutation mutation confirmation-required
-metactl evolver.runs.resume --run-id <run_id> --expected-revision <expected_revision>
+% Meta BAL action evolver.runs.resume [action_id=evolver.runs.resume]
+metactl evolver.runs.resume
 
-% Meta BAL action evolver.runs.stop Request run stop evolver runs mutating mutation mutation confirmation-required
-metactl evolver.runs.stop --run-id <run_id> --expected-revision <expected_revision>
+% Meta BAL action evolver.runs.stop [action_id=evolver.runs.stop]
+metactl evolver.runs.stop
 
-% Meta BAL action evolver.experiments.validate Validate an experiment definition evolver experiments read-only read-only
-metactl evolver.experiments.validate --definition <definition> --resolved-at <resolved_at>
+% Meta BAL action evolver.experiments.validate [action_id=evolver.experiments.validate]
+metactl evolver.experiments.validate
 
-% Meta BAL action evolver.experiments.describe Describe an experiment definition evolver experiments read-only read-only
-metactl evolver.experiments.describe --definition <definition>
+% Meta BAL action evolver.experiments.describe [action_id=evolver.experiments.describe]
+metactl evolver.experiments.describe
 
-% Meta BAL action evolver.experiments.plan Plan an experiment evolver experiments read-only read-only
-metactl evolver.experiments.plan --bundle <bundle>
+% Meta BAL action evolver.experiments.plan [action_id=evolver.experiments.plan]
+metactl evolver.experiments.plan
 
-% Meta BAL action evolver.experiments.enqueue Enqueue an experiment evolver experiments planned read-only
-metactl evolver.experiments.enqueue --definition <definition>
+% Meta BAL action evolver.experiments.enqueue [action_id=evolver.experiments.enqueue] [planned]
+metactl evolver.experiments.enqueue
 
-% Meta BAL action evolver.experiments.run Start an experiment evolver experiments planned read-only
-metactl evolver.experiments.run --definition <definition>
+% Meta BAL action evolver.experiments.run [action_id=evolver.experiments.run] [planned]
+metactl evolver.experiments.run
 
-% Meta BAL action evolver.run.start Start an experiment run evolver runs planned read-only
-metactl evolver.run.start --run-id <run_id> --bundle-id <bundle_id>
+% Meta BAL action evolver.run.start [action_id=evolver.run.start] [planned]
+metactl evolver.run.start
 
-% Meta BAL action evolver.run.pause Pause an experiment run evolver runs planned read-only
-metactl evolver.run.pause --run-id <run_id>
+% Meta BAL action evolver.run.pause [action_id=evolver.run.pause] [planned]
+metactl evolver.run.pause
 
-% Meta BAL action evolver.run.stop Stop an experiment run evolver runs planned read-only
-metactl evolver.run.stop --run-id <run_id>
+% Meta BAL action evolver.run.stop [action_id=evolver.run.stop] [planned]
+metactl evolver.run.stop
 
-% Meta BAL action deployment.config.validate Validate the assembled deployment configuration deployment configuration read-only
+% Meta BAL action deployment.config.validate [action_id=deployment.config.validate] [planned]
 metactl deployment.config.validate

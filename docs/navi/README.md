@@ -12,10 +12,14 @@ Generation is deterministic: source files are read in bytewise path order and
 the output has a stable header and newline policy. CI and local tests use
 `tools/generate_navi_cheats --check` to detect stale generated content.
 
-The generator also derives a granular entry for every action in the metactl
-deployment catalog. Curated cheatsheets describe repository workflows; the
-catalog remains authoritative for action IDs, required parameters, tags, and
-safety wording.
+The generator derives human command paths from metactl's first-class
+presentation model at
+[`metactl-cli.json`](../../metactl/applications/deployment/metactl-cli.json).
+Each entry retains its stable action ID as metadata. The action catalog remains
+authoritative for lifecycle status and other action facts; actions without a
+presentation path remain available through the low-level ID inventory. See the
+[metactl CLI reference](../metactl/cli.md) and [Human Command Path](../_concepts/human-command-path.md)
+for the distinction between presentation and capability.
 
 The container zsh profiles set `NAVI_PATH` to the generated directory and load
 `tools/navi-widget.zsh`. Pressing Enter on an empty prompt opens Navi and puts
