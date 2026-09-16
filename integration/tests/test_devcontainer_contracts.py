@@ -23,11 +23,70 @@ def test_server_container_is_canonical_and_safe():
     assert "workspaceFolder}/.venv" not in mounts
 
 
+def test_server_container_bootstraps_shared_metactl_target_and_server_first_imports():
+    config = json.loads((ROOT / ".devcontainer/server/devcontainer.json").read_text())
+    assert config["containerEnv"]["META_WEBUI_METACTL_CENTRAL_URL"] == "http://127.0.0.1:18087"
+    assert config["containerEnv"]["PYTHONPATH"].startswith(
+        "/workspaces/meta_bal/evolver/evolver-server/src"
+    )
+
+
+def test_server_metactl_wrapper_is_source_backed_and_preserves_arguments():
+    launcher = (ROOT / ".devcontainer/server/scripts/metactl").read_text()
+    assert "evolver/evolver-server/src" in launcher
+    assert "uv run --project /workspaces/meta_bal/metactl" in launcher
+    assert 'metactl "$@"' in launcher
+    assert "exec " in launcher
+
+
+def test_server_bootstrap_manages_the_source_backed_control_service():
+    bootstrap = (ROOT / ".devcontainer/server/scripts/bootstrap-devcontainer").read_text()
+    assert "META_WEBUI_EVOLVER_CONTROL_HOST" in bootstrap
+    assert 'META_WEBUI_EVOLVER_CONTROL_PORT:-18087' in bootstrap
+    assert "evolver-control" in bootstrap
+    assert "evolver/evolver-server" in bootstrap
+    assert "PYTHONPATH" in bootstrap
+    assert "/api/actions" in bootstrap
+
+
+def test_host_metactl_launcher_is_executable():
+    assert (ROOT / "tools/metactl").stat().st_mode & 0o111
+
+
+def test_host_metactl_launcher_forwards_arguments_and_exit_status(tmp_path):
+    fake_rtk = tmp_path / "rtk"
+    fake_rtk.write_text(
+        "#!/usr/bin/env bash\n"
+        "printf '%s\\n' \"$@\" > \"$LAUNCHER_ARGS\"\n"
+        "exit \"${LAUNCHER_STATUS}\"\n"
+    )
+    fake_rtk.chmod(0o755)
+    args_file = tmp_path / "args"
+    launcher = ROOT / "tools/metactl"
+    result = subprocess.run(
+        [str(launcher), "doctor", "--format", "json"],
+        cwd=ROOT,
+        env={
+            "PATH": f"{tmp_path}:/usr/bin:/bin",
+            "LAUNCHER_ARGS": str(args_file),
+            "LAUNCHER_STATUS": "23",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 23
+    assert args_file.read_text().splitlines() == [
+        "tools/dev-env", "server", "exec", "metactl", "doctor", "--format", "json"
+    ]
+
+
 def test_stale_webui_and_browser_tooling_are_absent():
     text = "\n".join(
         p.read_text() for p in [ROOT / ".devcontainer/Dockerfile", ROOT / ".devcontainer/server/devcontainer.json"]
     )
-    for stale in ("meta-webui", "META_WEBUI", "PLAYWRIGHT", "npm", "nodejs", "chromium"):
+    assert "META_WEBUI_METACTL_CENTRAL_URL" in text
+    for stale in ("meta-webui", "PLAYWRIGHT", "npm", "nodejs", "chromium"):
         assert stale.lower() not in text.lower()
 
 
@@ -62,6 +121,12 @@ def test_dev_env_smoke_covers_shared_and_edge_contracts():
         assert f"{command}" in source
     assert 'import yaml' in source
     assert 'test -d /run/evolver-controller' in source
+
+
+def test_dev_env_check_validates_the_managed_metactl_target():
+    source = (ROOT / "tools/dev-env").read_text()
+    assert "META_WEBUI_METACTL_CENTRAL_URL" in source
+    assert "http://127.0.0.1:18087" in source
 
 
 def test_shared_dockerfile_owns_stages_and_tool_versions():

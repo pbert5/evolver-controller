@@ -36,7 +36,9 @@
   "containerEnv": {
     "META_BALL_WORKTREE_ID": "${localEnv:META_BALL_WORKTREE_ID}",
     "META_BAL_DEV_BIND_ADDRESS": "${localEnv:META_BAL_DEV_BIND_ADDRESS:127.0.0.1}",
-    "META_BAL_DEV_PORT": "${localEnv:META_BAL_DEV_PORT:18086}"
+    "META_BAL_DEV_PORT": "${localEnv:META_BAL_DEV_PORT:18086}",
+    "META_WEBUI_METACTL_CENTRAL_URL": "http://127.0.0.1:18087",
+    "PYTHONPATH": "/workspaces/meta_bal/evolver/evolver-server/src"
   },
   "mounts": [
     "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",

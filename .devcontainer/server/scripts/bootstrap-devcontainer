@@ -28,3 +28,23 @@ if (( uv_status != 0 )); then
   printf 'bootstrap-devcontainer: failed (uv=%s)\n' "$uv_status" >&2
   exit 1
 fi
+
+export PYTHONPATH="/workspaces/meta_bal/evolver/evolver-server/src${PYTHONPATH:+:$PYTHONPATH}"
+export META_WEBUI_EVOLVER_CONTROL_HOST="${META_WEBUI_EVOLVER_CONTROL_HOST:-127.0.0.1}"
+export META_WEBUI_EVOLVER_CONTROL_PORT="${META_WEBUI_EVOLVER_CONTROL_PORT:-18087}"
+
+control_log="${TMPDIR:-/tmp}/meta-ball-evolver-control.log"
+control_url="http://${META_WEBUI_EVOLVER_CONTROL_HOST}:${META_WEBUI_EVOLVER_CONTROL_PORT}"
+if ! curl --fail --silent --show-error "${control_url}/api/actions" >/dev/null; then
+  nohup uv run --project /workspaces/meta_bal/evolver/evolver-server evolver-control \
+    >"$control_log" 2>&1 &
+fi
+
+for attempt in {1..30}; do
+  if curl --fail --silent "${control_url}/api/actions" >/dev/null; then
+    exit 0
+  fi
+  sleep 0.1
+done
+printf 'bootstrap-devcontainer: evolver-control did not expose %s/api/actions\n' "$control_url" >&2
+exit 1
