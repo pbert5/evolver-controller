@@ -33,7 +33,9 @@ tools/evolver-edge rescue recovery
 tools/evolver-edge rescue export-state recovery.tar.zst
 ```
 
-Equivalent direct use inside the edge container is `evoctl --offline ...`.
+Inside the edge container, `evoctl rescue ...` delegates to that host helper;
+it never reads the local controller store. Direct `evoctl --offline ...` is
+rejected with the same canonical rescue guidance.
 Recovery/planning commands include `recovery`, `export-state`,
 `lifecycle-plan`, and `update status`; offline output must be labelled as
 offline by the operator.
