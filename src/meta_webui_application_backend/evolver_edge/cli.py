@@ -5,6 +5,8 @@ import argparse
 import json
 import os
 import sys
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +20,72 @@ from .update import ComposeUpdateBackend, UpdateManager, UpdatePolicy, record_in
 from .doctor import doctor_report
 from .operator import (DEFAULT_SOCKET as DEFAULT_OPERATOR_SOCKET, OperatorClient,
                        OperatorProtocolError, OperatorUnavailable, request as operator_request)
+
+
+class CommandRegistryError(ValueError):
+    """The CLI command is not part of the frozen controller contract."""
+
+
+class CommandMode(str, Enum):
+    LIVE = "LIVE"
+    LOCAL = "LOCAL"
+    MAINTENANCE = "MAINTENANCE"
+
+
+@dataclass(frozen=True)
+class CommandSpec:
+    mode: CommandMode
+    disposition: str = "execute"
+    delegate: str | None = None
+
+
+_COMMAND_REGISTRY: dict[str, CommandSpec] = {
+    "status": CommandSpec(CommandMode.LIVE),
+    "binding": CommandSpec(CommandMode.LIVE),
+    "runs": CommandSpec(CommandMode.LIVE),
+    "controllers": CommandSpec(CommandMode.LIVE),
+    "instruments": CommandSpec(CommandMode.LIVE),
+    "instrument.show": CommandSpec(CommandMode.LIVE),
+    "run.show": CommandSpec(CommandMode.LIVE),
+    "run.events": CommandSpec(CommandMode.LIVE),
+    "run.telemetry": CommandSpec(CommandMode.LIVE),
+    "run.pause": CommandSpec(CommandMode.LIVE),
+    "run.resume": CommandSpec(CommandMode.LIVE),
+    "run.stop": CommandSpec(CommandMode.LIVE),
+    "calibration.artifacts": CommandSpec(CommandMode.LIVE),
+    "calibration.preflight": CommandSpec(CommandMode.LIVE),
+    "hardware.lease.acquire": CommandSpec(CommandMode.LIVE),
+    "hardware.lease.status": CommandSpec(CommandMode.LIVE),
+    "hardware.lease.release": CommandSpec(CommandMode.LIVE),
+    "hardware.layout": CommandSpec(CommandMode.LIVE),
+    "hardware.provision-identity": CommandSpec(CommandMode.LIVE),
+    "hardware.discover": CommandSpec(CommandMode.MAINTENANCE, "delegated", "hardware-service"),
+    "hardware.protocol-test": CommandSpec(CommandMode.MAINTENANCE, "delegated", "hardware-service"),
+    "hardware.actuate": CommandSpec(CommandMode.MAINTENANCE, "delegated", "hardware-service"),
+    "hardware.quarantine-command": CommandSpec(CommandMode.MAINTENANCE, "rejected"),
+    "update.status": CommandSpec(CommandMode.MAINTENANCE, "delegated", "controller-service"),
+    "update.check": CommandSpec(CommandMode.MAINTENANCE, "delegated", "controller-service"),
+    "update.apply": CommandSpec(CommandMode.MAINTENANCE, "delegated", "controller-service"),
+    "validation": CommandSpec(CommandMode.LOCAL),
+    "dispense": CommandSpec(CommandMode.LOCAL),
+}
+
+
+def command_spec(command: str) -> CommandSpec:
+    try:
+        return _COMMAND_REGISTRY[command]
+    except KeyError as error:
+        raise CommandRegistryError(f"command is not in the frozen registry: {command}") from error
+
+
+def maintenance_disposition(command: str) -> dict[str, str]:
+    spec = command_spec(command)
+    if spec.mode is not CommandMode.MAINTENANCE:
+        raise CommandRegistryError(f"command is not maintenance: {command}")
+    result = {"mode": spec.mode.value, "disposition": spec.disposition}
+    if spec.delegate is not None:
+        result["delegate"] = spec.delegate
+    return result
 
 
 def _root(value: str | None) -> Path:
