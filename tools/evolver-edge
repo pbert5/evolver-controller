@@ -1,14 +1,45 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-ROOT=$(git -C "$(dirname "${BASH_SOURCE[0]}")/.." rev-parse --show-toplevel)
+ROOT=$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 project="${EVOLVER_EDGE_PROJECT:-evolver-edge}"
 COMPOSE=(docker compose -f "$ROOT/deploy/evolver-edge/compose.yaml" -f "$ROOT/deploy/evolver-edge/compose.dev.yaml" -p "$project")
-usage() { echo 'usage: tools/evolver-edge {up [--build]|status|logs controller|logs hardware|restart controller|restart hardware|down}'; }
+usage() { echo 'usage: tools/evolver-edge {up [--build]|status|logs controller|logs hardware|restart controller|restart hardware|diagnose|rescue [evoctl args...]|down}'; }
+unavailable() {
+  cat >&2 <<'EOF'
+eVOLVER controller is unavailable or unreachable.
+  If the controller is stopped: tools/evolver-edge up
+  If it is running but the operator socket is unreachable:
+    tools/evolver-edge status
+    tools/evolver-edge logs controller
+  For intentional local recovery, use the explicit rescue route:
+    tools/evolver-edge rescue recovery
+EOF
+}
+run_compose() {
+  if "${COMPOSE[@]}" "$@"; then
+    return 0
+  fi
+  unavailable
+  return 1
+}
+status() {
+  local output
+  if ! output=$("${COMPOSE[@]}" ps --all); then
+    unavailable
+    return 1
+  fi
+  printf '%s\n' "$output"
+  if [[ "$output" =~ [Ee]xited|[Cc]reated|[Dd]ead|[Ss]topped ]]; then
+    echo 'Controller is stopped; run: tools/evolver-edge up' >&2
+  fi
+}
 case "${1:-}" in
-  up) shift; exec "${COMPOSE[@]}" up -d "$@" ;;
-  status) exec "${COMPOSE[@]}" ps ;;
-  logs) [[ "${2:-}" == controller ]] && service=evolver-controller || [[ "${2:-}" == hardware ]] && service=evolver-hardware || { usage >&2; exit 2; }; exec "${COMPOSE[@]}" logs -f "$service" ;;
-  restart) [[ "${2:-}" == controller ]] && service=evolver-controller || [[ "${2:-}" == hardware ]] && service=evolver-hardware || { usage >&2; exit 2; }; exec "${COMPOSE[@]}" restart "$service" ;;
-  down) exec "${COMPOSE[@]}" down ;;
+  up) shift; run_compose up -d "$@" ;;
+  status) status ;;
+  logs) [[ "${2:-}" == controller ]] && service=evolver-controller || [[ "${2:-}" == hardware ]] && service=evolver-hardware || { usage >&2; exit 2; }; run_compose logs -f "$service" ;;
+  restart) [[ "${2:-}" == controller ]] && service=evolver-controller || [[ "${2:-}" == hardware ]] && service=evolver-hardware || { usage >&2; exit 2; }; run_compose restart "$service" ;;
+  diagnose) run_compose ps --all; echo 'Controller stopped? Run: tools/evolver-edge up'; echo 'Controller running but unreachable? Run: tools/evolver-edge status; tools/evolver-edge logs controller' ;;
+  rescue) shift; [[ "$#" -gt 0 ]] || set -- recovery; run_compose run --rm --no-deps --entrypoint evoctl evolver-controller --offline "$@" ;;
+  down) run_compose down ;;
   *) usage >&2; exit 2 ;;
 esac

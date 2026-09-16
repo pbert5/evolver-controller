@@ -51,12 +51,27 @@ For physical-controller work, select `Meta Ball eVOLVER Edge` in VS Code.
 This slimmer profile keeps Python, uv, RTK, Git, zsh/tmux, Docker client, and
 Python/Docker editor support, but omits Node, Chromium, WebUI dependencies,
 and server tooling. It mounts the host Docker socket for bounded Compose
-development and the local operator runtime directory, never `/dev`. Its
+development and the operator runtime socket, never controller or hardware
+state, hardware runtime, or `/dev`. Its
 `evoctl` launcher runs `uv run --project
 /workspaces/meta_bal/evolver/evolver-controller`, so edits in the current checkout are
 used immediately. Use `tools/dev-env evolver-edge up` or
 `tools/evolver-edge up --build` to manage the edge stack. The first manages
 the Dev Container; the second manages Compose services through host Docker.
+
+The edge overlay is a live operator client. The normal flow is
+`evoctl -> operator.sock -> controller -> hardware.sock -> hardware -> serial`.
+The controller owns the operator API and brokers hardware requests; only the
+hardware daemon owns `/dev` and serial. A stopped or unreachable controller is
+reported as unavailable, and the launcher does not silently fall back to
+SQLite. Diagnose it with `tools/evolver-edge diagnose`, then use `status` and
+`logs controller` as needed.
+
+Offline reads are deliberately separate from live operation. For recovery or
+maintenance while the controller is stopped, use the explicit
+`tools/evolver-edge rescue recovery` route (or `evoctl rescue recovery` in the
+edge container). Do not use offline output as evidence of current central or
+physical-hardware state.
 
 The production-like edge stack has no PostgreSQL dependency. Durable SQLite
 state lives on the host at `/var/lib/evolver-controller`, while the hardware
