@@ -97,13 +97,13 @@ docker compose -f deploy/postgres-acceptance/compose.yaml up --detach --wait pos
 
 % Generated metactl action catalog
 % Meta BAL path controllers commands list [action_id=evolver.controllers.commands.list]
-metactl controllers commands list <controller_id> <command_id>
+metactl controllers commands list
 
 % Meta BAL path controllers commands show [action_id=evolver.controllers.commands.show]
-metactl controllers commands show <controller_id> <command_id>
+metactl controllers commands show
 
 % Meta BAL path controllers commands watch [action_id=evolver.controllers.commands.show]
-metactl controllers commands watch <controller_id> <command_id>
+metactl controllers commands watch
 
 % Meta BAL path controllers manual lease show [action_id=evolver.controllers.manual.lease.show]
 metactl controllers manual lease show
