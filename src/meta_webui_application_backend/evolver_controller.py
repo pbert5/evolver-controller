@@ -22,6 +22,7 @@ from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+from urllib.parse import urlparse
 
 from .central_store import CentralControllerStore, configured_store
 from .access_control import PERMISSIONS as _OPERATOR_PERMISSIONS
@@ -440,6 +441,10 @@ def create_enrollment_token(*, server_url: str, ttl_seconds: int = DEFAULT_TOKEN
     """
     if not isinstance(server_url, str) or not server_url.strip():
         return HTTPStatus.BAD_REQUEST, _error("server_url is required")
+    parsed_server_url = urlparse(server_url.rstrip("/"))
+    if (parsed_server_url.scheme != "https" or not parsed_server_url.netloc
+            or parsed_server_url.username or parsed_server_url.password):
+        return HTTPStatus.BAD_REQUEST, _error("server_url must be an HTTPS endpoint without embedded credentials")
     if ttl_seconds <= 0:
         return HTTPStatus.BAD_REQUEST, _error("ttl_seconds must be positive")
     if purpose not in {"enrollment", "repair", "live_handoff", "forced_adoption"}:

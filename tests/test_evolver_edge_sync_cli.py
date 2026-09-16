@@ -170,6 +170,17 @@ def test_enroll_sync_command_and_orphan_transition_are_transport_independent(tmp
         assert edge.identity()["connection_state"] == "orphaned"
 
 
+def test_machine_credential_transport_rejects_http_endpoints(tmp_path):
+    status, response = evolver_controller.create_enrollment_token(
+        server_url="http://central", state_root=tmp_path,
+    )
+    assert status == 400
+    assert response["kind"] == "BadRequest"
+    with EdgeStore(tmp_path / "edge") as edge:
+        with pytest.raises(ValueError, match="HTTPS endpoint"):
+            SyncClient(edge).enroll(server="http://central", token="one-use")
+
+
 def test_sync_batch_projects_edge_facts_into_stable_history_batches(tmp_path):
     with EdgeStore(tmp_path) as edge:
         edge.put_bundle(_bundle())
@@ -534,7 +545,7 @@ def test_cli_simulator_create_run_and_tick_are_durable(tmp_path, capsys):
 def test_same_central_restart_reconciles_an_orphaned_simulated_run(tmp_path):
     """Exercise enrollment, central loss, edge restart, and reconciliation together."""
     central_root, edge_root = tmp_path / "central", tmp_path / "edge"
-    _, token = evolver_controller.create_enrollment_token(server_url="http://central", state_root=central_root)
+    _, token = evolver_controller.create_enrollment_token(server_url="https://central", state_root=central_root)
 
     def central_transport(url, body, headers, timeout):
         del timeout
@@ -557,7 +568,7 @@ def test_same_central_restart_reconciles_an_orphaned_simulated_run(tmp_path):
         simulator = EvolverSimulator(edge, vials_per_instrument=1)
         edge.put_bundle(bundle)
         client = SyncClient(edge, transport=central_transport)
-        client.enroll(server="http://central", token=token["enrollment_token"])
+        client.enroll(server="https://central", token=token["enrollment_token"])
         simulator.start_run(run_id="run", bundle_id="bundle")
         simulator.tick_run("run")
         client.sync_once(inventory=simulator.inventory())
