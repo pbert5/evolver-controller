@@ -360,7 +360,7 @@ def main(argv: list[str] | None = None) -> int:
             break
     arguments = [*prefix, *_compatibility_argv(raw_arguments)]
     args = build_parser().parse_args(arguments)
-    live_request = _live_request(args)
+    live_request = None if args.offline else _live_request(args)
     if live_request is not None:
         operation, params = live_request
         try:
@@ -377,13 +377,21 @@ def main(argv: list[str] | None = None) -> int:
     # before the local store context is entered.  This prevents new commands
     # from silently inheriting the old EdgeStore fallback.
     command_key = args.command
-    if args.command == "update":
+    if args.command == "run":
+        command_key = f"run.{args.run_command}"
+    elif args.command == "instrument":
+        command_key = "instrument.show"
+    elif args.command == "calibration":
+        command_key = f"calibration.{args.calibration_command}"
+    elif args.command == "update":
         command_key = f"update.{args.update_command}"
     elif args.command == "hardware":
         command_key = f"hardware.{args.hardware_command}"
+        if args.hardware_command == "lease":
+            command_key = f"hardware.lease.{args.lease_command}"
     spec = command_spec(command_key)
     if spec.mode is CommandMode.MAINTENANCE and not (
-            args.command == "hardware" and args.hardware_command in {"discover", "protocol-test"}):
+            args.command == "hardware" and args.hardware_command in {"discover", "protocol-test", "actuate"}):
         _emit(maintenance_disposition(command_key))
         return 2 if spec.disposition == "rejected" else 0
     live_operations = {"status", "binding", "runs", "instruments", "doctor"}

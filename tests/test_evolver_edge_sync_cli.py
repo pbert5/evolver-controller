@@ -202,7 +202,7 @@ def test_cli_dispense_is_a_calibrated_plan_only(tmp_path, monkeypatch, capsys):
 
 
 def test_cli_calibration_artifacts_reads_edge_store(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(sys, "argv", ["evoctl", "--state-root", str(tmp_path), "calibration", "artifacts"])
+    monkeypatch.setattr(sys, "argv", ["evoctl", "--offline", "--state-root", str(tmp_path), "calibration", "artifacts"])
     assert main() == 0
     assert json.loads(capsys.readouterr().out) == []
 
@@ -502,7 +502,7 @@ def test_conflicting_append_only_record_requires_recovery(tmp_path):
 def test_cli_status_and_revision_safe_pause(tmp_path, capsys):
     with EdgeStore(tmp_path) as edge:
         edge.put_bundle(_bundle()); edge.create_run(run_id="run", bundle_id="bundle", instrument_ids=["instrument"])
-    assert main(["--state-root", str(tmp_path), "run", "pause", "run", "--based-on-revision", "0"]) == 0
+    assert main(["--offline", "--state-root", str(tmp_path), "run", "pause", "run", "--based-on-revision", "0"]) == 0
     assert json.loads(capsys.readouterr().out)["state"] == "paused"
     assert main(["--offline", "--state-root", str(tmp_path), "status"]) == 0
     assert json.loads(capsys.readouterr().out)["runs"][0]["id"] == "run"
@@ -559,7 +559,7 @@ def test_local_run_alias_keeps_revision_fenced_mutation_handler(tmp_path, capsys
         edge.put_bundle(_bundle())
         edge.create_run(run_id="run", bundle_id="bundle", instrument_ids=["instrument"])
 
-    assert main(["--state-root", str(tmp_path), "local", "run", "pause", "run",
+    assert main(["--offline", "--state-root", str(tmp_path), "local", "run", "pause", "run",
                  "--based-on-revision", "0"]) == 0
     assert json.loads(capsys.readouterr().out)["state"] == "paused"
 
@@ -577,7 +577,7 @@ def test_cli_simulator_start_reports_stable_durable_inventory(tmp_path, capsys):
     assert main(["--offline", "--state-root", str(tmp_path), "instruments"]) == 0
     listed = json.loads(capsys.readouterr().out)
     assert {instrument["id"] for instrument in listed} == {instrument["id"] for instrument in first["instruments"]}
-    assert main(["--state-root", str(tmp_path), "instrument", "show", first["instruments"][0]["id"]]) == 0
+    assert main(["--offline", "--state-root", str(tmp_path), "instrument", "show", first["instruments"][0]["id"]]) == 0
     assert json.loads(capsys.readouterr().out)["capabilities"]["od_read"]["verification"] == "protocol_verified"
 
 
