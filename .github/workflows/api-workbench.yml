@@ -32,6 +32,10 @@ jobs:
         run: rtk tools/dev-env server up
       - name: Run complete repository test suite in Server profile
         run: rtk tools/dev-env server exec rtk tools/test all
+      - name: Run PostgreSQL acceptance suite in Server profile
+        run: rtk tools/dev-env server exec rtk tools/test-postgres-acceptance
+      - name: Verify generated Navi catalog in Server profile
+        run: rtk tools/dev-env server exec rtk tools/generate_navi_cheats --check
       - name: Verify API workbench and discovery regressions
         run: |
           rtk tools/dev-env server exec rtk tools/test evidence metactl metactl/tests/test_api_workbench.py metactl/tests/test_action_api_contract.py metactl/tests/test_metactl.py
