@@ -55,7 +55,7 @@ def test_operator_capabilities_expose_frozen_live_controller_operations(tmp_path
             "hardware_layout", "hardware_provision_identity",
         ):
             assert operations[name] == {"access": "mutate" if name.startswith("hardware_") or name == "run" else "read", "mode": "live"}
-        assert operations["hardware"] == {"access": "mutate", "mode": "maintenance"}
+        assert operations["hardware"] == {"access": "mutate", "mode": "live"}
 
 
 def test_operator_live_inventory_and_calibration_operations_are_typed(tmp_path: Path) -> None:
@@ -75,6 +75,20 @@ def test_operator_maintenance_operation_is_explicitly_delegated(tmp_path: Path) 
         response = _wire(path, {"operation": "hardware", "params": {"operation": "discover"}})
         assert response["ok"] is False
         assert response["error"]["kind"] == "maintenance_delegated"
+
+
+def test_live_hardware_capability_keeps_typed_suboperation_safety(tmp_path: Path) -> None:
+    path = tmp_path / "operator.sock"
+    operator = OperatorIdentity("alice", "local_operator", frozenset({"hardware_maintenance"}))
+    with EdgeStore(tmp_path / "state") as store, OperatorServer(path=path, store=store, operator=operator):
+        assert request("capabilities", path)["operations"]["hardware"]["mode"] == "live"
+        response = _wire(path, {"operation": "hardware", "params": {
+            "operation": "hardware_command", "operation_name": "set_stir",
+            "target_identity": "MEV-1", "parameters": {}, "controller_generation": 1,
+            "lease_token": "lease", "physical": True, "unexpected": True,
+        }})
+        assert response["ok"] is False
+        assert response["error"]["kind"] == "invalid_request"
 
 
 def test_operator_protocol_rejects_extra_fields_and_oversized_requests(tmp_path: Path) -> None:

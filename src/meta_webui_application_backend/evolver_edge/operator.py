@@ -28,7 +28,7 @@ OPERATION_METADATA: dict[str, dict[str, str]] = {
     "instruments": {"access": "read", "mode": "live"},
     "runs": {"access": "read", "mode": "live"},
     "status": {"access": "read", "mode": "live"},
-    "hardware": {"access": "mutate", "mode": "maintenance"},
+    "hardware": {"access": "mutate", "mode": "live"},
     "run": {"access": "mutate", "mode": "live"},
     "instrument": {"access": "read", "mode": "live"},
     "calibration": {"access": "read", "mode": "live"},
