@@ -42,6 +42,15 @@ def _emit(value: Any) -> None:
     print(json.dumps(_redact(value), indent=2, sort_keys=True, default=str))
 
 
+def _emit_hardware_request(request_fn: Any, socket_path: str, payload: dict[str, Any], timeout: float | None) -> int:
+    try:
+        _emit(request_fn(socket_path, payload, timeout))
+    except (OSError, RuntimeError, TimeoutError) as error:
+        _emit({"error": str(error), "kind": error.__class__.__name__})
+        return 2
+    return 0
+
+
 def _compatibility_argv(argv: list[str]) -> list[str]:
     """Translate grouped operator spellings to the existing local actions.
 
@@ -389,9 +398,9 @@ def main(argv: list[str] | None = None) -> int:
             from .hardware_ipc import request
             socket_path = args.socket
             if args.hardware_command == "discover":
-                _emit(request(socket_path, {"operation": "discover"}, args.timeout)); return 0
+                return _emit_hardware_request(request, socket_path, {"operation": "discover"}, args.timeout)
             if args.hardware_command == "protocol-test":
-                _emit(request(socket_path, {"operation": "protocol_test"}, args.timeout)); return 0
+                return _emit_hardware_request(request, socket_path, {"operation": "protocol_test"}, args.timeout)
             if args.hardware_command == "provision-identity":
                 _emit(request(socket_path, {"operation": "provision_identity", "device_id": args.device_id,
                                             "owner_id": args.owner_id, "operator": args.operator,
