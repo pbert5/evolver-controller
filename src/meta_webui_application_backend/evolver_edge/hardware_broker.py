@@ -5,7 +5,7 @@ import os
 from typing import Any, Callable, Mapping
 
 from .hardware import ACTUATOR_BOUNDS, validate_device_operation
-from .hardware_ipc import DEFAULT_IPC_TIMEOUT_SECONDS, DEFAULT_SOCKET, request as ipc_request
+from .hardware_ipc import DEFAULT_IPC_TIMEOUT_SECONDS, request as ipc_request
 from .store import EdgeStore, EdgeStoreError
 
 
@@ -22,7 +22,8 @@ class HardwareBrokerProtocolError(HardwareBrokerError):
 
 
 _ACTUATORS = frozenset({"safe_stop", "set_output", "pulse_pump", "set_stir", "pulse_heater"})
-DEFAULT_HARDWARE_SOCKET = DEFAULT_SOCKET
+# Controller-side default for the isolated hardware-service boundary.
+DEFAULT_HARDWARE_SOCKET = "/run/evolver-hardware/hardware.sock"
 
 
 def resolve_hardware_socket(socket_path: str | None = None) -> str:
