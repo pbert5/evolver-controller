@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import hashlib
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -77,3 +78,18 @@ def test_composed_simulator_acceptance_is_restart_safe_and_evidenced(harness):
     assert len(projection["events"]) == len(projection_before_restart["events"])
     assert len(projection["telemetry"]) == len(projection_before_restart["telemetry"])
     assert issued["enrollment_token"] not in json.dumps(central)
+
+
+def test_simulator_acceptance_uses_https_without_credential_leakage(harness):
+    issued = harness.enroll()
+    binding = harness.edge.binding()
+    assert urlsplit(harness.server_url).scheme == "https"
+    assert urlsplit(harness.server_url).username is None
+    assert urlsplit(harness.server_url).password is None
+    assert harness.shared_secret not in harness.server_url
+
+    public_projection = json.dumps(harness.metactl_json("evolver.edge.controllers"))
+    central_artifact = (harness.central_root / "central-controller.json").read_text()
+    for credential in (harness.shared_secret, issued["enrollment_token"], binding["credential"]):
+        assert credential not in public_projection
+        assert credential not in central_artifact
