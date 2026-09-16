@@ -32,6 +32,10 @@ fi
 export PYTHONPATH="/workspaces/meta_bal/evolver/evolver-server/src${PYTHONPATH:+:$PYTHONPATH}"
 export META_WEBUI_EVOLVER_CONTROL_HOST="${META_WEBUI_EVOLVER_CONTROL_HOST:-127.0.0.1}"
 export META_WEBUI_EVOLVER_CONTROL_PORT="${META_WEBUI_EVOLVER_CONTROL_PORT:-18087}"
+# The endpoint registry is deployment-owned.  Pass through an explicitly
+# provisioned value for the server process; never synthesize a public URL from
+# the local bind address, since that address may not be controller-reachable.
+export META_WEBUI_EVOLVER_CONTROLLER_ENDPOINTS="${META_WEBUI_EVOLVER_CONTROLLER_ENDPOINTS:-}"
 
 control_log="${TMPDIR:-/tmp}/meta-ball-evolver-control.log"
 control_url="http://${META_WEBUI_EVOLVER_CONTROL_HOST}:${META_WEBUI_EVOLVER_CONTROL_PORT}"
