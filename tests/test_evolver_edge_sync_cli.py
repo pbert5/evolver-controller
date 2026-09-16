@@ -79,7 +79,7 @@ def test_service_simulator_composes_local_non_actuating_manual_sink(tmp_path, mo
     monkeypatch.setattr(service_module, "EdgeStore", FakeStore)
     monkeypatch.setattr(service_module, "SyncClient", FakeSyncClient)
     monkeypatch.setattr(service_module, "OperatorServer", type("Operator", (), {
-        "__init__": lambda self, *_args: None, "start": lambda self: self, "shutdown": lambda self: None,
+        "__init__": lambda self, *_args, **_kwargs: None, "start": lambda self: self, "shutdown": lambda self: None,
     }))
     service_module.main(["--state-root", str(tmp_path), "--simulator-instruments", "1"])
     assert calls[0]["manual_executor"].sink.__class__.__name__ == "SimulatorDeviceCommandSink"
@@ -139,6 +139,28 @@ def test_cli_live_hardware_dispatches_to_operator_client(tmp_path, monkeypatch, 
     assert cli_module.main() == 0
     assert calls[0][0] == "hardware"
     assert calls[0][1] == {"operation": "discover"}
+
+
+def test_cli_live_hardware_actuation_sends_typed_fenced_request(tmp_path, monkeypatch, capsys):
+    import meta_webui_application_backend.evolver_edge.cli as cli_module
+    calls = []
+    monkeypatch.setattr(cli_module, "operator_request", lambda name, path, params=None: calls.append(
+        (name, params)) or {"request_accepted": True})
+    monkeypatch.setattr(cli_module, "EdgeStore", lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("live CLI opened EdgeStore")))
+    monkeypatch.setattr(sys, "argv", ["evoctl", "hardware", "actuate", "set_stir",
+                                        "--target", "MEV-1", "--channel", "0", "--duration-ms", "100",
+                                        "--level", "5", "--physical", "--operator", "alice",
+                                        "--lease-token", "lease-7", "--controller-generation", "7"])
+
+    assert cli_module.main() == 0
+    assert calls == [("hardware", {
+        "operation": "hardware_command", "operation_name": "set_stir", "target_identity": "MEV-1",
+        "parameters": {"channel": 0, "duration_ms": 100, "level": 5},
+        "physical": True, "operator": "alice", "lease_token": "lease-7",
+        "lease_owner": "alice", "controller_generation": 7,
+    })]
+    assert json.loads(capsys.readouterr().out)["request_accepted"] is True
 
 
 def test_cli_live_unavailable_is_explicit_and_offline_missing_state_is_actionable(tmp_path, monkeypatch, capsys):

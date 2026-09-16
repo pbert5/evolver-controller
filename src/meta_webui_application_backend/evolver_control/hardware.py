@@ -7,6 +7,7 @@ from typing import Any, Callable, Mapping
 
 from ..evolver_edge.hardware import ACTUATOR_BOUNDS, validate_device_operation
 from ..evolver_edge.hardware_ipc import DEFAULT_SOCKET, request as ipc_request
+from ..evolver_edge.store import EdgeStore
 
 
 class HardwareBrokerError(RuntimeError):
@@ -27,8 +28,9 @@ Request = Callable[[str | Path, dict[str, Any], float | None], dict[str, Any]]
 class HardwareBroker:
     """Forward bounded hardware operations while retaining controller context."""
 
-    def __init__(self, *, socket_path: str | Path | None = None,
+    def __init__(self, store: EdgeStore | None = None, *, socket_path: str | Path | None = None,
                  request: Request = ipc_request, timeout: float = 5.0) -> None:
+        self.store = store
         self.socket_path = socket_path or os.environ.get("EVOLVER_HARDWARE_SOCKET", DEFAULT_SOCKET)
         self.request = request
         self.timeout = timeout
@@ -91,6 +93,13 @@ class HardwareBroker:
         token, owner = command.get("lease_token"), command.get("lease_owner")
         if not isinstance(token, str) or not token or owner != operator:
             raise PermissionError("active operator lease is required")
+        if self.store is not None:
+            binding = self.store.binding() or {}
+            if generation != binding.get("generation"):
+                raise PermissionError("controller generation is stale")
+            self.store.validate_control_lease(lease_token=token, owner=operator, generation=generation)
+            if not any(item.get("device_identity") == target for item in self.store.list_instruments()):
+                raise ValueError("target identity is not registered")
         payload = dict(command)
         payload.update({"operator": operator, "lease_owner": operator,
                         "parameters": dict(parameters), "target_identity": target,

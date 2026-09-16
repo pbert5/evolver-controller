@@ -7,11 +7,16 @@ import socket
 import socketserver
 import stat
 import threading
+from http import HTTPStatus
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from ..evolver_control.actions import dispatch as central_dispatch
 from .doctor import doctor_report
 from .store import EdgeStore
+
+if TYPE_CHECKING:
+    from ..evolver_controller import OperatorIdentity
 
 DEFAULT_SOCKET = "/run/evolver-controller/operator.sock"
 PROTOCOL_VERSION = 1
@@ -23,6 +28,7 @@ OPERATION_METADATA: dict[str, dict[str, str]] = {
     "instruments": {"access": "read", "mode": "live"},
     "runs": {"access": "read", "mode": "live"},
     "status": {"access": "read", "mode": "live"},
+    "hardware": {"access": "mutate", "mode": "live"},
 }
 ALLOWED_OPERATIONS = frozenset(OPERATION_METADATA)
 
@@ -82,12 +88,30 @@ def _request_value(request: Any) -> tuple[str, dict[str, Any]]:
     return operation, request["params"]
 
 
-def _dispatch(store: EdgeStore, operation: str, params: dict[str, Any]) -> Any:
+def _dispatch(store: EdgeStore, operation: str, params: dict[str, Any], *,
+              operator: "OperatorIdentity | None" = None, hardware_broker: Any | None = None) -> Any:
+    if operation == "hardware":
+        hardware_operation = params.get("operation")
+        if hardware_operation not in {"discover", "protocol_test", "hardware_command"}:
+            raise OperatorProtocolError("unsupported hardware operation", kind="unsupported_operation")
+        if operator is None:
+            raise OperatorProtocolError("authenticated operator attribution is required", kind="unauthorized")
+        body = _hardware_request(params, operator.subject)
+        if hardware_operation == "hardware_command":
+            body["operation"] = params["operation_name"]
+        status, result = central_dispatch(
+            {"discover": "hardware_discover", "protocol_test": "hardware_protocol_test",
+             "hardware_command": "hardware_command"}[hardware_operation],
+            body, operator=operator, hardware_broker=hardware_broker, state_root=store.root)
+        if status is not HTTPStatus.OK:
+            raise OperatorProtocolError(result.get("error", "hardware operation failed"),
+                                        kind=result.get("kind", "hardware_error"))
+        return result
     if params:
         raise OperatorProtocolError("params must be empty for this operation", kind="invalid_request")
     if operation == "capabilities":
         return {"protocol_version": PROTOCOL_VERSION, "operations": OPERATION_METADATA,
-                "read_only": True, "transport": "unix"}
+                "read_only": False, "transport": "unix"}
     if operation == "status":
         return {"controller": store.identity(), "binding": store.binding(), "runs": store.list_runs()}
     if operation == "binding":
@@ -101,6 +125,51 @@ def _dispatch(store: EdgeStore, operation: str, params: dict[str, Any]) -> Any:
     raise OperatorProtocolError(f"unsupported operator operation: {operation}", kind="unsupported_operation")
 
 
+def _hardware_request(params: dict[str, Any], subject: str) -> dict[str, Any]:
+    """Validate and normalize the typed hardware envelope before brokerage."""
+    operation = params.get("operation")
+    if operation == "discover":
+        allowed = {"operation"}
+    elif operation == "protocol_test":
+        allowed = {"operation", "target_identity"}
+        target = params.get("target_identity")
+        if target is not None and (not isinstance(target, str) or not target):
+            raise OperatorProtocolError("target_identity must be a non-empty string", kind="invalid_request")
+    elif operation == "hardware_command":
+        allowed = {"operation", "operation_name", "target_identity", "parameters",
+                   "controller_generation", "lease_token", "lease_owner", "physical", "command_id", "operator"}
+        required = {"operation_name", "target_identity", "parameters", "controller_generation", "lease_token", "physical"}
+        missing = sorted(required - params.keys())
+        if missing:
+            raise OperatorProtocolError(f"missing hardware command fields: {', '.join(missing)}", kind="invalid_request")
+        if not isinstance(params["operation_name"], str) or not params["operation_name"]:
+            raise OperatorProtocolError("operation_name must be a non-empty string", kind="invalid_request")
+        if not isinstance(params["target_identity"], str) or not params["target_identity"]:
+            raise OperatorProtocolError("target_identity must be a non-empty string", kind="invalid_request")
+        if not isinstance(params["parameters"], dict):
+            raise OperatorProtocolError("parameters must be an object", kind="invalid_request")
+        generation = params["controller_generation"]
+        if isinstance(generation, bool) or not isinstance(generation, int):
+            raise OperatorProtocolError("controller_generation must be an integer", kind="invalid_request")
+        if not isinstance(params["lease_token"], str) or not params["lease_token"]:
+            raise OperatorProtocolError("lease_token must be a non-empty string", kind="invalid_request")
+        if not isinstance(params["physical"], bool):
+            raise OperatorProtocolError("physical must be a boolean", kind="invalid_request")
+        for field in ("operator", "lease_owner"):
+            if field in params and params[field] != subject:
+                raise OperatorProtocolError(f"{field} does not match authenticated operator", kind="unauthorized")
+    else:
+        raise OperatorProtocolError("unsupported hardware operation", kind="unsupported_operation")
+    unknown = sorted(set(params) - allowed)
+    if unknown:
+        raise OperatorProtocolError(f"unknown hardware request fields: {', '.join(unknown)}", kind="invalid_request")
+    if operation == "hardware_command":
+        result = {key: params[key] for key in allowed if key in params and key not in {"operator"}}
+        result["lease_owner"] = subject
+        return result
+    return dict(params)
+
+
 def _error(error: OperatorError) -> dict[str, Any]:
     return {"ok": False, "error": {"kind": error.kind, "message": str(error)}}
 
@@ -109,8 +178,11 @@ class _OperatorServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, address: str, store: EdgeStore):
+    def __init__(self, address: str, store: EdgeStore, *,
+                 operator: OperatorIdentity | None, hardware_broker: Any | None):
         self.store = store
+        self.operator = operator
+        self.hardware_broker = hardware_broker
         super().__init__(address, _OperatorHandler)
 
 
@@ -122,7 +194,8 @@ class _OperatorHandler(socketserver.StreamRequestHandler):
             except json.JSONDecodeError as error:
                 raise OperatorProtocolError("operator request is malformed JSON", kind="malformed_json") from error
             operation, params = _request_value(payload)
-            result = _dispatch(self.server.store, operation, params)  # type: ignore[attr-defined]
+            result = _dispatch(self.server.store, operation, params,  # type: ignore[attr-defined]
+                               operator=self.server.operator, hardware_broker=self.server.hardware_broker)
             self.wfile.write(_encode({"ok": True, "result": result}))
         except OperatorError as error:
             self.wfile.write(_encode(_error(error)))
@@ -131,8 +204,11 @@ class _OperatorHandler(socketserver.StreamRequestHandler):
 
 
 class OperatorServer:
-    def __init__(self, store: EdgeStore, path: str | os.PathLike[str] = DEFAULT_SOCKET):
+    def __init__(self, store: EdgeStore, path: str | os.PathLike[str] = DEFAULT_SOCKET, *,
+                 operator: OperatorIdentity | None = None, hardware_broker: Any | None = None):
         self.store = store
+        self.operator = operator
+        self.hardware_broker = hardware_broker
         self.path = socket_path(path)
         self._server: _OperatorServer | None = None
         self._thread: threading.Thread | None = None
@@ -148,7 +224,8 @@ class OperatorServer:
                 raise OperatorError(f"operator socket is already in use: {self.path}")
             except (ConnectionRefusedError, FileNotFoundError, socket.timeout):
                 self.path.unlink()
-        self._server = _OperatorServer(str(self.path), self.store)
+        self._server = _OperatorServer(str(self.path), self.store,
+                                       operator=self.operator, hardware_broker=self.hardware_broker)
         os.chmod(self.path, 0o660)
         self._thread = threading.Thread(target=self._server.serve_forever, name="evolver-operator", daemon=True)
         self._thread.start()

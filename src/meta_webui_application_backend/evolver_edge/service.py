@@ -8,6 +8,8 @@ import threading
 from pathlib import Path
 
 from .actuator import HardwareIPCDeviceCommandSink, ManualCommandExecutor, SimulatorDeviceCommandSink
+from ..evolver_controller import OperatorIdentity
+from .hardware_broker import HardwareBroker
 from .operator import DEFAULT_SOCKET as DEFAULT_OPERATOR_SOCKET, OperatorServer
 from .store import EdgeStore
 from .sync import SyncClient
@@ -26,7 +28,12 @@ def main(argv: list[str] | None = None) -> int:
     # StateDirectory, so service restarts cannot recreate identity or bindings.
     with EdgeStore(Path(args.state_root)) as store:
         stop_event = threading.Event()
-        operator = OperatorServer(store, args.operator_socket).start()
+        local_operator = OperatorIdentity(
+            subject=os.environ.get("EVOLVER_OPERATOR", "local-operator"),
+            source="unix_operator_socket", permissions=frozenset({"hardware_maintenance"}))
+        operator = OperatorServer(
+            store, args.operator_socket, operator=local_operator,
+            hardware_broker=HardwareBroker(store)).start()
         previous_handlers: dict[int, object] = {}
 
         def stop(_signum: int, _frame: object) -> None:

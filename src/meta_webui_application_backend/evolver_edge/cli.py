@@ -198,6 +198,8 @@ def build_parser() -> argparse.ArgumentParser:
     actuator.add_argument("--physical", action="store_true")
     actuator.add_argument("--operator", help="audited operator attribution")
     actuator.add_argument("--lease-token")
+    actuator.add_argument("--controller-generation", type=int,
+                          help="controller generation asserted by the active lease")
     lease = hardware_sub.add_parser("lease", help="bounded local commissioning lease")
     lease_sub = lease.add_subparsers(dest="lease_command", required=True)
     acquire = lease_sub.add_parser("acquire"); acquire.add_argument("--operator", required=True); acquire.add_argument("--ttl-seconds", type=int, default=900)
@@ -243,8 +245,25 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{error.kind}: {error}", file=sys.stderr)
             return _operator_exit_code(error)
     if not args.offline and args.command == "hardware":
-        params = {"operation": "discover" if args.hardware_command == "discover" else
-                  "protocol_test" if args.hardware_command == "protocol-test" else args.hardware_command}
+        if args.hardware_command == "discover":
+            params = {"operation": "discover"}
+        elif args.hardware_command == "protocol-test":
+            params = {"operation": "protocol_test"}
+        elif args.hardware_command == "actuate":
+            parameters = {"channel": args.channel}
+            if args.operation == "set_output":
+                parameters.update(output="od_led", level=args.level)
+            elif args.operation == "pulse_pump":
+                parameters.update(duration_ms=args.duration_ms)
+            else:
+                parameters.update(duration_ms=args.duration_ms, level=args.level)
+            params = {"operation": "hardware_command", "operation_name": args.operation,
+                      "target_identity": args.target, "parameters": parameters,
+                      "physical": args.physical, "operator": args.operator,
+                      "lease_token": args.lease_token, "lease_owner": args.operator,
+                      "controller_generation": args.controller_generation}
+        else:
+            params = {"operation": args.hardware_command}
         try:
             _emit(operator_request("hardware", args.operator_socket, params=params))
             return 0

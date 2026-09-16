@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 
 from meta_webui_application_backend.evolver_edge import EdgeStore
+from meta_webui_application_backend.evolver_edge.hardware_broker import HardwareBroker
+from meta_webui_application_backend.evolver_controller import OperatorIdentity
 from meta_webui_application_backend.evolver_edge.operator import (
     OPERATION_METADATA,
     PROTOCOL_VERSION,
@@ -33,13 +35,13 @@ def test_operator_api_exposes_only_read_models_and_never_hardware_socket(tmp_pat
         capabilities = request("capabilities", operator_path)
         assert capabilities["protocol_version"] == PROTOCOL_VERSION
         assert capabilities["operations"] == OPERATION_METADATA
-        assert capabilities["read_only"] is True
+        assert capabilities["read_only"] is False
         assert request("status", operator_path)["controller"]["id"] == store.identity()["id"]
         assert request("runs", operator_path) == []
         assert request("instruments", operator_path) == []
         assert "checks" in request("doctor", operator_path)
         assert not hardware_path.exists()
-        response = _wire(operator_path, {"operation": "hardware"})
+        response = _wire(operator_path, {"operation": "hardware", "params": {}})
         assert response["ok"] is False
     assert not operator_path.exists()
 
@@ -108,3 +110,109 @@ def test_operator_socket_is_private_and_client_reports_explicit_unavailable(tmp_
         assert stat_mode == 0o660
     with pytest.raises(OperatorUnavailable, match="operator service unavailable"):
         request("status", path, timeout=0.1)
+
+
+def test_operator_hardware_diagnostics_reach_controller_broker_and_ipc_sink(tmp_path: Path) -> None:
+    calls = []
+
+    def fake_hardware_ipc(path, payload, timeout):
+        calls.append((path, payload, timeout))
+        return {"device_identity": "MEV-1", "verification": "protocol_verified"}
+
+    operator = OperatorIdentity("alice", "local_operator", frozenset({"hardware_maintenance"}))
+    path = tmp_path / "operator.sock"
+    with EdgeStore(tmp_path / "state") as store, OperatorServer(
+        store, path, operator=operator, hardware_broker=HardwareBroker(store, request=fake_hardware_ipc)
+    ):
+        assert request("hardware", path, params={"operation": "discover"})["device_identity"] == "MEV-1"
+        assert request("hardware", path, params={"operation": "protocol_test"})["verification"] == "protocol_verified"
+
+    assert [call[1] for call in calls] == [
+        {"operation": "discover", "operator": "alice"},
+        {"operation": "protocol_test", "operator": "alice"},
+    ]
+
+
+def test_operator_hardware_command_keeps_controller_fences(tmp_path: Path) -> None:
+    calls = []
+
+    def fake_hardware_ipc(path, payload, timeout):
+        calls.append(payload)
+        return {"request_accepted": True}
+
+    operator = OperatorIdentity("alice", "local_operator", frozenset({"hardware_maintenance"}))
+    path = tmp_path / "operator.sock"
+    with EdgeStore(tmp_path / "state") as store:
+        store.bind(webui_controller_id="central", server_url="https://central", credential="secret", generation=7)
+        store.register_instruments([{"id": "instrument-1", "instrument_type": "minievolver",
+                                     "device_identity": "MEV-1", "vial_positions": [], "capabilities": {}}])
+        store.set_control_lease(lease_token="lease-7", owner="alice", generation=7,
+                                expires_at="2030-01-01T01:00:00+00:00")
+        with OperatorServer(store, path, operator=operator,
+                            hardware_broker=HardwareBroker(store, request=fake_hardware_ipc)):
+            result = request("hardware", path, params={
+                "operation": "hardware_command", "operation_name": "set_stir",
+                "target_identity": "MEV-1", "parameters": {"channel": 0, "duration_ms": 100, "level": 5},
+                "controller_generation": 7, "lease_token": "lease-7", "lease_owner": "alice", "physical": True,
+            })
+            assert result["request_accepted"] is True
+            denied = _wire(path, {"operation": "hardware", "params": {
+                "operation": "hardware_command", "operation_name": "set_stir",
+                "target_identity": "MEV-1", "parameters": {"channel": 0, "duration_ms": 100, "level": 5},
+                "controller_generation": 7, "lease_token": "wrong", "lease_owner": "alice", "physical": True,
+            }})
+            assert denied["ok"] is False
+            assert denied["error"]["kind"] == "HardwareError"
+    assert len(calls) == 1
+    assert calls[0]["operator"] == "alice"
+
+
+@pytest.mark.parametrize("change", [
+    {"physical": False},
+    {"controller_generation": 6},
+    {"lease_token": "wrong"},
+    {"target_identity": "MEV-2"},
+    {"parameters": {"channel": 0, "duration_ms": 1001, "level": 5}},
+])
+def test_operator_hardware_handler_rejects_unsafe_command_before_ipc(tmp_path: Path, change: dict) -> None:
+    calls = []
+
+    def fake_hardware_ipc(path, payload, timeout):
+        calls.append(payload)
+        return {"request_accepted": True}
+
+    operator = OperatorIdentity("alice", "local_operator", frozenset({"hardware_maintenance"}))
+    path = tmp_path / "operator.sock"
+    with EdgeStore(tmp_path / "state") as store:
+        store.bind(webui_controller_id="central", server_url="https://central", credential="secret", generation=7)
+        store.register_instruments([{"id": "instrument-1", "instrument_type": "minievolver",
+                                     "device_identity": "MEV-1", "vial_positions": [], "capabilities": {}}])
+        store.set_control_lease(lease_token="lease-7", owner="alice", generation=7,
+                                expires_at="2030-01-01T01:00:00+00:00")
+        params = {"operation": "hardware_command", "operation_name": "set_stir",
+                  "target_identity": "MEV-1", "parameters": {"channel": 0, "duration_ms": 100, "level": 5},
+                  "controller_generation": 7, "lease_token": "lease-7", "lease_owner": "alice", "physical": True}
+        params.update(change)
+        with OperatorServer(store, path, operator=operator,
+                            hardware_broker=HardwareBroker(store, request=fake_hardware_ipc)):
+            denied = _wire(path, {"operation": "hardware", "params": params})
+            assert denied["ok"] is False
+            assert denied["error"]["kind"] == "HardwareError"
+    assert calls == []
+
+
+def test_operator_hardware_handler_rejects_untyped_command_fields_before_ipc(tmp_path: Path) -> None:
+    calls = []
+    operator = OperatorIdentity("alice", "local_operator", frozenset({"hardware_maintenance"}))
+    path = tmp_path / "operator.sock"
+    with EdgeStore(tmp_path / "state") as store:
+        broker = HardwareBroker(store, request=lambda *args: calls.append(args) or {"request_accepted": True})
+        with OperatorServer(store, path, operator=operator, hardware_broker=broker):
+            response = _wire(path, {"operation": "hardware", "params": {
+                "operation": "hardware_command", "operation_name": "set_stir",
+                "target_identity": "MEV-1", "parameters": {}, "controller_generation": "7",
+                "lease_token": "lease-7", "physical": True, "unexpected": "value",
+            }})
+            assert response["ok"] is False
+            assert response["error"]["kind"] == "invalid_request"
+    assert calls == []

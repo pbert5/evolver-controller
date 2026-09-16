@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .. import evolver_controller
+from ..evolver_edge.hardware_broker import HardwareBroker as FencedHardwareBroker
 
 
 class UnknownAction(ValueError):
@@ -52,6 +53,17 @@ def dispatch(action: str, parameters: Mapping[str, Any] | None = None, *,
             from .hardware import HardwareBroker
             hardware_broker = HardwareBroker()
         try:
+            if isinstance(hardware_broker, FencedHardwareBroker):
+                if action == "hardware_discover":
+                    return HTTPStatus.OK, hardware_broker.discover(operator=operator.subject)
+                if action == "hardware_protocol_test":
+                    return HTTPStatus.OK, hardware_broker.protocol_test(
+                        operator=operator.subject, target_identity=body.get("target_identity"))
+                return HTTPStatus.OK, hardware_broker.command(
+                    str(body.get("operation")), operator=operator.subject,
+                    target_identity=body.get("target_identity"), parameters=body.get("parameters"),
+                    lease_token=body.get("lease_token"), controller_generation=body.get("controller_generation"),
+                    physical=body.get("physical", False), command_id=body.get("command_id"))
             if action == "hardware_discover":
                 return HTTPStatus.OK, hardware_broker.discover(operator=operator.subject)
             if action == "hardware_protocol_test":
