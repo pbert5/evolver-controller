@@ -4,11 +4,10 @@ This page defines the ordinary operator path. The goal is to reach the central
 stack without manually reconstructing its URL, container network, or auth
 configuration.
 
-> Target-contract note: `metactl tui`, `metactl doctor`, and the host
-> `tools/metactl` launcher described below are the approved follow-up
-> implementation. On the current pinned client, use `metactl api tui --repo .`
-> for the existing API Workbench and `tools/dev-env server exec metactl ...`
-> from the host.
+> The pinned client provides `metactl tui` for the operator console,
+> `metactl doctor` for read-only diagnostics, and `metactl api tui` for the API
+> Workbench. The parent repository's `tools/metactl` launcher runs that client
+> in the current checkout's Server Dev Container.
 
 ## Managed development checkout
 
@@ -44,15 +43,14 @@ normal Meta Ball development.
 
 ## What doctor proves
 
-`metactl doctor` is read-only. It should report, without printing secret values:
+`metactl doctor` is read-only. It reports, without printing secret values:
 
 - the resolved central target and where that value came from;
 - whether the target is reachable;
 - whether authentication material is configured, without displaying it;
-- whether live action discovery succeeds;
-- the server-reported application/action surface;
+- live action-discovery status, version, and action count;
 - local versus live catalog drift when a local catalog is available;
-- the next exact repository command when a managed prerequisite is missing.
+- remediation commands when discovery is unavailable.
 
 A failed doctor check must not silently switch to offline repository browsing.
 

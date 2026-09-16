@@ -5,10 +5,9 @@ The CLI has two identities that must stay separate:
 1. stable action IDs are the machine contract;
 2. human command paths are the operator presentation.
 
-The current client already translates many grouped human paths into action IDs.
-The follow-up implementation should make that hierarchy first-class so nested
-help, completion, generated docs, Navi, and the operator TUI all consume the
-same presentation model.
+The current client translates grouped human paths into action IDs through its
+first-class presentation model. Nested help and the operator TUI consume that
+same model while stable action IDs remain the machine contract.
 
 ## Target hierarchy
 

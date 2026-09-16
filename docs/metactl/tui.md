@@ -4,10 +4,8 @@
 control plane. It is intentionally distinct from `metactl api tui`, which is
 the developer/API Workbench.
 
-> Target-contract note: the pinned client currently maps `metactl tui` to the
-> API Workbench. The follow-up implementation should move the API Workbench to
-> the explicit `metactl api tui` path and make `metactl tui` the operator
-> console described here.
+> `metactl tui` is the operator console. The developer/API Workbench remains
+> separately addressable as `metactl api tui`.
 
 ## Startup contract
 

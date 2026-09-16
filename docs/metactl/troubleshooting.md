@@ -1,8 +1,8 @@
 # metactl troubleshooting
 
 Use this page when the normal central operator path fails. Start with
-`metactl doctor` once the follow-up implementation lands; it is intended to
-turn environment and connection ambiguity into explicit checks.
+`metactl doctor` to turn environment and connection ambiguity into explicit,
+read-only checks.
 
 ## The TUI says central is unavailable
 
@@ -50,8 +50,7 @@ The code run should include CLI/TUI equivalence tests for shared actions.
 
 ## The API Workbench opens when I run metactl tui
 
-That is the behavior of the currently pinned pre-operator-TUI client. The target
-contract moves the developer Workbench to the explicit path:
+The developer Workbench is available at the explicit path:
 
 ```text
 metactl api tui

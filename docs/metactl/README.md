@@ -4,11 +4,11 @@
 action catalog and the trusted `evolver-server` operator API. It does not own a
 database, direct EdgeStore access, SSH transport, or duplicated domain logic.
 
-> This documentation branch defines the approved target operator experience.
-> The pinned client already has the action catalog, grouped command aliases,
-> interactive action selection, and API Workbench. The dedicated operator TUI,
-> `metactl doctor`, first-class nested help, and managed connection bootstrap
-> are implementation targets for the follow-up code branch.
+> This documentation describes the approved operator experience implemented by
+> the pinned client and the repository-owned Server Dev Container. The client
+> provides the action catalog, grouped command aliases, first-class nested help,
+> the operator TUI, and `metactl doctor`; the parent repository supplies the
+> managed central-target bootstrap.
 
 ## Start here
 

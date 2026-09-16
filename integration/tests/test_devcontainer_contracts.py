@@ -1,4 +1,5 @@
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -127,6 +128,28 @@ def test_dev_env_check_validates_the_managed_metactl_target():
     source = (ROOT / "tools/dev-env").read_text()
     assert "META_WEBUI_METACTL_CENTRAL_URL" in source
     assert "http://127.0.0.1:18087" in source
+
+
+def test_dev_env_check_rejects_meta_webui_names_with_central_url_suffix(tmp_path):
+    checkout = tmp_path / "checkout"
+    (checkout / "tools").mkdir(parents=True)
+    (checkout / ".devcontainer/server").mkdir(parents=True)
+    shutil.copy2(ROOT / "tools/dev-env", checkout / "tools/dev-env")
+    shutil.copy2(ROOT / ".devcontainer/server/devcontainer.json",
+                 checkout / ".devcontainer/server/devcontainer.json")
+    shutil.copy2(ROOT / ".devcontainer/Dockerfile", checkout / ".devcontainer/Dockerfile")
+    if (ROOT / ".vscode").exists():
+        shutil.copytree(ROOT / ".vscode", checkout / ".vscode")
+
+    config_path = checkout / ".devcontainer/server/devcontainer.json"
+    config = json.loads(config_path.read_text())
+    config["containerEnv"]["META_WEBUI_METACTL_CENTRAL_URL_SUFFIX"] = "unexpected"
+    config_path.write_text(json.dumps(config))
+
+    result = subprocess.run([str(checkout / "tools/dev-env"), "server", "check"],
+                            cwd=checkout, capture_output=True, text=True, check=False)
+
+    assert result.returncode != 0
 
 
 def test_shared_dockerfile_owns_stages_and_tool_versions():
