@@ -24,6 +24,13 @@ between repository and live modes.
 6. never silently fall back to offline repository browsing and make the user
    think they are viewing live state.
 
+The local catalog is only a form and navigation description until `/api/actions`
+discovery succeeds. An unavailable, unauthorized, or forbidden discovery keeps
+actions unavailable. When the gateway supplies a catalog version, the TUI also
+compares its action IDs and version with the local catalog; drift is an explicit
+gate and never a reason to invoke a stale contract. Configured authentication is
+shown as configuration only, not as proof that authentication succeeded.
+
 An explicit `--server` override may be supported for unusual deployments, but
 it should flow into the same transport/session machinery rather than creating a
 TUI-only client.
@@ -54,6 +61,12 @@ stop actions.
 
 Planned catalog actions may be discoverable, but must be visibly unavailable.
 They must never dispatch simply because the TUI can render them.
+
+Form values are converted and checked from the catalog fields themselves:
+`required`, `type`, `default`, and `enum` are applied before transport dispatch.
+The resulting request uses the same stable action ID and shared transport as
+the CLI. Read selections and controller/run views therefore represent central
+projections, not an offline cache.
 
 ## Interaction model
 

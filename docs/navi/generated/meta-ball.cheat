@@ -73,7 +73,8 @@ metactl --help
 metactl actions list
 metactl actions show <action-id>
 metactl interactive
-metactl tui --repo .
+metactl tui
+metactl doctor --format json
 metactl api tui --repo .
 metactl api tui --repo . --live
 metactl api check --repo .
