@@ -1,5 +1,13 @@
 @RTK.md
 
+# Codex workspace configuration
+
+The repository `.codex/config.toml` is the source of truth for workspace agent
+spawning. Keep `agents.enabled = true`, `features.multi_agent = true`, and
+`agents.max_concurrent_threads_per_session = 8`; preserve every named role in
+`.codex/agents/`. Use `features.hooks` for lifecycle hooks. `features.codex_hooks`
+is deprecated and must not be reintroduced.
+
 # Repository agent guidance
 
 ## Development and test environment
