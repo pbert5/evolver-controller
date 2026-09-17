@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..evolver_control.actions import dispatch as central_dispatch
 from .doctor import doctor_report
+from .hardware_ipc import PROVISIONING_IPC_TIMEOUT_SECONDS
 from .store import EdgeStore
 
 if TYPE_CHECKING:
@@ -221,7 +222,7 @@ def _dispatch(store: EdgeStore, operation: str, params: dict[str, Any], *,
             return hardware_broker.request(hardware_broker.socket_path, {
                 "operation": "provision_identity", "device_id": device_id,
                 "owner_id": owner_id, "operator": subject, "physical": True,
-            }, hardware_broker.timeout)
+            }, PROVISIONING_IPC_TIMEOUT_SECONDS)
         except Exception as error:
             raise OperatorProtocolError(str(error), kind="hardware_error") from error
     if operation not in {"status", "binding", "runs", "instruments", "doctor", "capabilities"}:

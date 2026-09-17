@@ -9,6 +9,7 @@ import pytest
 
 from meta_webui_application_backend.evolver_edge import EdgeStore
 from meta_webui_application_backend.evolver_edge.hardware_broker import HardwareBroker
+from meta_webui_application_backend.evolver_edge.hardware_ipc import PROVISIONING_IPC_TIMEOUT_SECONDS
 from meta_webui_application_backend.evolver_controller import OperatorIdentity
 from meta_webui_application_backend.evolver_edge.operator import (
     OPERATION_METADATA,
@@ -176,6 +177,32 @@ def test_operator_hardware_diagnostics_reach_controller_broker_and_ipc_sink(tmp_
         {"operation": "discover", "operator": "alice"},
         {"operation": "protocol_test", "operator": "alice"},
     ]
+
+
+def test_operator_identity_provisioning_uses_extended_ipc_timeout(tmp_path: Path) -> None:
+    calls = []
+
+    def fake_hardware_ipc(path, payload, timeout):
+        calls.append((path, payload, timeout))
+        return {"verification": "protocol_verified", "observed_evidence": {
+            "device_id": "MEV-002", "owner_id": "lab", "operator": "alice",
+        }}
+
+    operator = OperatorIdentity("alice", "local_operator", frozenset({"hardware_maintenance"}))
+    path = tmp_path / "operator.sock"
+    with EdgeStore(tmp_path / "state") as store, OperatorServer(
+        store, path, operator=operator, hardware_broker=HardwareBroker(store, request=fake_hardware_ipc)
+    ):
+        result = request("hardware_provision_identity", path, params={
+            "device_id": "MEV-002", "owner_id": "lab", "operator": "alice", "physical": True,
+        })
+
+    assert result["verification"] == "protocol_verified"
+    assert calls[0][1] == {
+        "operation": "provision_identity", "device_id": "MEV-002", "owner_id": "lab",
+        "operator": "alice", "physical": True,
+    }
+    assert calls[0][2] == PROVISIONING_IPC_TIMEOUT_SECONDS
 
 
 def test_operator_hardware_command_keeps_controller_fences(tmp_path: Path) -> None:
