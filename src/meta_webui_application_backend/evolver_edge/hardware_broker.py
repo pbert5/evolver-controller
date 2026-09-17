@@ -55,7 +55,12 @@ class HardwareBroker:
 
     def discover(self, *, operator: str) -> dict[str, Any]:
         self._require_operator(operator)
-        return self._call({"operation": "discover", "operator": operator})
+        result = self._call({"operation": "discover", "operator": operator})
+        if result.get("identity_state") == "provisioned" and result.get("id"):
+            registered = dict(result)
+            registered["controller_id"] = self.store.identity()["id"]
+            self.store.register_instruments([registered])
+        return result
 
     def protocol_test(self, *, operator: str, target_identity: str | None = None) -> dict[str, Any]:
         self._require_operator(operator)

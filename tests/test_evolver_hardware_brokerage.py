@@ -28,6 +28,23 @@ def test_discover_and_protocol_test_are_controller_mediated(tmp_path):
     assert calls[1][1]["target_identity"] == "MEV-1"
 
 
+def test_discover_registers_provisioned_hardware_in_controller_inventory(tmp_path):
+    discovered = {
+        "id": "instrument-1", "controller_id": "hardware-daemon-controller",
+        "instrument_type": "minievolver", "device_identity": "MEV-1",
+        "identity_state": "provisioned", "vial_positions": [], "capabilities": {},
+    }
+    with _store(tmp_path) as store:
+        broker = HardwareBroker(store, request=lambda *_: discovered)
+        result = broker.discover(operator="ash")
+        assert result["id"] == "instrument-1"
+        inventory = store.list_instruments()
+        assert len(inventory) == 1
+        assert inventory[0]["id"] == "instrument-1"
+        assert inventory[0]["device_identity"] == "MEV-1"
+        assert inventory[0]["controller_id"] == store.identity()["id"]
+
+
 def test_hardware_socket_uses_environment_override_and_reaches_that_socket(tmp_path, monkeypatch):
     configured_socket = str(tmp_path / "configured-hardware.sock")
     calls = []
