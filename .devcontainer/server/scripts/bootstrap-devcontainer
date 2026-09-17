@@ -39,13 +39,21 @@ export META_WEBUI_EVOLVER_CONTROLLER_ENDPOINTS="${META_WEBUI_EVOLVER_CONTROLLER_
 
 control_log="${TMPDIR:-/tmp}/meta-ball-evolver-control.log"
 control_url="http://${META_WEBUI_EVOLVER_CONTROL_HOST}:${META_WEBUI_EVOLVER_CONTROL_PORT}"
-if ! curl --fail --silent --show-error "${control_url}/api/actions" >/dev/null; then
+control_status() {
+  curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+    "${control_url}/api/actions" || printf '000'
+}
+
+# /api/actions is authenticated by the deployment gateway.  A 401/403 proves
+# the local service is serving the route without inventing or forwarding
+# credentials; only transport/server failures should trigger a start or retry.
+if ! case "$(control_status)" in 2??|401|403) true;; *) false;; esac; then
   nohup uv run --project /workspaces/meta_bal/evolver/evolver-server evolver-control \
     >"$control_log" 2>&1 &
 fi
 
 for attempt in {1..30}; do
-  if curl --fail --silent "${control_url}/api/actions" >/dev/null; then
+  if case "$(control_status)" in 2??|401|403) true;; *) false;; esac; then
     exit 0
   fi
   sleep 0.1

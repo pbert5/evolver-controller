@@ -52,6 +52,14 @@ def test_server_bootstrap_manages_the_source_backed_control_service():
     assert "/api/actions" in bootstrap
 
 
+def test_server_bootstrap_readiness_preserves_control_service_auth_boundary():
+    bootstrap = (ROOT / ".devcontainer/server/scripts/bootstrap-devcontainer").read_text()
+    assert "--write-out '%{http_code}'" in bootstrap
+    assert "2??|401|403" in bootstrap
+    assert "--header" not in bootstrap
+    assert "--fail" not in bootstrap
+
+
 def test_host_metactl_launcher_is_executable():
     assert (ROOT / "tools/metactl").stat().st_mode & 0o111
 
