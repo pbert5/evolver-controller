@@ -96,6 +96,12 @@ in the release manifest. BAL artifacts are assembled privately and selected by
 `BAL_SCHEMA_VERSION`; `latest` uses numeric semantic-version ordering. This
 project does not use `.env.local`.
 
+The standalone `evolver-code-artifact` workflow packages the approved
+`pbert5/evolver-arduino` source at commit
+`952a6fd713c40caa072444a0e0e3fc4fc6ee4639` and uploads it with a matching
+SHA-256 `PROVENANCE.json`. It does not upload to physical hardware or fetch
+source at runtime.
+
 ## Parent repository portability
 
 The root `.gitmodules` uses exact relative sibling URLs (for example,
