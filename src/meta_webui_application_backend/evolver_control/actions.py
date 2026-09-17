@@ -26,6 +26,8 @@ class UnknownAction(ValueError):
 _CALIBRATION_ACTION_ALIASES = {
     "evolver.calibrations.list": "calibrations",
     "evolver.calibrations.sessions.create": "calibration_create",
+    "evolver.calibrations.sessions.observation": "calibration_observation",
+    # Compatibility with the earlier catalog spelling.
     "evolver.calibrations.sessions.add_observation": "calibration_observation",
     "evolver.calibrations.sessions.fit": "calibration_fit",
     "evolver.calibrations.sessions.accept": "calibration_accept",

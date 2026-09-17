@@ -11,6 +11,7 @@ from meta_webui_application_backend.evolver_control.actions import dispatch
 @pytest.mark.parametrize(("catalog_id", "expected"), [
     ("evolver.calibrations.list", "list"),
     ("evolver.calibrations.sessions.create", "create"),
+    ("evolver.calibrations.sessions.observation", "observation"),
     ("evolver.calibrations.sessions.add_observation", "observation"),
     ("evolver.calibrations.sessions.fit", "fit"),
     ("evolver.calibrations.sessions.accept", "accept"),
