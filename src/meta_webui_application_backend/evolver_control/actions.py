@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .. import evolver_controller
+from ..evolver_edge.hardware_broker import HardwareBroker as FencedHardwareBroker
 
 
 class UnknownAction(ValueError):
@@ -32,7 +33,7 @@ def _operator_required(operator: evolver_controller.OperatorIdentity | None,
 
 def dispatch(action: str, parameters: Mapping[str, Any] | None = None, *,
              operator: evolver_controller.OperatorIdentity | None = None,
-             state_root: Path | None = None) -> tuple[HTTPStatus, dict[str, Any]]:
+             state_root: Path | None = None, hardware_broker: Any | None = None) -> tuple[HTTPStatus, dict[str, Any]]:
     """Dispatch one named central action to the existing controller seam.
 
     ``parameters`` is request data, not executable code.  Responses preserve
@@ -43,6 +44,37 @@ def dispatch(action: str, parameters: Mapping[str, Any] | None = None, *,
         raise UnknownAction("action must be a non-empty string")
     params = parameters if isinstance(parameters, Mapping) else {}
     body = _body(params)
+
+    if action in {"hardware_discover", "hardware_protocol_test", "hardware_command"}:
+        denied = _operator_required(operator, "hardware_maintenance")
+        if denied:
+            return denied
+        if hardware_broker is None:
+            from .hardware import HardwareBroker
+            hardware_broker = HardwareBroker()
+        try:
+            if isinstance(hardware_broker, FencedHardwareBroker):
+                if action == "hardware_discover":
+                    return HTTPStatus.OK, hardware_broker.discover(operator=operator.subject)
+                if action == "hardware_protocol_test":
+                    return HTTPStatus.OK, hardware_broker.protocol_test(
+                        operator=operator.subject, target_identity=body.get("target_identity"))
+                return HTTPStatus.OK, hardware_broker.command(
+                    str(body.get("operation")), operator=operator.subject,
+                    target_identity=body.get("target_identity"), parameters=body.get("parameters"),
+                    lease_token=body.get("lease_token"), controller_generation=body.get("controller_generation"),
+                    physical=body.get("physical", False), command_id=body.get("command_id"))
+            if action == "hardware_discover":
+                return HTTPStatus.OK, hardware_broker.discover(operator=operator.subject)
+            if action == "hardware_protocol_test":
+                return HTTPStatus.OK, hardware_broker.protocol_test(operator=operator.subject)
+            return HTTPStatus.OK, hardware_broker.command(body, operator=operator.subject)
+        except Exception as error:
+            kind = getattr(error, "kind", "HardwareError")
+            status = (HTTPStatus.SERVICE_UNAVAILABLE if kind == "HardwareUnavailable"
+                      else HTTPStatus.BAD_GATEWAY if kind == "HardwareProtocolError"
+                      else HTTPStatus.BAD_REQUEST)
+            return status, {"error": str(error), "kind": kind}
 
     # Read projections and durable command facts.
     if action in {"controllers", "evolver.controllers"}:
@@ -141,6 +173,7 @@ class CentralEvolverActionAdapter:
         self.state_root = state_root
 
     def dispatch(self, action: str, parameters: Mapping[str, Any] | None = None, *,
-                 operator: evolver_controller.OperatorIdentity | None = None) -> tuple[HTTPStatus, dict[str, Any]]:
-        return dispatch(action, parameters, operator=operator, state_root=self.state_root)
-
+                 operator: evolver_controller.OperatorIdentity | None = None,
+                 hardware_broker: Any | None = None) -> tuple[HTTPStatus, dict[str, Any]]:
+        return dispatch(action, parameters, operator=operator, state_root=self.state_root,
+                        hardware_broker=hardware_broker)

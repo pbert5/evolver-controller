@@ -1,10 +1,4 @@
-"""Bounded read-only local operator API.
-
-The operator API is intentionally a Unix-domain, newline-delimited JSON
-protocol.  It is a view of the durable edge store, not a second control
-plane.  In particular, it has no command passthrough and never shares the
-hardware IPC socket.
-"""
+"""Bounded typed Unix operator protocol for the controller-owned read model."""
 from __future__ import annotations
 
 import json
@@ -13,27 +7,53 @@ import socket
 import socketserver
 import stat
 import threading
+from http import HTTPStatus
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from ..evolver_control.actions import dispatch as central_dispatch
 from .doctor import doctor_report
 from .store import EdgeStore
 
+if TYPE_CHECKING:
+    from ..evolver_controller import OperatorIdentity
+
 DEFAULT_SOCKET = "/run/evolver-controller/operator.sock"
+PROTOCOL_VERSION = 1
 MAX_MESSAGE_BYTES = 64 * 1024
-ALLOWED_OPERATIONS = frozenset({"capabilities", "status", "runs", "instruments", "doctor"})
+OPERATION_METADATA: dict[str, dict[str, str]] = {
+    "binding": {"access": "read", "mode": "live"},
+    "capabilities": {"access": "read", "mode": "live"},
+    "doctor": {"access": "read", "mode": "live"},
+    "instruments": {"access": "read", "mode": "live"},
+    "runs": {"access": "read", "mode": "live"},
+    "status": {"access": "read", "mode": "live"},
+    "hardware": {"access": "mutate", "mode": "live"},
+    "run": {"access": "mutate", "mode": "live"},
+    "instrument": {"access": "read", "mode": "live"},
+    "calibration": {"access": "read", "mode": "live"},
+    "hardware_lease": {"access": "mutate", "mode": "live"},
+    "hardware_layout": {"access": "mutate", "mode": "live"},
+    "hardware_provision_identity": {"access": "mutate", "mode": "live"},
+}
+ALLOWED_OPERATIONS = frozenset(OPERATION_METADATA)
 
 
 class OperatorError(RuntimeError):
-    """Base error for the local operator transport."""
+    kind = "operator_error"
+
+    def __init__(self, message: str, *, kind: str | None = None):
+        super().__init__(message)
+        if kind is not None:
+            self.kind = kind
 
 
 class OperatorUnavailable(OperatorError):
-    """The operator service could not be reached."""
+    kind = "unavailable"
 
 
 class OperatorProtocolError(OperatorError):
-    """A request or response violated the bounded protocol."""
+    kind = "protocol_error"
 
 
 def socket_path(value: str | os.PathLike[str] | None = None) -> Path:
@@ -54,58 +74,266 @@ def _readline(connection: socket.socket) -> bytes:
         if b"\n" in chunk:
             line, _, _ = bytes(data).partition(b"\n")
             if len(line) > MAX_MESSAGE_BYTES:
-                raise OperatorProtocolError("operator request is too large")
+                raise OperatorProtocolError("operator request is too large", kind="request_too_large")
             return line
-    raise OperatorProtocolError("operator request must be one newline-delimited JSON message")
+    if len(data) > MAX_MESSAGE_BYTES:
+        raise OperatorProtocolError("operator request is too large", kind="request_too_large")
+    raise OperatorProtocolError("operator request must be one newline-delimited JSON message", kind="invalid_request")
 
 
-def _request_value(request: Any) -> str:
-    if not isinstance(request, dict) or set(request) != {"operation"} or not isinstance(request["operation"], str):
-        raise OperatorProtocolError("request must contain only an operation")
+def _request_value(request: Any) -> tuple[str, dict[str, Any]]:
+    if not isinstance(request, dict) or set(request) != {"operation", "params"}:
+        raise OperatorProtocolError("request must contain operation and params", kind="invalid_request")
+    if not isinstance(request["operation"], str) or not request["operation"]:
+        raise OperatorProtocolError("operation must be a non-empty string", kind="invalid_request")
+    if not isinstance(request["params"], dict):
+        raise OperatorProtocolError("params must be an object", kind="invalid_request")
     operation = request["operation"]
     if operation not in ALLOWED_OPERATIONS:
-        raise OperatorProtocolError(f"unsupported operator operation: {operation}")
-    return operation
+        raise OperatorProtocolError(f"unsupported operator operation: {operation}", kind="unsupported_operation")
+    return operation, request["params"]
 
 
-def _dispatch(store: EdgeStore, operation: str) -> Any:
+def _dispatch(store: EdgeStore, operation: str, params: dict[str, Any], *,
+              operator: "OperatorIdentity | None" = None, hardware_broker: Any | None = None) -> Any:
+    if operation == "hardware":
+        hardware_operation = params.get("operation")
+        if hardware_operation not in {"discover", "protocol_test", "hardware_command"}:
+            raise OperatorProtocolError("unsupported hardware operation", kind="unsupported_operation")
+        if operator is None:
+            if hardware_operation in {"discover", "protocol_test"}:
+                raise OperatorProtocolError(
+                    "maintenance operation must be delegated to the hardware service",
+                    kind="maintenance_delegated")
+            raise OperatorProtocolError("authenticated operator attribution is required", kind="unauthorized")
+        body = _hardware_request(params, operator.subject)
+        if hardware_operation == "hardware_command":
+            body["operation"] = params["operation_name"]
+        status, result = central_dispatch(
+            {"discover": "hardware_discover", "protocol_test": "hardware_protocol_test",
+             "hardware_command": "hardware_command"}[hardware_operation],
+            body, operator=operator, hardware_broker=hardware_broker, state_root=store.root)
+        if status is not HTTPStatus.OK:
+            raise OperatorProtocolError(result.get("error", "hardware operation failed"),
+                                        kind=result.get("kind", "hardware_error"))
+        return result
     if operation == "capabilities":
-        return {"operations": sorted(ALLOWED_OPERATIONS), "read_only": True, "transport": "unix"}
+        return {"protocol_version": PROTOCOL_VERSION, "operations": OPERATION_METADATA,
+                "read_only": False, "transport": "unix"}
     if operation == "status":
         return {"controller": store.identity(), "binding": store.binding(), "runs": store.list_runs()}
+    if operation == "binding":
+        return store.binding()
     if operation == "runs":
         return store.list_runs()
     if operation == "instruments":
         return store.list_instruments()
     if operation == "doctor":
         return doctor_report(store)
-    raise OperatorProtocolError(f"unsupported operator operation: {operation}")
+    if operation == "instrument":
+        _only(params, {"instrument_id"}, operation)
+        try:
+            return store.instrument(_required_string(params, "instrument_id"))
+        except KeyError as error:
+            raise OperatorProtocolError("instrument not found", kind="not_found") from error
+    if operation == "calibration":
+        _only(params, {"action", "instrument_id", "references", "requirements"}, operation)
+        action = params.get("action")
+        if action == "artifacts":
+            instrument_id = params.get("instrument_id")
+            if instrument_id is not None and (not isinstance(instrument_id, str) or not instrument_id):
+                raise OperatorProtocolError("instrument_id must be a non-empty string", kind="invalid_request")
+            return store.calibration_artifacts(instrument_id=instrument_id)
+        if action == "preflight" and isinstance(params.get("references"), list) and isinstance(params.get("requirements", []), list):
+            return store.calibration_preflight(params["references"], requirements=params.get("requirements", []))
+        raise OperatorProtocolError("calibration action must be artifacts or preflight", kind="invalid_request")
+    if operation == "run":
+        _only(params, {"action", "run_id", "based_on_revision"}, operation)
+        action = params.get("action")
+        run_id = _required_string(params, "run_id")
+        if action == "show":
+            try:
+                return store.run(run_id)
+            except KeyError as error:
+                raise OperatorProtocolError("run not found", kind="not_found") from error
+        if action == "events":
+            return store.events_after(run_id)
+        if action == "telemetry":
+            return [item for stream in store.telemetry_streams() if run_id in stream for item in store.telemetry_after(stream)]
+        if action in {"pause", "resume", "stop"}:
+            revision = params.get("based_on_revision")
+            if isinstance(revision, bool) or not isinstance(revision, int):
+                raise OperatorProtocolError("based_on_revision must be an integer", kind="invalid_request")
+            try:
+                return store.transition_run(run_id=run_id, state={"pause": "paused", "resume": "running", "stop": "stopped"}[action], based_on_revision=revision)
+            except KeyError as error:
+                raise OperatorProtocolError("run not found", kind="not_found") from error
+        raise OperatorProtocolError("run action is unsupported", kind="unsupported_operation")
+    if operation == "hardware_lease":
+        _only(params, {"action", "operator", "ttl_seconds"}, operation)
+        action = params.get("action")
+        if action == "status":
+            return store.local_commissioning_lease_status()
+        subject = _operator_subject(operator)
+        if params.get("operator") not in {None, subject}:
+            raise OperatorProtocolError("operator does not match authenticated operator", kind="unauthorized")
+        try:
+            if action == "acquire":
+                return store.acquire_local_commissioning_lease(subject, params.get("ttl_seconds", 900))
+            if action == "release":
+                return store.release_local_commissioning_lease(subject)
+        except Exception as error:
+            raise OperatorProtocolError(str(error), kind="lease_error") from error
+        raise OperatorProtocolError("lease action is unsupported", kind="unsupported_operation")
+    if operation == "hardware_layout":
+        _only(params, {"instrument_id", "target_identity", "operator", "positions"}, operation)
+        subject = _operator_subject(operator)
+        if params.get("operator") not in {None, subject}:
+            raise OperatorProtocolError("operator does not match authenticated operator", kind="unauthorized")
+        target = _required_string(params, "target_identity")
+        instrument_id = params.get("instrument_id")
+        if instrument_id is None:
+            instrument = next((item for item in store.list_instruments()
+                               if item.get("device_identity") == target), None)
+            if not isinstance(instrument, dict):
+                raise OperatorProtocolError("layout target identity is not registered", kind="not_found")
+            instrument_id = instrument["id"]
+        instrument_id = _required_string({"instrument_id": instrument_id}, "instrument_id")
+        positions = params.get("positions")
+        if not isinstance(positions, dict):
+            raise OperatorProtocolError("positions must be an object", kind="invalid_request")
+        try:
+            return store.record_physical_layout(instrument_id=instrument_id, positions={int(key): value for key, value in positions.items()}, operator=subject, device_identity=target)
+        except (ValueError, KeyError) as error:
+            raise OperatorProtocolError(str(error), kind="layout_error") from error
+    if operation == "hardware_provision_identity":
+        _only(params, {"device_id", "owner_id", "operator", "physical"}, operation)
+        subject = _operator_subject(operator)
+        if params.get("operator") not in {None, subject}:
+            raise OperatorProtocolError("operator does not match authenticated operator", kind="unauthorized")
+        if params.get("physical") is not True:
+            raise OperatorProtocolError("identity provisioning requires physical opt-in", kind="unsafe")
+        if hardware_broker is None:
+            raise OperatorProtocolError("identity provisioning must be delegated to the hardware service", kind="maintenance_delegated")
+        device_id = _required_string(params, "device_id")
+        owner_id = _required_string(params, "owner_id")
+        try:
+            return hardware_broker.request(hardware_broker.socket_path, {
+                "operation": "provision_identity", "device_id": device_id,
+                "owner_id": owner_id, "operator": subject, "physical": True,
+            }, hardware_broker.timeout)
+        except Exception as error:
+            raise OperatorProtocolError(str(error), kind="hardware_error") from error
+    if operation not in {"status", "binding", "runs", "instruments", "doctor", "capabilities"}:
+        raise OperatorProtocolError(f"unsupported operator operation: {operation}", kind="unsupported_operation")
+    if params:
+        raise OperatorProtocolError("params must be empty for this operation", kind="invalid_request")
+    raise OperatorProtocolError(f"unsupported operator operation: {operation}", kind="unsupported_operation")
+
+
+def _only(params: dict[str, Any], allowed: set[str], operation: str) -> None:
+    unknown = sorted(set(params) - allowed)
+    if unknown:
+        raise OperatorProtocolError(f"unknown {operation} request fields: {', '.join(unknown)}", kind="invalid_request")
+
+
+def _required_string(params: dict[str, Any], name: str) -> str:
+    value = params.get(name)
+    if not isinstance(value, str) or not value:
+        raise OperatorProtocolError(f"{name} must be a non-empty string", kind="invalid_request")
+    return value
+
+
+def _operator_subject(operator: "OperatorIdentity | None") -> str:
+    if operator is None:
+        raise OperatorProtocolError("authenticated operator attribution is required", kind="unauthorized")
+    return operator.subject
+
+
+def _hardware_request(params: dict[str, Any], subject: str) -> dict[str, Any]:
+    """Validate and normalize the typed hardware envelope before brokerage."""
+    operation = params.get("operation")
+    if operation == "discover":
+        allowed = {"operation"}
+    elif operation == "protocol_test":
+        allowed = {"operation", "target_identity"}
+        target = params.get("target_identity")
+        if target is not None and (not isinstance(target, str) or not target):
+            raise OperatorProtocolError("target_identity must be a non-empty string", kind="invalid_request")
+    elif operation == "hardware_command":
+        allowed = {"operation", "operation_name", "target_identity", "parameters",
+                   "controller_generation", "lease_token", "lease_owner", "physical", "command_id", "operator"}
+        required = {"operation_name", "target_identity", "parameters", "controller_generation", "lease_token", "physical"}
+        missing = sorted(required - params.keys())
+        if missing:
+            raise OperatorProtocolError(f"missing hardware command fields: {', '.join(missing)}", kind="invalid_request")
+        if not isinstance(params["operation_name"], str) or not params["operation_name"]:
+            raise OperatorProtocolError("operation_name must be a non-empty string", kind="invalid_request")
+        if not isinstance(params["target_identity"], str) or not params["target_identity"]:
+            raise OperatorProtocolError("target_identity must be a non-empty string", kind="invalid_request")
+        if not isinstance(params["parameters"], dict):
+            raise OperatorProtocolError("parameters must be an object", kind="invalid_request")
+        generation = params["controller_generation"]
+        if isinstance(generation, bool) or not isinstance(generation, int):
+            raise OperatorProtocolError("controller_generation must be an integer", kind="invalid_request")
+        if not isinstance(params["lease_token"], str) or not params["lease_token"]:
+            raise OperatorProtocolError("lease_token must be a non-empty string", kind="invalid_request")
+        if not isinstance(params["physical"], bool):
+            raise OperatorProtocolError("physical must be a boolean", kind="invalid_request")
+        for field in ("operator", "lease_owner"):
+            if field in params and params[field] != subject:
+                raise OperatorProtocolError(f"{field} does not match authenticated operator", kind="unauthorized")
+    else:
+        raise OperatorProtocolError("unsupported hardware operation", kind="unsupported_operation")
+    unknown = sorted(set(params) - allowed)
+    if unknown:
+        raise OperatorProtocolError(f"unknown hardware request fields: {', '.join(unknown)}", kind="invalid_request")
+    if operation == "hardware_command":
+        result = {key: params[key] for key in allowed if key in params and key not in {"operator"}}
+        result["lease_owner"] = subject
+        return result
+    return dict(params)
+
+
+def _error(error: OperatorError) -> dict[str, Any]:
+    return {"ok": False, "error": {"kind": error.kind, "message": str(error)}}
 
 
 class _OperatorServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, address: str, store: EdgeStore):
+    def __init__(self, address: str, store: EdgeStore, *,
+                 operator: OperatorIdentity | None, hardware_broker: Any | None):
         self.store = store
+        self.operator = operator
+        self.hardware_broker = hardware_broker
         super().__init__(address, _OperatorHandler)
 
 
 class _OperatorHandler(socketserver.StreamRequestHandler):
     def handle(self) -> None:
         try:
-            request = json.loads(_readline(self.connection).decode("utf-8"))
-            result = _dispatch(self.server.store, _request_value(request))  # type: ignore[attr-defined]
+            try:
+                payload = json.loads(_readline(self.connection).decode("utf-8"))
+            except json.JSONDecodeError as error:
+                raise OperatorProtocolError("operator request is malformed JSON", kind="malformed_json") from error
+            operation, params = _request_value(payload)
+            result = _dispatch(self.server.store, operation, params,  # type: ignore[attr-defined]
+                               operator=self.server.operator, hardware_broker=self.server.hardware_broker)
             self.wfile.write(_encode({"ok": True, "result": result}))
-        except (UnicodeDecodeError, json.JSONDecodeError, OperatorProtocolError, OSError, KeyError, ValueError) as error:
-            self.wfile.write(_encode({"ok": False, "error": str(error)}))
+        except OperatorError as error:
+            self.wfile.write(_encode(_error(error)))
+        except (UnicodeDecodeError, OSError, KeyError, ValueError):
+            self.wfile.write(_encode(_error(OperatorError("operator request failed", kind="internal_error"))))
 
 
 class OperatorServer:
-    """Serve the allowlisted operator read model on a private Unix socket."""
-
-    def __init__(self, store: EdgeStore, path: str | os.PathLike[str] = DEFAULT_SOCKET):
+    def __init__(self, store: EdgeStore, path: str | os.PathLike[str] = DEFAULT_SOCKET, *,
+                 operator: OperatorIdentity | None = None, hardware_broker: Any | None = None):
         self.store = store
+        self.operator = operator
+        self.hardware_broker = hardware_broker
         self.path = socket_path(path)
         self._server: _OperatorServer | None = None
         self._thread: threading.Thread | None = None
@@ -115,17 +343,14 @@ class OperatorServer:
         if self.path.exists():
             if not stat.S_ISSOCK(self.path.stat().st_mode):
                 raise OperatorError(f"operator socket path is not a socket: {self.path}")
-            # Probe before removing a stale endpoint; never displace a live service.
             try:
                 with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
-                    probe.settimeout(0.2)
-                    probe.connect(str(self.path))
+                    probe.settimeout(0.2); probe.connect(str(self.path))
                 raise OperatorError(f"operator socket is already in use: {self.path}")
             except (ConnectionRefusedError, FileNotFoundError, socket.timeout):
                 self.path.unlink()
-        self._server = _OperatorServer(str(self.path), self.store)
-        # The edge Dev Container joins the explicitly selected operator group;
-        # never make the local API world-writable.
+        self._server = _OperatorServer(str(self.path), self.store,
+                                       operator=self.operator, hardware_broker=self.hardware_broker)
         os.chmod(self.path, 0o660)
         self._thread = threading.Thread(target=self._server.serve_forever, name="evolver-operator", daemon=True)
         self._thread.start()
@@ -134,8 +359,7 @@ class OperatorServer:
     def shutdown(self) -> None:
         server, self._server = self._server, None
         if server is not None:
-            server.shutdown()
-            server.server_close()
+            server.shutdown(); server.server_close()
         if self.path.exists() and stat.S_ISSOCK(self.path.stat().st_mode):
             self.path.unlink()
 
@@ -149,26 +373,30 @@ class OperatorServer:
 
 
 class OperatorClient:
-    """Small client facade used by local shells and easy to inject in tests."""
-
     def __init__(self, path: str | os.PathLike[str] = DEFAULT_SOCKET, *, timeout: float = 3.0):
         self.path, self.timeout = socket_path(path), timeout
 
-    def request(self, operation: str) -> Any:
-        return request(operation, self.path, self.timeout)
+    def request(self, operation: str, params: dict[str, Any] | None = None) -> Any:
+        return request(operation, self.path, self.timeout, params=params)
 
 
-def request(operation: str, path: str | os.PathLike[str] = DEFAULT_SOCKET, timeout: float = 3.0) -> Any:
-    """Request one allowlisted read operation from the local service."""
-    _request_value({"operation": operation})
+def request(operation: str, path: str | os.PathLike[str] = DEFAULT_SOCKET, timeout: float = 3.0,
+            *, params: dict[str, Any] | None = None) -> Any:
+    envelope = {"operation": operation, "params": {} if params is None else params}
+    _request_value(envelope)
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
             connection.settimeout(timeout)
             connection.connect(str(socket_path(path)))
-            connection.sendall(_encode({"operation": operation}))
+            connection.sendall(_encode(envelope))
             response = json.loads(_readline(connection).decode("utf-8"))
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError, OperatorProtocolError) as error:
-        raise OperatorUnavailable(f"operator service unavailable: {error}") from error
-    if not isinstance(response, dict) or response.get("ok") is not True or "result" not in response:
-        raise OperatorProtocolError(str(response.get("error", "invalid operator response")))
-    return response["result"]
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as error:
+        raise OperatorUnavailable(f"operator service unavailable: {error}", kind="unavailable") from error
+    if isinstance(response, dict) and response.get("ok") is True and "result" in response \
+            and set(response) == {"ok", "result"}:
+        return response["result"]
+    error = response.get("error") if isinstance(response, dict) else None
+    if isinstance(response, dict) and response.get("ok") is False and isinstance(error, dict) \
+            and set(error) == {"kind", "message"} and all(isinstance(error[key], str) for key in error):
+        raise OperatorProtocolError(error["message"], kind=error["kind"])
+    raise OperatorProtocolError("invalid operator response", kind="invalid_response")

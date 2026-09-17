@@ -18,7 +18,10 @@ from .actuator import (DeviceCommandSink, HardwareDeviceCommandSink, HardwareIPC
                        SimulatorDeviceCommandSink, compile_device_command, compile_trusted_action)
 from .domain import plan_calibrated_dispense, validate_bounded_operation
 from .operator import (ALLOWED_OPERATIONS, DEFAULT_SOCKET as DEFAULT_OPERATOR_SOCKET,
-                       OperatorClient, OperatorError, OperatorProtocolError, OperatorServer, OperatorUnavailable)
+                       OPERATION_METADATA, PROTOCOL_VERSION, OperatorClient, OperatorError,
+                       OperatorProtocolError, OperatorServer, OperatorUnavailable)
+from .hardware_broker import (HardwareBroker, HardwareBrokerError,
+                              HardwareBrokerProtocolError, HardwareBrokerUnavailable)
 
 __all__ = ["BundleResolutionError", "CalibrationPreflightError", "calibration_artifact_digest", "CommandInProgressError", "EdgeStore", "EdgeStoreError", "ImmutableBundleError", "LeaseValidationError",
            "StaleGenerationError", "StaleRevisionError", "SyncClient", "SyncResult", "canonical_digest", "resolve_bundle",
@@ -30,5 +33,6 @@ __all__ = ["BundleResolutionError", "CalibrationPreflightError", "calibration_ar
                      "samd21_hardware_fingerprint", "validate_usb_match",
                      "DeviceCommandSink", "HardwareDeviceCommandSink", "HardwareIPCDeviceCommandSink", "ManualCommandExecutor", "RunActuatorExecutor", "SimulatorDeviceCommandSink",
                      "compile_device_command", "compile_trusted_action", "plan_calibrated_dispense", "validate_bounded_operation",
-                     "ALLOWED_OPERATIONS", "DEFAULT_OPERATOR_SOCKET",
+                     "ALLOWED_OPERATIONS", "DEFAULT_OPERATOR_SOCKET", "OPERATION_METADATA", "PROTOCOL_VERSION",
+                     "HardwareBroker", "HardwareBrokerError", "HardwareBrokerProtocolError", "HardwareBrokerUnavailable",
                      "OperatorClient", "OperatorError", "OperatorProtocolError", "OperatorServer", "OperatorUnavailable"]

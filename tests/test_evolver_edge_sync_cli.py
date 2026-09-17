@@ -79,7 +79,7 @@ def test_service_simulator_composes_local_non_actuating_manual_sink(tmp_path, mo
     monkeypatch.setattr(service_module, "EdgeStore", FakeStore)
     monkeypatch.setattr(service_module, "SyncClient", FakeSyncClient)
     monkeypatch.setattr(service_module, "OperatorServer", type("Operator", (), {
-        "__init__": lambda self, *_args: None, "start": lambda self: self, "shutdown": lambda self: None,
+        "__init__": lambda self, *_args, **_kwargs: None, "start": lambda self: self, "shutdown": lambda self: None,
     }))
     service_module.main(["--state-root", str(tmp_path), "--simulator-instruments", "1"])
     assert calls[0]["manual_executor"].sink.__class__.__name__ == "SimulatorDeviceCommandSink"
@@ -87,7 +87,9 @@ def test_service_simulator_composes_local_non_actuating_manual_sink(tmp_path, mo
 
 def test_cli_module_entrypoint_invokes_main(tmp_path, monkeypatch, capsys):
     """Executing the CLI module invokes its main function."""
-    monkeypatch.setattr(sys, "argv", ["evoctl", "--state-root", str(tmp_path), "status"])
+    with EdgeStore(tmp_path):
+        pass
+    monkeypatch.setattr(sys, "argv", ["evoctl", "--offline", "--state-root", str(tmp_path), "status"])
 
     with pytest.raises(SystemExit) as raised:
         runpy.run_module("meta_webui_application_backend.evolver_edge.cli", run_name="__main__")
@@ -100,11 +102,77 @@ def test_cli_module_entrypoint_invokes_main(tmp_path, monkeypatch, capsys):
 def test_cli_inspection_redacts_nested_credentials(tmp_path, monkeypatch, capsys, command):
     with EdgeStore(tmp_path) as edge:
         edge.bind(webui_controller_id="central", server_url="https://central", credential="sentinel-secret", generation=1)
-    monkeypatch.setattr(sys, "argv", ["evoctl", "--state-root", str(tmp_path), *command])
+    monkeypatch.setattr(sys, "argv", ["evoctl", "--offline", "--state-root", str(tmp_path), *command])
     main()
     output = capsys.readouterr().out
     assert "sentinel-secret" not in output
     assert "<redacted>" in output or command == ("doctor",)
+
+
+@pytest.mark.parametrize("command, operation", [("status", "status"), ("binding", "binding"),
+                                                  ("instruments", "instruments"), ("runs", "runs")])
+def test_cli_live_read_models_route_through_operator_without_opening_store(
+    tmp_path, monkeypatch, capsys, command, operation
+):
+    import meta_webui_application_backend.evolver_edge.cli as cli_module
+
+    calls = []
+    monkeypatch.setattr(cli_module, "operator_request", lambda name, path, params=None: calls.append(
+        (name, path, params)) or {"operation": operation})
+    monkeypatch.setattr(cli_module, "EdgeStore", lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("live CLI opened EdgeStore")))
+    monkeypatch.setattr(sys, "argv", ["evoctl", "--state-root", str(tmp_path), command])
+
+    assert cli_module.main() == 0
+    assert calls == [(operation, cli_module.DEFAULT_OPERATOR_SOCKET if False else calls[0][1], {})]
+    assert json.loads(capsys.readouterr().out)["operation"] == operation
+
+
+def test_cli_live_hardware_dispatches_to_operator_client(tmp_path, monkeypatch, capsys):
+    import meta_webui_application_backend.evolver_edge.cli as cli_module
+    calls = []
+    monkeypatch.setattr(cli_module, "operator_request", lambda name, path, params=None: calls.append(
+        (name, params)) or {"hardware": "ok"})
+    monkeypatch.setattr(cli_module, "EdgeStore", lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("live CLI opened EdgeStore")))
+    monkeypatch.setattr(sys, "argv", ["evoctl", "hardware", "discover"])
+    assert cli_module.main() == 0
+    assert calls[0][0] == "hardware"
+    assert calls[0][1] == {"operation": "discover"}
+
+
+def test_cli_live_hardware_actuation_sends_typed_fenced_request(tmp_path, monkeypatch, capsys):
+    import meta_webui_application_backend.evolver_edge.cli as cli_module
+    calls = []
+    monkeypatch.setattr(cli_module, "operator_request", lambda name, path, params=None: calls.append(
+        (name, params)) or {"request_accepted": True})
+    monkeypatch.setattr(cli_module, "EdgeStore", lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("live CLI opened EdgeStore")))
+    monkeypatch.setattr(sys, "argv", ["evoctl", "hardware", "actuate", "set_stir",
+                                        "--target", "MEV-1", "--channel", "0", "--duration-ms", "100",
+                                        "--level", "5", "--physical", "--operator", "alice",
+                                        "--lease-token", "lease-7", "--controller-generation", "7"])
+
+    assert cli_module.main() == 0
+    assert calls == [("hardware", {
+        "operation": "hardware_command", "operation_name": "set_stir", "target_identity": "MEV-1",
+        "parameters": {"channel": 0, "duration_ms": 100, "level": 5},
+        "physical": True, "operator": "alice", "lease_token": "lease-7",
+        "lease_owner": "alice", "controller_generation": 7,
+    })]
+    assert json.loads(capsys.readouterr().out)["request_accepted"] is True
+
+
+def test_cli_live_unavailable_is_explicit_and_offline_missing_state_is_actionable(tmp_path, monkeypatch, capsys):
+    import meta_webui_application_backend.evolver_edge.cli as cli_module
+    monkeypatch.setattr(cli_module, "operator_request", lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        cli_module.OperatorUnavailable("operator service unavailable: refused")))
+    monkeypatch.setattr(sys, "argv", ["evoctl", "--state-root", str(tmp_path), "status"])
+    assert cli_module.main() == 69
+    assert "operator service unavailable" in capsys.readouterr().err
+    monkeypatch.setattr(sys, "argv", ["evoctl", "--offline", "--state-root", str(tmp_path / "missing"), "status"])
+    assert cli_module.main() == 66
+    assert "--offline" in capsys.readouterr().err
 
 
 def test_cli_control_mapping_reuses_hardware_command_parser():
@@ -134,7 +202,7 @@ def test_cli_dispense_is_a_calibrated_plan_only(tmp_path, monkeypatch, capsys):
 
 
 def test_cli_calibration_artifacts_reads_edge_store(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(sys, "argv", ["evoctl", "--state-root", str(tmp_path), "calibration", "artifacts"])
+    monkeypatch.setattr(sys, "argv", ["evoctl", "--offline", "--state-root", str(tmp_path), "calibration", "artifacts"])
     assert main() == 0
     assert json.loads(capsys.readouterr().out) == []
 
@@ -445,9 +513,9 @@ def test_conflicting_append_only_record_requires_recovery(tmp_path):
 def test_cli_status_and_revision_safe_pause(tmp_path, capsys):
     with EdgeStore(tmp_path) as edge:
         edge.put_bundle(_bundle()); edge.create_run(run_id="run", bundle_id="bundle", instrument_ids=["instrument"])
-    assert main(["--state-root", str(tmp_path), "run", "pause", "run", "--based-on-revision", "0"]) == 0
+    assert main(["--offline", "--state-root", str(tmp_path), "run", "pause", "run", "--based-on-revision", "0"]) == 0
     assert json.loads(capsys.readouterr().out)["state"] == "paused"
-    assert main(["--state-root", str(tmp_path), "status"]) == 0
+    assert main(["--offline", "--state-root", str(tmp_path), "status"]) == 0
     assert json.loads(capsys.readouterr().out)["runs"][0]["id"] == "run"
 
 
@@ -482,9 +550,9 @@ def test_cli_hierarchy_read_only_aliases_use_same_durable_views(tmp_path, capsys
                              (("release", "status"), ("update", "status")),
                              (("diagnostics",), ("doctor",)),
                              (("local", "run", "list"), ("runs",))):
-        assert main(["--state-root", str(tmp_path), *alias]) == 0
+        assert main(["--offline", "--state-root", str(tmp_path), *alias]) == 0
         alias_output = capsys.readouterr().out
-        assert main(["--state-root", str(tmp_path), *canonical]) == 0
+        assert main(["--offline", "--state-root", str(tmp_path), *canonical]) == 0
         canonical_output = capsys.readouterr().out
         # Recovery reports carry a fresh envelope id/timestamp on every read;
         # compare the durable view rather than volatile report metadata.
@@ -502,7 +570,7 @@ def test_local_run_alias_keeps_revision_fenced_mutation_handler(tmp_path, capsys
         edge.put_bundle(_bundle())
         edge.create_run(run_id="run", bundle_id="bundle", instrument_ids=["instrument"])
 
-    assert main(["--state-root", str(tmp_path), "local", "run", "pause", "run",
+    assert main(["--offline", "--state-root", str(tmp_path), "local", "run", "pause", "run",
                  "--based-on-revision", "0"]) == 0
     assert json.loads(capsys.readouterr().out)["state"] == "paused"
 
@@ -517,10 +585,10 @@ def test_cli_simulator_start_reports_stable_durable_inventory(tmp_path, capsys):
     assert second["controller"]["id"] == first["controller"]["id"]
     assert [instrument["id"] for instrument in second["instruments"]] == [instrument["id"] for instrument in first["instruments"]]
 
-    assert main(["--state-root", str(tmp_path), "instruments"]) == 0
+    assert main(["--offline", "--state-root", str(tmp_path), "instruments"]) == 0
     listed = json.loads(capsys.readouterr().out)
     assert {instrument["id"] for instrument in listed} == {instrument["id"] for instrument in first["instruments"]}
-    assert main(["--state-root", str(tmp_path), "instrument", "show", first["instruments"][0]["id"]]) == 0
+    assert main(["--offline", "--state-root", str(tmp_path), "instrument", "show", first["instruments"][0]["id"]]) == 0
     assert json.loads(capsys.readouterr().out)["capabilities"]["od_read"]["verification"] == "protocol_verified"
 
 

@@ -5,6 +5,8 @@ import argparse
 import json
 import os
 import sys
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +18,153 @@ from .install import inspect_installation
 from .lifecycle import plan_lifecycle
 from .update import ComposeUpdateBackend, UpdateManager, UpdatePolicy, record_installed_release
 from .doctor import doctor_report
-from .operator import DEFAULT_SOCKET as DEFAULT_OPERATOR_SOCKET, OperatorUnavailable, request as operator_request
+from .operator import (DEFAULT_SOCKET as DEFAULT_OPERATOR_SOCKET, OperatorClient,
+                       OperatorError, OperatorProtocolError, OperatorUnavailable,
+                       request as operator_request)
+
+
+class CommandRegistryError(ValueError):
+    """The CLI command is not part of the frozen controller contract."""
+
+
+class CommandMode(str, Enum):
+    LIVE = "LIVE"
+    LOCAL = "LOCAL"
+    MAINTENANCE = "MAINTENANCE"
+
+
+@dataclass(frozen=True)
+class CommandSpec:
+    mode: CommandMode
+    disposition: str = "execute"
+    delegate: str | None = None
+
+
+_COMMAND_REGISTRY: dict[str, CommandSpec] = {
+    "status": CommandSpec(CommandMode.LIVE),
+    "binding": CommandSpec(CommandMode.LIVE),
+    "doctor": CommandSpec(CommandMode.LIVE),
+    "runs": CommandSpec(CommandMode.LIVE),
+    "controllers": CommandSpec(CommandMode.LIVE),
+    "instruments": CommandSpec(CommandMode.LIVE),
+    "instrument.show": CommandSpec(CommandMode.LIVE),
+    "run.show": CommandSpec(CommandMode.LIVE),
+    "run.events": CommandSpec(CommandMode.LIVE),
+    "run.telemetry": CommandSpec(CommandMode.LIVE),
+    "run.pause": CommandSpec(CommandMode.LIVE),
+    "run.resume": CommandSpec(CommandMode.LIVE),
+    "run.stop": CommandSpec(CommandMode.LIVE),
+    "calibration.artifacts": CommandSpec(CommandMode.LIVE),
+    "calibration.preflight": CommandSpec(CommandMode.LIVE),
+    "hardware.lease.acquire": CommandSpec(CommandMode.LIVE),
+    "hardware.lease.status": CommandSpec(CommandMode.LIVE),
+    "hardware.lease.release": CommandSpec(CommandMode.LIVE),
+    "hardware.layout": CommandSpec(CommandMode.LIVE),
+    "hardware.provision-identity": CommandSpec(CommandMode.LIVE),
+    "hardware.discover": CommandSpec(CommandMode.LIVE),
+    "hardware.protocol-test": CommandSpec(CommandMode.LIVE),
+    "hardware.actuate": CommandSpec(CommandMode.LIVE),
+    "hardware.quarantine-command": CommandSpec(CommandMode.MAINTENANCE, "rejected"),
+    "update.status": CommandSpec(CommandMode.MAINTENANCE, "delegated", "controller-service"),
+    "update.check": CommandSpec(CommandMode.MAINTENANCE, "delegated", "controller-service"),
+    "update.apply": CommandSpec(CommandMode.MAINTENANCE, "delegated", "controller-service"),
+    "enroll": CommandSpec(CommandMode.LOCAL),
+    "lifecycle-plan": CommandSpec(CommandMode.LOCAL),
+    "record-installed-release": CommandSpec(CommandMode.MAINTENANCE, "rejected"),
+    "export-state": CommandSpec(CommandMode.LOCAL),
+    "import-state": CommandSpec(CommandMode.LOCAL),
+    "recovery": CommandSpec(CommandMode.LOCAL),
+    "sync": CommandSpec(CommandMode.LOCAL),
+    "tui": CommandSpec(CommandMode.LOCAL),
+    "simulator": CommandSpec(CommandMode.LOCAL),
+    "firmware": CommandSpec(CommandMode.MAINTENANCE, "delegated", "hardware-service"),
+    "validation": CommandSpec(CommandMode.LOCAL),
+    "dispense": CommandSpec(CommandMode.LOCAL),
+}
+
+
+def command_spec(command: str) -> CommandSpec:
+    try:
+        return _COMMAND_REGISTRY[command]
+    except KeyError as error:
+        raise CommandRegistryError(f"command is not in the frozen registry: {command}") from error
+
+
+def maintenance_disposition(command: str) -> dict[str, str]:
+    spec = command_spec(command)
+    if spec.mode is not CommandMode.MAINTENANCE:
+        raise CommandRegistryError(f"command is not maintenance: {command}")
+    result = {"mode": spec.mode.value, "disposition": spec.disposition}
+    if spec.delegate is not None:
+        result["delegate"] = spec.delegate
+    return result
+
+
+def _live_request(args: argparse.Namespace) -> tuple[str, dict[str, Any]] | None:
+    """Translate a frozen LIVE CLI spelling into one typed operator request."""
+    key = args.command
+    if args.command == "run":
+        key = f"run.{args.run_command}"
+    elif args.command == "instrument":
+        key = "instrument.show"
+    elif args.command == "calibration":
+        key = f"calibration.{args.calibration_command}"
+    elif args.command == "hardware":
+        key = f"hardware.{args.hardware_command}"
+        if args.hardware_command == "lease":
+            key = f"hardware.lease.{args.lease_command}"
+    elif args.command == "update":
+        key = f"update.{args.update_command}"
+    spec = command_spec(key)
+    if spec.mode is not CommandMode.LIVE:
+        return None
+    if args.command in {"status", "binding", "runs", "instruments", "doctor"}:
+        return args.command, {}
+    if args.command == "controllers":
+        return "status", {"view": "controllers"}
+    if args.command == "instrument":
+        return "instrument", {"instrument_id": args.instrument_id}
+    if args.command == "calibration":
+        if args.calibration_command == "artifacts":
+            return "calibration", {"action": "artifacts", "instrument_id": args.instrument_id}
+        return "calibration", {"action": "preflight", "references": json.loads(args.references),
+                                "requirements": json.loads(args.requirements)}
+    if args.command == "run":
+        params: dict[str, Any] = {"action": args.run_command, "run_id": args.run_id}
+        if args.run_command in {"pause", "resume", "stop"}:
+            params["based_on_revision"] = args.based_on_revision
+        return "run", params
+    if args.command == "hardware":
+        if args.hardware_command == "lease":
+            params = {"action": args.lease_command, "operator": getattr(args, "operator", None)}
+            if args.lease_command == "acquire":
+                params["ttl_seconds"] = args.ttl_seconds
+            return "hardware_lease", params
+        if args.hardware_command == "layout":
+            return "hardware_layout", {"target_identity": args.target, "operator": args.operator,
+                                        "positions": {str(args.channel): {"physical_side": args.physical_side,
+                                                                            "method": args.method}}}
+        if args.hardware_command == "provision-identity":
+            return "hardware_provision_identity", {"device_id": args.device_id, "owner_id": args.owner_id,
+                                                     "operator": args.operator, "physical": args.physical}
+        if args.hardware_command == "discover":
+            return "hardware", {"operation": "discover"}
+        if args.hardware_command == "protocol-test":
+            return "hardware", {"operation": "protocol_test"}
+        if args.hardware_command == "actuate":
+            parameters = {"channel": args.channel}
+            if args.operation == "set_output":
+                parameters.update(output="od_led", level=args.level)
+            elif args.operation == "pulse_pump":
+                parameters.update(duration_ms=args.duration_ms)
+            else:
+                parameters.update(duration_ms=args.duration_ms, level=args.level)
+            return "hardware", {"operation": "hardware_command", "operation_name": args.operation,
+                                 "target_identity": args.target, "parameters": parameters,
+                                 "physical": args.physical, "operator": args.operator,
+                                 "lease_token": args.lease_token, "lease_owner": args.operator,
+                                 "controller_generation": args.controller_generation}
+    raise CommandRegistryError(f"LIVE command has no operator translation: {key}")
 
 
 def _root(value: str | None) -> Path:
@@ -40,6 +188,17 @@ def _redact(value: Any) -> Any:
 
 def _emit(value: Any) -> None:
     print(json.dumps(_redact(value), indent=2, sort_keys=True, default=str))
+
+
+def _operator_exit_code(error: Exception) -> int:
+    return 69 if isinstance(error, OperatorUnavailable) else 64
+
+
+def _offline_state_path(state_root: Path) -> Path:
+    database = state_root / "edge.sqlite3"
+    if not database.is_file():
+        raise EdgeStoreError(f"offline state is missing at {database}; provide a valid --state-root")
+    return database
 
 
 def _compatibility_argv(argv: list[str]) -> list[str]:
@@ -186,6 +345,8 @@ def build_parser() -> argparse.ArgumentParser:
     actuator.add_argument("--physical", action="store_true")
     actuator.add_argument("--operator", help="audited operator attribution")
     actuator.add_argument("--lease-token")
+    actuator.add_argument("--controller-generation", type=int,
+                          help="controller generation asserted by the active lease")
     lease = hardware_sub.add_parser("lease", help="bounded local commissioning lease")
     lease_sub = lease.add_subparsers(dest="lease_command", required=True)
     acquire = lease_sub.add_parser("acquire"); acquire.add_argument("--operator", required=True); acquire.add_argument("--ttl-seconds", type=int, default=900)
@@ -206,27 +367,96 @@ def main(argv: list[str] | None = None) -> int:
     # Normalize only the command portion so ``--state-root PATH server`` is
     # equivalent to ``server --state-root PATH`` without changing parsing.
     prefix: list[str] = []
-    while raw_arguments and raw_arguments[0] == "--state-root":
-        prefix.extend(raw_arguments[:2])
-        raw_arguments = raw_arguments[2:]
+    while raw_arguments:
+        if raw_arguments[0] == "--offline":
+            prefix.append(raw_arguments.pop(0))
+        elif raw_arguments[0] in {"--state-root", "--operator-socket"} and len(raw_arguments) > 1:
+            prefix.extend(raw_arguments[:2])
+            raw_arguments = raw_arguments[2:]
+        else:
+            break
     arguments = [*prefix, *_compatibility_argv(raw_arguments)]
     args = build_parser().parse_args(arguments)
-    # Inspection normally goes through the controller-owned operator service.
-    # Falling back preserves the historical CLI when invoked during startup or
-    # on an intentionally stopped service; --offline makes that choice explicit.
-    offline_read = args.offline
-    if args.command in {"status", "runs", "instruments", "doctor"} and not offline_read:
+    live_request = None if args.offline else _live_request(args)
+    if live_request is not None:
+        operation, params = live_request
         try:
-            result = operator_request(args.command, args.operator_socket)
+            result = operator_request(operation, args.operator_socket, params=params)
+            if args.command == "controllers":
+                result = [{**result["controller"], "binding": result["binding"],
+                           "inventory": operator_request("instruments", args.operator_socket, params={})}]
+            _emit(result)
+            return 0
+        except (OperatorUnavailable, OperatorProtocolError, EdgeStoreError, ValueError, TypeError, json.JSONDecodeError) as error:
+            print(f"{getattr(error, 'kind', 'operator_error')}: {error}", file=sys.stderr)
+            return _operator_exit_code(error) if isinstance(error, OperatorError) else 64
+    # Every non-LIVE operation must declare its local or maintenance behavior
+    # before the local store context is entered.  This prevents new commands
+    # from silently inheriting the old EdgeStore fallback.
+    command_key = args.command
+    if args.command == "run":
+        command_key = f"run.{args.run_command}"
+    elif args.command == "instrument":
+        command_key = "instrument.show"
+    elif args.command == "calibration":
+        command_key = f"calibration.{args.calibration_command}"
+    elif args.command == "update":
+        command_key = f"update.{args.update_command}"
+    elif args.command == "hardware":
+        command_key = f"hardware.{args.hardware_command}"
+        if args.hardware_command == "lease":
+            command_key = f"hardware.lease.{args.lease_command}"
+    spec = command_spec(command_key)
+    if spec.mode is CommandMode.MAINTENANCE and not (
+            args.command == "hardware" and args.hardware_command in {"discover", "protocol-test", "actuate"}):
+        _emit(maintenance_disposition(command_key))
+        return 2 if spec.disposition == "rejected" else 0
+    live_operations = {"status", "binding", "runs", "instruments", "doctor"}
+    offline_read = args.offline
+    # Live read models have one control plane. A failed socket is reported to
+    # the operator; it is never converted into a direct SQLite read.
+    if not args.offline and args.command in live_operations:
+        try:
+            result = operator_request(args.command, args.operator_socket, params={})
             _emit(result)
             if args.command == "doctor" and result.get("summary", {}).get("FAIL"):
                 return 2
             return 0
-        except OperatorUnavailable:
-            # Startup and container shutdown can briefly leave the socket
-            # unavailable.  Retain the legacy direct-store read, explicitly
-            # treating it as offline so doctor never probes central here.
-            offline_read = True
+        except (OperatorUnavailable, OperatorProtocolError) as error:
+            print(f"{error.kind}: {error}", file=sys.stderr)
+            return _operator_exit_code(error)
+    if not args.offline and args.command == "hardware":
+        if args.hardware_command == "discover":
+            params = {"operation": "discover"}
+        elif args.hardware_command == "protocol-test":
+            params = {"operation": "protocol_test"}
+        elif args.hardware_command == "actuate":
+            parameters = {"channel": args.channel}
+            if args.operation == "set_output":
+                parameters.update(output="od_led", level=args.level)
+            elif args.operation == "pulse_pump":
+                parameters.update(duration_ms=args.duration_ms)
+            else:
+                parameters.update(duration_ms=args.duration_ms, level=args.level)
+            params = {"operation": "hardware_command", "operation_name": args.operation,
+                      "target_identity": args.target, "parameters": parameters,
+                      "physical": args.physical, "operator": args.operator,
+                      "lease_token": args.lease_token, "lease_owner": args.operator,
+                      "controller_generation": args.controller_generation}
+        else:
+            params = {"operation": args.hardware_command}
+        try:
+            _emit(operator_request("hardware", args.operator_socket, params=params))
+            return 0
+        except (OperatorUnavailable, OperatorProtocolError) as error:
+            print(f"{error.kind}: {error}", file=sys.stderr)
+            return _operator_exit_code(error)
+    if args.offline and args.command in live_operations:
+        try:
+            _offline_state_path(_root(args.state_root))
+        except EdgeStoreError as error:
+            print(f"offline state unavailable: {error}; --offline requires existing controller state", file=sys.stderr)
+            return 66
     if args.command == "lifecycle-plan":
         if args.current_state is not None:
             snapshot = json.loads(args.current_state.read_text(encoding="utf-8"))
@@ -264,6 +494,16 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         except (EdgeStoreError, TypeError, ValueError, json.JSONDecodeError) as error:
             _emit({"error": str(error)}); return 2
+    if args.command == "tui" and not args.offline:
+        from .tui import TUIUnavailableError, run
+        try:
+            return run(OperatorClient(args.operator_socket), page=args.page)
+        except TUIUnavailableError as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        except OperatorUnavailable as error:
+            print(f"{error}; use --offline tui for local durable state", file=sys.stderr)
+            return 69
     with EdgeStore(_root(args.state_root)) as store:
         if args.command == "record-installed-release":
             try:
@@ -341,8 +581,12 @@ def main(argv: list[str] | None = None) -> int:
             except KeyError:
                 _emit({"id": args.instrument_id, "error": "instrument not found"}); return 1
         if args.command == "tui":
-            from .tui import run as run_tui
-            return run_tui(store, page=args.page)
+            from .tui import TUIUnavailableError, run_offline
+            try:
+                return run_offline(store, page=args.page)
+            except TUIUnavailableError as error:
+                print(str(error), file=sys.stderr)
+                return 2
         if args.command == "simulator":
             # Simulator support is part of this distribution.  Constructing it
             # also derives stable inventory from the durable controller id, so
