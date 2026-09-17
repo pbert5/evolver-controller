@@ -33,6 +33,7 @@ OPERATION_METADATA: dict[str, dict[str, str]] = {
     "run": {"access": "mutate", "mode": "live"},
     "instrument": {"access": "read", "mode": "live"},
     "calibration": {"access": "read", "mode": "live"},
+    "calibration_run": {"access": "mutate", "mode": "live"},
     "hardware_lease": {"access": "mutate", "mode": "live"},
     "hardware_layout": {"access": "mutate", "mode": "live"},
     "hardware_provision_identity": {"access": "mutate", "mode": "live"},
@@ -148,6 +149,9 @@ def _dispatch(store: EdgeStore, operation: str, params: dict[str, Any], *,
         if action == "preflight" and isinstance(params.get("references"), list) and isinstance(params.get("requirements", []), list):
             return store.calibration_preflight(params["references"], requirements=params.get("requirements", []))
         raise OperatorProtocolError("calibration action must be artifacts or preflight", kind="invalid_request")
+    if operation == "calibration_run":
+        subject = _operator_subject(operator)
+        return _calibration_run(store, params, subject)
     if operation == "run":
         _only(params, {"action", "run_id", "based_on_revision"}, operation)
         action = params.get("action")
@@ -249,6 +253,71 @@ def _operator_subject(operator: "OperatorIdentity | None") -> str:
     if operator is None:
         raise OperatorProtocolError("authenticated operator attribution is required", kind="unauthorized")
     return operator.subject
+
+
+def _calibration_run(store: EdgeStore, params: dict[str, Any], subject: str) -> Any:
+    """Apply one authenticated, local calibration-run mutation.
+
+    This is deliberately an edge operation: it records a durable run fact and
+    never reaches the hardware service.  ``action`` and the request envelope
+    are transport decoration, not scientific observation fields.
+    """
+    action = params.get("action")
+    if not isinstance(action, str) or action not in {"create", "observation", "activate_artifact"}:
+        raise OperatorProtocolError(
+            "calibration_run action must be create, observation, or activate_artifact",
+            kind="invalid_request")
+    supplied_operator = params.get("operator")
+    if supplied_operator is not None and supplied_operator != subject:
+        raise OperatorProtocolError("operator does not match authenticated operator", kind="unauthorized")
+    run_id = _required_string(params, "run_id")
+
+    if action == "create":
+        _only(params, {"action", "run_id", "calibration_type", "instrument_id",
+                       "component_id", "vial_position_id", "operator"}, "calibration_run")
+        calibration_type = _required_string(params, "calibration_type")
+        instrument_id = _required_string(params, "instrument_id")
+        component_id = params.get("component_id")
+        vial_position_id = params.get("vial_position_id")
+        for name, value in (("component_id", component_id), ("vial_position_id", vial_position_id)):
+            if value is not None and (not isinstance(value, str) or not value):
+                raise OperatorProtocolError(f"{name} must be a non-empty string", kind="invalid_request")
+        try:
+            return store.create_calibration_run(run_id=run_id, calibration_type=calibration_type,
+                                               instrument_id=instrument_id, component_id=component_id,
+                                               vial_position_id=vial_position_id)
+        except (KeyError, ValueError, TypeError, RuntimeError) as error:
+            raise OperatorProtocolError(str(error), kind="calibration_run_error") from error
+
+    if action == "observation":
+        allowed = {"action", "run_id", "observation", "operator"}
+        observation = params.get("observation")
+        if observation is None:
+            # Accept the typed evidence fields directly in the operator
+            # envelope for parity with the central observation endpoint.
+            observation = {key: value for key, value in params.items()
+                           if key not in {"action", "run_id", "operator"}}
+            allowed.update(observation)
+        _only(params, allowed, "calibration_run")
+        if not isinstance(observation, dict):
+            raise OperatorProtocolError("observation must be an object", kind="invalid_request")
+        # Do not persist transport fields even if a caller puts them in the
+        # nested observation; the scientific validator receives only evidence.
+        clean_observation = {key: value for key, value in observation.items()
+                             if key not in {"action", "run_id", "operator"}}
+        try:
+            return store.record_calibration_observation(run_id=run_id, observation=clean_observation)
+        except (KeyError, ValueError, TypeError, RuntimeError) as error:
+            raise OperatorProtocolError(str(error), kind="calibration_run_error") from error
+
+    _only(params, {"action", "run_id", "artifact", "operator"}, "calibration_run")
+    artifact = params.get("artifact")
+    if not isinstance(artifact, dict):
+        raise OperatorProtocolError("artifact must be an object", kind="invalid_request")
+    try:
+        return store.activate_calibration_artifact(artifact=artifact, run_id=run_id, activated_by=subject)
+    except (KeyError, ValueError, TypeError, RuntimeError) as error:
+        raise OperatorProtocolError(str(error), kind="calibration_run_error") from error
 
 
 def _hardware_request(params: dict[str, Any], subject: str) -> dict[str, Any]:

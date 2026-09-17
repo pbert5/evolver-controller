@@ -70,6 +70,32 @@ def test_operator_live_inventory_and_calibration_operations_are_typed(tmp_path: 
         assert invalid["error"]["kind"] == "invalid_request"
 
 
+def test_operator_calibration_run_is_authenticated_typed_and_transport_neutral(tmp_path: Path) -> None:
+    path = tmp_path / "operator.sock"
+    operator = OperatorIdentity("alice", "local_operator", frozenset({"manage_calibration"}))
+    with EdgeStore(tmp_path / "state") as store, OperatorServer(path=path, store=store, operator=operator):
+        created = request("calibration_run", path, params={
+            "action": "create", "run_id": "cal-run", "calibration_type": "temperature",
+            "instrument_id": "instrument-1", "vial_position_id": "vial-1", "operator": "alice",
+        })
+        assert created["effective_state"]["kind"] == "calibration"
+        observed = request("calibration_run", path, params={
+            "action": "observation", "run_id": "cal-run", "operator": "alice",
+            "observation": {"raw_value": 100, "reference_value": 20,
+                            "action": "observation", "run_id": "transport-run", "operator": "spoof"},
+        })
+        evidence = observed["effective_state"]["observations"][0]
+        assert evidence["run_id"] == "cal-run"
+        assert "action" not in evidence
+
+    with EdgeStore(tmp_path / "unauthenticated") as store, OperatorServer(path=tmp_path / "unauthenticated.sock", store=store):
+        denied = _wire(tmp_path / "unauthenticated.sock", {"operation": "calibration_run", "params": {
+            "action": "create", "run_id": "cal-run", "calibration_type": "temperature",
+            "instrument_id": "instrument-1",
+        }})
+        assert denied["error"]["kind"] == "unauthorized"
+
+
 def test_operator_maintenance_operation_is_explicitly_delegated(tmp_path: Path) -> None:
     path = tmp_path / "operator.sock"
     with EdgeStore(tmp_path / "state") as store, OperatorServer(path=path, store=store):

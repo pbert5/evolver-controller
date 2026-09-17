@@ -163,6 +163,56 @@ def dispatch(action: str, parameters: Mapping[str, Any] | None = None, *,
             return denied
         return evolver_controller.import_recovery_snapshot(str(controller_id), body, state_root=state_root)
 
+    # Calibration state is central-owned.  Keep these mutations as a thin
+    # action adapter over the controller functions so permission checks,
+    # durable facts, and queued distribution semantics remain centralized.
+    if action in {"calibrations", "evolver.calibrations"}:
+        return evolver_controller.calibrations(calibration_id=params.get("calibration_id"), state_root=state_root)
+    if action in {"calibration_workspace", "evolver.calibration_workspace"}:
+        return evolver_controller.calibration_workspace(state_root=state_root)
+    if action in {"calibration_create", "create_calibration_session", "evolver.calibration_create"}:
+        return evolver_controller.create_calibration_session(body, operator=operator, state_root=state_root)
+    if action in {"calibration_observation", "evolver.calibration_observation"}:
+        observation = {key: value for key, value in body.items()
+                       if key not in {"action", "session_id"}}
+        return evolver_controller.calibration_session_mutation(
+            str(params.get("session_id", "")), "observation", observation,
+            operator=operator, state_root=state_root)
+    if action in {"calibration_fit", "evolver.calibration_fit",
+                  "calibration_cancel", "evolver.calibration_cancel",
+                  "calibration_accept", "evolver.calibration_accept"}:
+        mutation = action.removeprefix("evolver.").removeprefix("calibration_")
+        return evolver_controller.calibration_session_mutation(
+            str(params.get("session_id", "")), mutation, body,
+            operator=operator, state_root=state_root)
+    if action in {"calibration_capture_observation", "evolver.calibration_capture_observation"}:
+        return evolver_controller.capture_latest_observation(
+            str(params.get("session_id", "")), body,
+            operator=operator, state_root=state_root)
+    if action in {"calibration_fixture", "evolver.calibration_fixture"}:
+        return evolver_controller.create_pump_fixture_artifacts(
+            str(params.get("instrument_id", "")), body.get("records"),
+            operator=operator, state_root=state_root)
+    if action in {"calibration_deliver", "calibration_activate_artifact",
+                  "evolver.calibration_deliver", "evolver.calibration_activate_artifact"}:
+        artifact_id = str(params.get("artifact_id", ""))
+        if action.endswith("activate_artifact"):
+            # The central operation is distribution; activation is recorded
+            # by the edge after it receives the immutable artifact.
+            action = "calibration_deliver"
+        return evolver_controller.deliver_calibration_artifact(
+            artifact_id, operator=operator, request_id=body.get("request_id"),
+            state_root=state_root)
+    if action in {"calibration_supersede", "evolver.calibration_supersede"}:
+        return evolver_controller.supersede_calibration_artifact(
+            str(params.get("artifact_id", "")),
+            superseding_artifact_id=str(body.get("superseding_artifact_id", "")),
+            operator=operator, state_root=state_root)
+    if action in {"calibration_invalidate", "evolver.calibration_invalidate"}:
+        return evolver_controller.invalidate_calibration_artifact(
+            str(params.get("artifact_id", "")), reason=str(body.get("reason", "")),
+            operator=operator, state_root=state_root)
+
     raise UnknownAction(f"unknown central eVOLVER action: {action}")
 
 
