@@ -1,0 +1,196 @@
+# Editing legend: [ID] stable identifier | [REF] existing configured object | [TYPE] structural contract | [ADVANCED] edit with care
+# Details: application/schemas/field-reference.md
+# Scoped contract: Transport-independent edge/central protocol. Commands carry intent; events and acknowledgements record distinct outcomes.
+id: https://w3id.org/meta-webui/evolver/protocol # [ID] Stable shared schema identifier.
+name: meta_webui_evolver_protocol # [ID] Stable LinkML module name.
+title: Meta WebUI eVOLVER edge protocol contracts
+prefixes:
+  linkml: https://w3id.org/linkml/
+  evolver: https://w3id.org/meta-webui/evolver/
+default_prefix: evolver
+default_range: string
+imports:
+- linkml:types # [REF] LinkML scalar types.
+- base # [REF] Shared primitives.
+- hardware # [REF] Controller identity and generation.
+- experiment # [REF] Run and recovery references.
+classes:
+  ProtocolEnvelope:
+    description: Versioned, transport-independent message envelope for edge-initiated synchronization.
+    attributes:
+      protocol_version:
+        required: true
+      message_id:
+        required: true
+      message_type:
+        range: ProtocolMessageType
+        required: true
+      controller_id:
+        range: Controller
+        required: true
+      controller_generation:
+        range: integer
+        required: true
+      sent_at:
+        range: datetime
+        required: true
+      correlation_id:
+      payload:
+        range: SerializedPayload
+        inlined: true
+        required: true
+  Command:
+    is_a: NamedEntity
+    description: Requested intent. command_id is globally unique and is retained for in-flight and completed deduplication.
+    attributes:
+      command_id:
+        required: true
+      controller_id:
+        range: Controller
+        required: true
+      controller_generation:
+        range: integer
+        required: true
+      run_id:
+        range: ExperimentRun
+      based_on_revision:
+        range: integer
+      command_kind:
+        range: CommandKind
+        required: true
+      requested_at:
+        range: datetime
+        required: true
+      payload:
+        range: SerializedPayload
+        inlined: true
+  CommandAcknowledgement:
+    description: Durable disposition of a Command. accepted or acknowledged never means physical actuation was verified.
+    attributes:
+      command_id:
+        required: true
+      disposition:
+        range: CommandDisposition
+        required: true
+      observed_revision:
+        range: integer
+      event_id:
+        range: RunEvent
+      reason:
+      acknowledged_at:
+        range: datetime
+        required: true
+  TelemetryRange:
+    description: Independent raw telemetry spool range, resumable by sequence rather than timestamps alone.
+    attributes:
+      controller_id:
+        range: Controller
+        required: true
+      stream_id:
+        required: true
+      start_sequence:
+        range: integer
+        required: true
+      end_sequence:
+        range: integer
+        required: true
+      digest:
+      captured_at:
+        range: datetime
+      freshness:
+        range: SyncFreshness
+        required: true
+  RecoveryManifest:
+    is_a: NamedEntity
+    description: Edge-provided inventory for operational recovery before optional, non-destructive catalog import.
+    attributes:
+      controller_id:
+        range: Controller
+        required: true
+      controller_generation:
+        range: integer
+        required: true
+      generated_at:
+        range: datetime
+        required: true
+      controller:
+        range: SerializedPayload
+        inlined: true
+        description: Redacted edge identity and binding evidence; never includes a controller credential.
+      instrument_inventory:
+        range: Instrument
+        multivalued: true
+        inlined_as_list: true
+      active_runs:
+        range: ExperimentRun
+        multivalued: true
+      bundles:
+        range: ExperimentBundle
+        multivalued: true
+      run_patches:
+        range: RunPatch
+        multivalued: true
+      run_revisions:
+        range: RunRevision
+        multivalued: true
+        inlined_as_list: true
+      run_events:
+        range: RunEvent
+        multivalued: true
+      telemetry_ranges:
+        range: TelemetryRange
+        multivalued: true
+        inlined_as_list: true
+      source_metadata:
+        range: ContentSnapshot
+        multivalued: true
+        inlined_as_list: true
+      runs:
+        range: ExperimentRun
+        multivalued: true
+        description: All recoverable runs, including completed runs awaiting synchronization; active_runs is a convenience subset.
+      completed_unsynchronized_runs:
+        range: ExperimentRun
+        multivalued: true
+        description: Completed edge runs with append-only event records not yet acknowledged by central.
+      runtime:
+        range: SerializedPayload
+        inlined: true
+        description: Edge controller/runtime version evidence captured with the manifest.
+      freshness:
+        range: SyncFreshness
+        required: true
+enums:
+  ProtocolMessageType:
+    permissible_values:
+      hello: {}
+      heartbeat: {}
+      inventory: {}
+      command: {}
+      command_acknowledgement: {}
+      run_event: {}
+      telemetry: {}
+      recovery_manifest: {}
+      enrollment: {}
+      reconciliation: {}
+      handoff: {}
+      maintenance_job: {}
+  CommandKind:
+    permissible_values:
+      create_run: {}
+      start_run: {}
+      pause_run: {}
+      resume_run: {}
+      stop_run: {}
+      apply_run_patch: {}
+      request_recovery_manifest: {}
+  CommandDisposition:
+    permissible_values:
+      accepted: {}
+      duplicate: {}
+      rejected_stale_generation: {}
+      rejected_stale_revision: {}
+      rejected_unsafe: {}
+      rejected_invalid: {}
+      completed: {}
+      failed: {}

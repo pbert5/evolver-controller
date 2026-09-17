@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+rtk --version
+rtk gain >/dev/null
+
+prepare-dev-volumes
+
+uv_status=0
+uv sync --all-packages --all-extras &
+uv_pid=$!
+
+cleanup() {
+  local status=$?
+  if kill -0 "$uv_pid" 2>/dev/null; then kill "$uv_pid" 2>/dev/null || true; fi
+  wait "$uv_pid" 2>/dev/null || true
+  return "$status"
+}
+trap cleanup EXIT INT TERM
+
+if wait "$uv_pid"; then
+  :
+else
+  uv_status=$?
+  printf 'bootstrap-devcontainer: uv sync failed (status %s)\n' "$uv_status" >&2
+fi
+if (( uv_status != 0 )); then
+  printf 'bootstrap-devcontainer: failed (uv=%s)\n' "$uv_status" >&2
+  exit 1
+fi
+
+export PYTHONPATH="/workspaces/meta_bal/evolver/evolver-server/src${PYTHONPATH:+:$PYTHONPATH}"
+export META_WEBUI_EVOLVER_CONTROL_HOST="${META_WEBUI_EVOLVER_CONTROL_HOST:-127.0.0.1}"
+export META_WEBUI_EVOLVER_CONTROL_PORT="${META_WEBUI_EVOLVER_CONTROL_PORT:-18087}"
+# The endpoint registry is deployment-owned.  Pass through an explicitly
+# provisioned value for the server process; never synthesize a public URL from
+# the local bind address, since that address may not be controller-reachable.
+export META_WEBUI_EVOLVER_CONTROLLER_ENDPOINTS="${META_WEBUI_EVOLVER_CONTROLLER_ENDPOINTS:-}"
+
+control_log="${TMPDIR:-/tmp}/meta-ball-evolver-control.log"
+control_url="http://${META_WEBUI_EVOLVER_CONTROL_HOST}:${META_WEBUI_EVOLVER_CONTROL_PORT}"
+control_status() {
+  curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+    "${control_url}/api/actions" || printf '000'
+}
+
+# /api/actions is authenticated by the deployment gateway.  A 401/403 proves
+# the local service is serving the route without inventing or forwarding
+# credentials; only transport/server failures should trigger a start or retry.
+if ! case "$(control_status)" in 2??|401|403) true;; *) false;; esac; then
+  nohup uv run --project /workspaces/meta_bal/evolver/evolver-server evolver-control \
+    >"$control_log" 2>&1 &
+fi
+
+for attempt in {1..30}; do
+  if case "$(control_status)" in 2??|401|403) true;; *) false;; esac; then
+    exit 0
+  fi
+  sleep 0.1
+done
+printf 'bootstrap-devcontainer: evolver-control did not expose %s/api/actions\n' "$control_url" >&2
+exit 1

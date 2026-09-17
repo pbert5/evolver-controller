@@ -3,13 +3,16 @@
 `evolver-server` owns central intent, enrollment, controller fencing, sync,
 telemetry, operator API, and its own database. `evolver-controller` owns the
 edge durable state, central-initiated-by-client sync, command execution,
-orphan behavior, `evolverctl`, and the local operator API. The preferred edge
+orphan behavior, `evoctl`, and the local operator API. The preferred edge
 deployment is the root-owned Docker Compose stack in `deploy/evolver-edge`:
 the controller has no `/dev` or Docker socket, while `evolver-hardware` is the
-exclusive privileged serial owner. Native/systemd installation remains a
-legacy compatibility path.
+exclusive privileged serial owner. Native package, Nix, and systemd
+installation paths are retired; lifecycle recovery operates on the durable
+state and the Compose deployment boundary.
 `evolver-hardware` exclusively owns serial transport and its bounded local IPC;
 it has no PostgreSQL or catalog dependency. `metactl` is an operator API client.
+In the Meta BAL checkout these three component gitlinks live under `evolver/`;
+the authoritative private instrument schema source is `evolver/evolver-schemas/`.
 `evolver-protocol` is reserved for contracts that genuinely need an independent
 lifecycle. `evolver-arduino` remains the existing firmware source repository.
 
@@ -39,6 +42,11 @@ cross-repository dependency: the catalog is currently owned by `metactl` and
 consumed by the integrated server projection. Revisit this decision when a
 second independently versioned consumer requires the same public parser or
 wire contract. No private BAL schema or lab data is part of the catalog.
+
+Catalog entries marked `planned` are discoverable metadata, not callable
+capabilities. Experiment enqueue/run and run-start remain planned. The local
+`evoctl` surface is owned by the controller; `metactl` is the central API
+client and has no local EdgeStore access.
 
 Central is future/operator intent; edge is physical/current reality. ACKs are
 not physical observations. Controller communication is controller-initiated,

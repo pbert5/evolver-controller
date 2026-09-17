@@ -1,7 +1,7 @@
 # Development
 
 Clone with `git clone --recurse-submodules` and open the root in its Dev
-Container. The Common Toolchain uses a worktree-local `.venv`, a persistent
+Container. The Server profile uses a worktree-local `.venv`, a persistent
 worktree-scoped uv cache, and a root uv workspace containing all four Python
 components. Bootstrap runs `uv sync --all-packages --all-extras`; no Node.js or
 npm installation is required. The image also includes the standalone Codex CLI;
@@ -9,6 +9,13 @@ verify it with `command -v codex` and `codex --version`. Codex login state and
 configuration persist in the shared `meta-ball-codex` volume mounted at
 `/home/vscode/.codex`; no credentials are included in the image. Outside the
 container, use `tools/dev-env`.
+The helper uses the canonical profile-first form:
+`tools/dev-env server exec <command...>` (Server is the default
+profile). The older action-first form, such as `tools/dev-env exec server
+<command...>`, remains accepted for compatibility. Use `tools/dev-env server
+smoke` to verify shared container tools and `tools/check-locks` to verify the
+root `uv.lock` and both Dev Container feature locks. Pass `--relock` only for
+an intentional dependency refresh.
 The three setuptools-based components are editable workspace members. `metactl`
 is intentionally kept as a checkout-path component because its pinned child
 metadata is not buildable by setuptools; its tests and imports remain available
@@ -33,7 +40,7 @@ uses strict marker checking, so new lane-specific tests should use
 `@pytest.mark.integration`, `@pytest.mark.simulator`, or
 `@pytest.mark.serial` explicitly.
 
-The Common container forwards port 18086 as `Meta Ball API`. Services launched
+The Server container forwards port 18086 as `Meta Ball API`. Services launched
 through the host Docker daemon should use `META_BAL_DEV_BIND_ADDRESS` and
 `META_BAL_DEV_PORT`; the default bind is loopback. To make a service reachable
 from a controller, explicitly set the bind address to a host LAN or Tailscale
@@ -44,11 +51,28 @@ For physical-controller work, select `Meta Ball eVOLVER Edge` in VS Code.
 This slimmer profile keeps Python, uv, RTK, Git, zsh/tmux, Docker client, and
 Python/Docker editor support, but omits Node, Chromium, WebUI dependencies,
 and server tooling. It mounts the host Docker socket for bounded Compose
-development and the local operator runtime directory, never `/dev`. Its
-`evolverctl` launcher runs `uv run --project
-/workspaces/meta_bal/evolver-controller`, so edits in the current checkout are
-used immediately. Use `tools/dev-env up evolver-edge` or
-`tools/evolver-edge up --build` to manage the edge stack.
+development and the operator runtime socket, never controller or hardware
+state, hardware runtime, or `/dev`. Its
+`evoctl` launcher runs `uv run --project
+/workspaces/meta_bal/evolver/evolver-controller`, so edits in the current checkout are
+used immediately. Use `tools/dev-env evolver-edge up` or
+`tools/evolver-edge up --build` to manage the edge stack. The first manages
+the Dev Container; the second manages Compose services through host Docker.
+
+The edge overlay is a live operator client. The normal flow is
+`evoctl -> operator.sock -> controller -> hardware.sock -> hardware -> serial`.
+The controller owns the operator API and brokers hardware requests; only the
+hardware daemon owns `/dev` and serial. A stopped or unreachable controller is
+reported as unavailable, and the launcher does not silently fall back to
+SQLite. Diagnose it with `tools/evolver-edge diagnose`, then use `status` and
+`logs controller` as needed.
+
+Offline reads are deliberately separate from live operation. For recovery or
+maintenance while the controller is stopped, use the explicit
+`tools/evolver-edge rescue recovery` route. From inside the edge container,
+`evoctl rescue recovery` delegates to that helper; direct `evoctl --offline`
+is rejected. Do not use offline output as evidence of current central or
+physical-hardware state.
 
 The production-like edge stack has no PostgreSQL dependency. Durable SQLite
 state lives on the host at `/var/lib/evolver-controller`, while the hardware
@@ -60,7 +84,7 @@ not make the hardware daemon unhealthy. Firmware development remains a
 separate build/verify/explicit-physical-flash path with SHA verification,
 operator attribution, and serial ownership checks.
 
-The standalone server entry point is `uv run --project evolver-server
+The standalone server entry point is `uv run --project evolver/evolver-server
 evolver-control`; its configuration uses `DATABASE_URL` and does not embed
 PostgreSQL. `metactl` uses `EVOLVER_SERVER_URL` and the HTTP operator API.
 Controller and hardware simulators are exercised by their copied pytest
@@ -71,3 +95,11 @@ Release builds invoke the preserved scripts in `tools/`, especially
 in the release manifest. BAL artifacts are assembled privately and selected by
 `BAL_SCHEMA_VERSION`; `latest` uses numeric semantic-version ordering. This
 project does not use `.env.local`.
+
+## Parent repository portability
+
+The root `.gitmodules` uses exact relative sibling URLs (for example,
+`../evolver-controller.git`). Git resolves these against the parent remote, so
+the same history works from the GitHub or GitPub mirror namespace when sibling
+repositories retain that layout. Run `git submodule sync --recursive` after
+updating an existing clone, then `git submodule update --init --recursive`.

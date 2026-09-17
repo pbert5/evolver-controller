@@ -1,0 +1,49 @@
+{
+  "name": "Meta Ball Server",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": "../..",
+    "target": "server"
+  },
+  "remoteUser": "vscode",
+  "containerName": "meta-ball-${localEnv:META_BALL_WORKTREE_ID}-server",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/meta_bal,type=bind",
+  "workspaceFolder": "/workspaces/meta_bal",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
+  },
+  "forwardPorts": [18086],
+  "portsAttributes": {"18086": {"label": "Meta Ball API", "onAutoForward": "notify"}},
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.debugpy",
+        "openai.chatgpt",
+        "ms-azuretools.vscode-containers",
+        "ms-azuretools.vscode-docker",
+        "jackiotyu.git-worktree-manager",
+        "adrianwilczynski.toggle-hidden",
+        "mutantdino.resourcemonitor"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "zsh",
+        "terminal.integrated.profiles.linux": {"zsh": {"path": "/usr/bin/zsh"}}
+      }
+    }
+  },
+  "containerEnv": {
+    "META_BALL_WORKTREE_ID": "${localEnv:META_BALL_WORKTREE_ID}",
+    "META_BAL_DEV_BIND_ADDRESS": "${localEnv:META_BAL_DEV_BIND_ADDRESS:127.0.0.1}",
+    "META_BAL_DEV_PORT": "${localEnv:META_BAL_DEV_PORT:18086}",
+    "META_WEBUI_METACTL_CENTRAL_URL": "http://127.0.0.1:18087",
+    "PYTHONPATH": "/workspaces/meta_bal/evolver/evolver-server/src"
+  },
+  "mounts": [
+    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
+    "source=meta-ball-${localEnv:META_BALL_WORKTREE_ID}-uv-cache,target=/home/vscode/.cache/uv,type=volume",
+    "source=meta-ball-codex,target=/home/vscode/.codex,type=volume"
+  ],
+  "postCreateCommand": "bootstrap-devcontainer"
+}

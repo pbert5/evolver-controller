@@ -1,0 +1,121 @@
+# Editing legend: [ID] stable identity | [REF] application-owned calibration contract
+id: https://w3id.org/meta-webui/evolver/calibration
+name: meta_webui_evolver_calibration
+title: Meta WebUI eVOLVER calibration evidence and lifecycle
+prefixes:
+  linkml: https://w3id.org/linkml/
+  evolver: https://w3id.org/meta-webui/evolver/
+default_prefix: evolver
+default_range: string
+imports:
+- linkml:types
+- base
+classes:
+  CalibrationSession:
+    attributes:
+      id: {identifier: true, required: true}
+      calibration_type: {range: CalibrationType, required: true}
+      instrument_id: {required: true}
+      component_id: {}
+      vial_position_id: {}
+      operator: {required: true}
+      created_at: {range: datetime, required: true}
+      started_at: {range: datetime, required: true}
+      completed_at: {range: datetime}
+      method: {required: true}
+      observations: {range: CalibrationObservation, multivalued: true, inlined_as_list: true}
+      candidate: {range: SerializedCalibrationCandidate, inlined: true}
+      state: {range: CalibrationSessionState, required: true}
+      notes: {}
+      accepted_artifact_id: {}
+  CalibrationObservation:
+    attributes:
+      id: {identifier: true, required: true}
+      sequence: {range: integer, required: true}
+      vial_position_id: {}
+      raw_metric: {required: true}
+      raw_value: {range: decimal}
+      raw_unit: {}
+      reference_value: {range: decimal}
+      reference_unit: {}
+      pulse_duration_ms: {range: decimal}
+      delivered_volume_ul: {range: decimal}
+      captured_at: {range: datetime, required: true}
+      source_type: {range: CalibrationObservationSource, required: true}
+      source_record_id: {}
+      source_provenance: {range: SerializedCalibrationCandidate, inlined: true}
+      replicate: {range: integer}
+      operator_note: {}
+  CalibrationArtifact:
+    attributes:
+      id: {identifier: true, required: true}
+      calibration_type: {range: CalibrationType, required: true}
+      instrument_id: {required: true}
+      component_id: {}
+      vial_position_id: {}
+      method: {required: true}
+      method_version: {required: true}
+      coefficients: {range: SerializedCalibrationCandidate, inlined: true, required: true}
+      fit_diagnostics: {range: SerializedCalibrationCandidate, inlined: true, required: true}
+      calibration_range: {range: SerializedCalibrationCandidate, inlined: true}
+      evidence_digest: {required: true}
+      artifact_digest: {required: true}
+      hardware_fingerprint: {}
+      performed_at: {range: datetime, required: true}
+      performed_by: {required: true}
+      created_at: {range: datetime, required: true}
+      validity_policy: {range: SerializedCalibrationCandidate, inlined: true, required: true}
+  CalibrationEvent:
+    attributes:
+      id: {identifier: true, required: true}
+      event_type: {range: CalibrationEventType, required: true}
+      artifact_id: {required: true}
+      occurred_at: {range: datetime, required: true}
+      actor: {}
+      reason: {}
+      details: {range: SerializedCalibrationCandidate, inlined: true}
+  CalibrationAssessment:
+    attributes:
+      artifact_id: {required: true}
+      status: {range: CalibrationAssessmentStatus, required: true}
+      assessed_at: {range: datetime, required: true}
+      reasons: {multivalued: true}
+      active: {range: boolean, required: true}
+  CalibrationDistribution:
+    attributes:
+      artifact_id: {required: true}
+      artifact_digest: {required: true}
+      controller_id: {required: true}
+      controller_generation: {range: integer, required: true}
+      state: {range: CalibrationDistributionState, required: true}
+      command_id: {}
+      requested_at: {range: datetime}
+      stored_at: {range: datetime}
+      failure_reason: {}
+  SerializedCalibrationCandidate:
+    description: Structured JSON payload retained as immutable evidence or diagnostics.
+    attributes:
+      value: {required: true}
+  BundleCalibrationReference:
+    attributes:
+      artifact_id: {required: true}
+      artifact_digest: {required: true}
+      calibration_type: {range: CalibrationType, required: true}
+      instrument_id: {required: true}
+      vial_position_id: {required: true}
+      component_id: {}
+      method: {required: true}
+      method_version: {required: true}
+enums:
+  CalibrationType:
+    permissible_values: {temperature: {}, optical_density: {}, pump_flow_rate: {}}
+  CalibrationSessionState:
+    permissible_values: {collecting: {}, review: {}, ready_to_accept: {}, completed: {}, cancelled: {}, rejected: {}}
+  CalibrationObservationSource:
+    permissible_values: {central_telemetry: {}, manual: {}, imported: {}}
+  CalibrationEventType:
+    permissible_values: {accepted: {}, invalidated: {}, superseded: {}, distribution_requested: {}, distribution_stored: {}, distribution_failed: {}, hardware_changed: {}, policy_stale: {}}
+  CalibrationAssessmentStatus:
+    permissible_values: {valid: {}, stale: {}, invalid: {}, superseded: {}}
+  CalibrationDistributionState:
+    permissible_values: {not_requested: {}, pending: {}, stored: {}, failed: {}, stale_generation: {}}

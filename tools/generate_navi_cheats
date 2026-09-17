@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+"""Build the checked-in Navi catalog from repository-owned cheat sources."""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+import re
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SOURCE_DIR = ROOT / "docs" / "navi" / "cheatsheets"
+OUTPUT = ROOT / "docs" / "navi" / "generated" / "meta-ball.cheat"
+HEADER = """# GENERATED FILE. DO NOT EDIT.\n# Run tools/generate_navi_cheats after changing docs/navi/cheatsheets/.\n"""
+
+
+def catalog_actions() -> dict[str, dict]:
+    """Load the deployment catalog as an ID-indexed source of facts."""
+    index_path = ROOT / "metactl" / "applications" / "deployment" / "action-catalog.json"
+    if not index_path.is_file():
+        return {}
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    actions: dict[str, dict] = {}
+    for reference in index["catalogs"]:
+        catalog = json.loads((index_path.parent / reference["path"]).read_text(encoding="utf-8"))
+        api = catalog.get("api", {})
+        for action in catalog["actions"]:
+            action = {**action, "_api_path": api.get(action["id"], {}).get("path", "")}
+            actions[action["id"]] = action
+    return actions
+
+
+def presentation_entries(actions: dict[str, dict]) -> tuple[str, set[str]]:
+    """Render human paths from the first-class CLI presentation tree."""
+    path = ROOT / "metactl" / "applications" / "deployment" / "metactl-cli.json"
+    if not path.is_file():
+        return "", set()
+    presentation = json.loads(path.read_text(encoding="utf-8"))
+    entries: list[str] = []
+    covered: set[str] = set()
+
+    def visit(node: object, parts: tuple[str, ...], positionals: tuple[str, ...] = ()) -> None:
+        if isinstance(node, dict) and isinstance(node.get("action_id"), str):
+            leaf_positionals = node.get("positionals")
+            if not isinstance(leaf_positionals, list):
+                leaf_positionals = positionals
+            visit(node["action_id"], parts, tuple(str(item) for item in leaf_positionals))
+            return
+        if isinstance(node, str):
+            action_id = node
+            metadata = actions.get(action_id, {})
+            if not positionals:
+                positionals = tuple(re.findall(r"\{([^}]+)\}", str(metadata.get("_api_path", ""))))
+            covered.add(action_id)
+            status = metadata.get("status", "unknown")
+            marker = " [planned]" if status != "implemented" else ""
+            command = "metactl " + " ".join(parts + tuple(f"<{item}>" for item in positionals))
+            entries.append(f"% Meta BAL path {' '.join(parts)} [action_id={action_id}]{marker}\n{command}")
+            return
+        if not isinstance(node, dict):
+            return
+        next_positionals = tuple(node.get("positionals", positionals)) if isinstance(node.get("positionals", positionals), list) else positionals
+        for name, child in node.items():
+            if name != "positionals":
+                visit(child, parts + (name,), next_positionals)
+
+    visit(presentation.get("groups", {}), ())
+    return "\n\n".join(entries), covered
+
+
+def action_entries() -> str:
+    """Render presentation paths, plus stable-ID inventory entries not mapped to one."""
+    actions = catalog_actions()
+    presentation, covered = presentation_entries(actions)
+    inventory: list[str] = []
+    for action_id, action in actions.items():
+        tags = " ".join(action.get("tags", []))
+        status = action.get("status", "unknown")
+        marker = " [planned]" if status != "implemented" else ""
+        inventory.append(f"% Meta BAL action {action_id} [action_id={action_id}]{marker}\nmetactl {action_id}")
+    return "\n\n".join(part for part in (presentation, "\n\n".join(inventory)) if part)
+
+
+def render() -> str:
+    sources = sorted(SOURCE_DIR.glob("*.cheat"), key=lambda path: path.relative_to(ROOT).as_posix())
+    if not sources:
+        raise SystemExit(f"no Navi source files found in {SOURCE_DIR}")
+
+    sections: list[str] = []
+    for source in sources:
+        text = source.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n").rstrip()
+        if not text:
+            raise SystemExit(f"Navi source is empty: {source}")
+        sections.append(text)
+    generated_actions = action_entries()
+    if generated_actions:
+        sections.append("% Generated metactl action catalog\n" + generated_actions)
+    return HEADER + "\n\n".join(sections) + "\n"
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true", help="fail when the checked-in catalog is stale")
+    args = parser.parse_args()
+    expected = render()
+
+    if args.check:
+        actual = OUTPUT.read_text(encoding="utf-8") if OUTPUT.exists() else None
+        if actual != expected:
+            print(f"stale Navi catalog: {OUTPUT}")
+            print("run tools/generate-navi-cheats")
+            return 1
+        return 0
+
+    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    OUTPUT.write_text(expected, encoding="utf-8", newline="\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

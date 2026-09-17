@@ -19,9 +19,9 @@ validate_workers() {
 component_pythonpath() {
   case "$1" in
     root) printf '%s\n' . ;;
-    controller) printf '%s\n' evolver-controller/src ;;
-    hardware) printf '%s\n' evolver-hardware/src ;;
-    server) printf '%s\n' evolver-server/src ;;
+    controller) printf '%s\n' evolver/evolver-controller/src ;;
+    hardware) printf '%s\n' evolver/evolver-hardware/src ;;
+    server) printf '%s\n' evolver/evolver-server/src ;;
     metactl) printf '%s\n' metactl ;;
     *) die "unknown component: $1" ;;
   esac
@@ -30,9 +30,9 @@ component_pythonpath() {
 component_tests() {
   case "$1" in
     root) printf '%s\n' '' ;;
-    controller) printf '%s\n' evolver-controller/tests ;;
-    hardware) printf '%s\n' evolver-hardware/tests ;;
-    server) printf '%s\n' evolver-server/tests ;;
+    controller) printf '%s\n' evolver/evolver-controller/tests ;;
+    hardware) printf '%s\n' evolver/evolver-hardware/tests ;;
+    server) printf '%s\n' evolver/evolver-server/tests ;;
     metactl) printf '%s\n' metactl/tests ;;
     *) die "unknown component: $1" ;;
   esac
@@ -73,11 +73,15 @@ run_suite() {
   command+=("$@")
 
   echo "==> $component${marker:+ [$marker]}"
+  local status=0
   if [[ -n "$coverage_file" ]]; then
-    (cd "$ROOT_DIR" && PYTHONPATH="$pythonpath" COVERAGE_FILE="$coverage_file" "${command[@]}")
+    (cd "$ROOT_DIR" && PYTHONPATH="$pythonpath" COVERAGE_FILE="$coverage_file" "${command[@]}") || status=$?
   else
-    (cd "$ROOT_DIR" && PYTHONPATH="$pythonpath" "${command[@]}")
+    (cd "$ROOT_DIR" && PYTHONPATH="$pythonpath" "${command[@]}") || status=$?
   fi
+  # Marker-specific component lanes may legitimately have no tests yet.
+  [[ "$status" -eq 5 && -n "$marker" ]] && return 0
+  return "$status"
 }
 
 declare -a CHILD_PIDS=()
@@ -134,6 +138,7 @@ usage:
   tools/test simulator [pytest args...]
   tools/test coverage [pytest args...]
   tools/test component <root|controller|hardware|server|metactl> [pytest args...]
+  tools/test evidence <root|controller|hardware|server|metactl> <pytest node IDs...>
 
 PYTEST_WORKERS controls xdist workers for parallel lanes: auto (default) or a
 non-negative integer. Serial and coverage lanes run component processes in order.
@@ -147,6 +152,15 @@ validate_workers
 workers=${PYTEST_WORKERS:-auto}
 
 case "$mode" in
+  evidence)
+    [[ $# -ge 2 ]] || usage
+    component=$1
+    shift
+    pythonpath=$(component_pythonpath "$component")
+    # Evidence targets are selected explicitly; do not append the full suite.
+    # Keep the component import environment and root-owned uv workspace.
+    (cd "$ROOT_DIR" && PYTHONPATH="$pythonpath" uv run --project "$ROOT_DIR" --all-packages --all-extras pytest -q "$@")
+    ;;
   all) run_all_parallel "$workers" '' '' "$@" ;;
   fast) run_all_parallel "$workers" 'not integration and not simulator and not serial' '' "$@" ;;
   # The serial lane is intentionally conservative: it runs every repository
@@ -157,7 +171,7 @@ case "$mode" in
   # marked tests yet; invoking them would turn a valid empty lane into pytest
   # exit code 5. Keep the lane ready for future component integration suites.
   integration) run_suite root "$workers" integration '' "$@" ;;
-  simulator) run_suite root "$workers" 'simulator or integration' '' "$@" ;;
+  simulator) run_all_parallel "$workers" 'simulator or integration' '' "$@" ;;
   coverage)
     coverage_dir=$(mktemp -d "${TMPDIR:-/tmp}/meta-bal-coverage.XXXXXX")
     cleanup_coverage() { rm -rf -- "$coverage_dir"; }

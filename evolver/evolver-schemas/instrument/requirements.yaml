@@ -1,0 +1,29 @@
+id: https://w3id.org/meta-webui/evolver/requirements
+name: meta_webui_evolver_requirements
+title: eVOLVER logical resource requirements
+prefixes: {linkml: https://w3id.org/linkml/, evolver: https://w3id.org/meta-webui/evolver/}
+default_prefix: evolver
+default_range: string
+imports: [linkml:types, base, hardware, calibration, fixture]
+classes:
+  CapabilityRequirement:
+    is_a: NamedEntity
+    attributes:
+      capability_id: {required: true}
+      minimum_verification_state: {range: VerificationState}
+      required_calibration_type: {range: CalibrationType}
+      calibration_required: {range: boolean, required: true}
+      stale_calibration_allowed: {range: boolean, required: true}
+      optional: {range: boolean, required: true}
+  ResourceRequirement:
+    is_a: NamedEntity
+    attributes:
+      resource_class: {range: ResourceClass, required: true}
+      quantity: {range: integer, required: true}
+      capabilities: {range: CapabilityRequirement, multivalued: true, inlined_as_list: true}
+      affinity: {}
+      exclusivity: {range: Exclusivity, required: true}
+      optional: {range: boolean, required: true}
+enums:
+  ResourceClass: {permissible_values: {instrument: {}, vial_position: {}, device: {}, evaluation_fixture: {}, reference_component: {}, operator: {}}}
+  Exclusivity: {permissible_values: {exclusive: {}, shared: {}}}

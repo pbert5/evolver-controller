@@ -1,0 +1,29 @@
+id: https://w3id.org/meta-webui/evolver/fixture
+name: meta_webui_evolver_fixture
+title: eVOLVER evaluation fixtures and reference components
+prefixes: {linkml: https://w3id.org/linkml/, evolver: https://w3id.org/meta-webui/evolver/}
+default_prefix: evolver
+default_range: string
+imports: [linkml:types, base, hardware, calibration]
+classes:
+  EvaluationFixture:
+    is_a: NamedEntity
+    attributes:
+      controller_id: {range: Controller, required: true}
+      components: {range: ReferenceComponent, multivalued: true, inlined_as_list: true}
+      capabilities: {range: CapabilityStatus, multivalued: true, inlined_as_list: true}
+      calibration_state: {range: CalibrationAssessmentStatus}
+      verification_state: {range: VerificationState, required: true}
+      hardware_fingerprint: {required: true}
+      operational_status: {range: FixtureStatus, required: true}
+  ReferenceComponent:
+    is_a: NamedEntity
+    attributes:
+      component_type: {required: true}
+      capabilities: {multivalued: true}
+      calibration_artifact_ids: {multivalued: true}
+      calibration_state: {range: CalibrationAssessmentStatus}
+      verification_state: {range: VerificationState, required: true}
+      hardware_fingerprint: {}
+enums:
+  FixtureStatus: {permissible_values: {available: {}, attached: {}, unavailable: {}, faulted: {}, maintenance: {}}}

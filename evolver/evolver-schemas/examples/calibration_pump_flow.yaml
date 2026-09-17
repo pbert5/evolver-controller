@@ -1,0 +1,20 @@
+id: calibration-pump-flow
+name: Pump flow calibration
+purpose: calibration
+revision: 1
+definition:
+  content:
+    calibration_type: pump_flow_rate
+    input_metric: delivered_volume_ul
+    reference_unit: microliter
+program:
+  id: calibration-pump-flow-program
+  version: "1"
+  entry_step_id: collect
+  completion_policy: {mode: all_steps}
+  failure_policy: {mode: stop_run}
+  steps:
+  - id: collect
+    entry_actions:
+    - {action_id: pulse_pump, action_version: "1"}
+    - {action_id: capture_measurement, action_version: "1"}

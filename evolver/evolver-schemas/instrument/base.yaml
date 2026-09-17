@@ -1,0 +1,106 @@
+# Editing legend: [ID] stable identifier | [REF] existing configured object | [TYPE] structural contract | [ADVANCED] edit with care
+# Details: application/schemas/field-reference.md
+# Scoped contract: Shared eVOLVER domain primitives. Names and enum values are [ID]; ranges and cardinality are [TYPE] [ADVANCED].
+id: https://w3id.org/meta-webui/evolver/base # [ID] Stable shared schema identifier.
+name: meta_webui_evolver_base # [ID] Stable LinkML module name.
+title: Meta WebUI eVOLVER domain primitives
+prefixes:
+  linkml: https://w3id.org/linkml/
+  evolver: https://w3id.org/meta-webui/evolver/
+default_prefix: evolver
+default_range: string
+imports:
+- linkml:types # [REF] LinkML scalar types.
+classes:
+  NamedEntity:
+    abstract: true
+    description: Common stable identity and display metadata.
+    attributes:
+      id:
+        identifier: true
+        required: true
+      name:
+        required: true
+      description:
+  ContentReference:
+    description: Stable source identity and immutable content digest.
+    attributes:
+      id:
+        required: true
+      revision:
+      digest:
+        required: true
+      captured_at:
+        range: datetime
+  ContentSnapshot:
+    is_a: ContentReference
+    description: Self-contained source metadata captured for an immutable bundle or non-destructive recovery import.
+    attributes:
+      content:
+        range: SerializedPayload
+        inlined: true
+        required: true
+  SerializedPayload:
+    description: Canonical serialized structured content paired with its digest where integrity matters.
+    attributes:
+      content:
+        required: true
+      media_type:
+        required: true
+      digest:
+  Quantity:
+    description: Numeric value with an explicit unit.
+    attributes:
+      value:
+        range: decimal
+        required: true
+      unit:
+        required: true
+  ParameterBounds:
+    description: Safety envelope for a runtime-adjustable parameter.
+    attributes:
+      minimum:
+        range: decimal
+      maximum:
+        range: decimal
+      step:
+        range: decimal
+      unit:
+  RuntimeParameter:
+    description: Parameter declared by a bundle and eligible for a RunPatch only when mutable_during_run is true.
+    attributes:
+      parameter:
+        range: ParameterKind
+        required: true
+      value:
+        range: Quantity
+        inlined: true
+      mutable_during_run:
+        range: boolean
+        required: true
+      bounds:
+        range: ParameterBounds
+        inlined: true
+enums:
+  ParameterKind:
+    permissible_values:
+      temperature: {}
+      optical_density: {}
+      od_upper_threshold: {}
+      od_lower_threshold: {}
+      stir_rate: {}
+      dilution_rate: {}
+      pump_duration: {}
+      pump_period: {}
+      media_source: {}
+      custom: {}
+  VerificationState:
+    permissible_values:
+      supported: {}
+      protocol_verified: {}
+      electrically_verified: {}
+      physically_verified: {}
+      calibrated: {}
+      not_tested: {}
+      failed: {}
+      ambiguous: {}

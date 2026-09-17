@@ -1,0 +1,66 @@
+kind: ui-ownership-recon
+version: 1
+lane: B
+status: blocked-by-source-ownership
+scope: read-only-history-ux
+repository:
+  integration_root: meta_bal
+  integration_branch: schema-x-inflation----cli
+  integration_remote: https://github.com/pbert5/meta_bal.git
+  reference_checkout: refference/meta_webui_demo
+  reference_commit: 652cc5de7098949c31d71d035f41fbe0499e6ac1
+  reference_branch: evolver-hardware-working-108-g652cc5d
+  reference_remote: https://github.com/pbert5/meta_webui_demo.git
+  reference_is_submodule: true
+  reference_is_writable_ui_source: false
+evidence:
+  ownership_docs:
+    - path: README.md
+      finding: The refference checkout is retained as read-only source material.
+    - path: docs/architecture.md
+      finding: Meta WebUI and BAL catalog code remain private and are not required by public components.
+    - path: refference/meta_webui_demo/docs/architecture/frontend.md
+      finding: The canonical Web renderer is shells/web/frontend, while application extensions remain under their owning application tree.
+    - path: refference/meta_webui_demo/shells/web/frontend/AGENTS.md
+      finding: React must implement reusable rendering and select extensions through stable manifest IDs; application pages and bindings are not React-owned.
+  declarative_sources:
+    - path: refference/meta_webui_demo/applications/evolver/interfaces/webui/pages/evolver/runs.yaml
+      finding: The runs page binds evolver-run-console to query evolver.runs and configured named mutations.
+    - path: refference/meta_webui_demo/applications/evolver/data/queries/evolver.yaml
+      finding: evolver.runs is an application-owned read-only collection projection using operation evolver_runs.
+    - path: refference/meta_webui_demo/applications/evolver/extensions/extensions.yaml
+      finding: The extension registry imports evolver-run-console and evolver-entity-detail; registry bindings must be preserved.
+    - path: refference/meta_webui_demo/applications/evolver/extensions/evolver-run-console/extension.yaml
+      finding: Stable extension ID evolver-run-console exposes management mode and selectedRunId output.
+    - path: refference/meta_webui_demo/applications/evolver/extensions/evolver-entity-detail/extension.yaml
+      finding: Stable extension ID evolver-entity-detail exposes read-only detail presentation over bounded projections.
+  existing_history_capabilities:
+    - path: refference/meta_webui_demo/applications/evolver/extensions/evolver-run-console/src/EvolverRunConsoleElement.tsx
+      capability: read-only run patch history and event timeline
+      inputs: [patch_history, run_patches, patches, event_history, run_events, events]
+      behavior: Requested, delivered, acknowledged, and observed records remain visibly distinct; no event is treated as physical confirmation.
+    - path: refference/meta_webui_demo/applications/evolver/extensions/evolver-entity-detail/src/FirmwareHistory.tsx
+      capability: read-only firmware release evidence
+      inputs: [releases, release_history, firmware_history, deployments, release_deployments, events, release_events]
+      behavior: Presents reported evidence and backend-reported rollback eligibility without creating or editing release records.
+  test_evidence:
+    - path: refference/meta_webui_demo/applications/evolver/extensions/evolver-run-console/tests/contract.test.ts
+      finding: Focused unit/contract coverage exists for the reusable run-console contract.
+    - path: refference/meta_webui_demo/applications/evolver/extensions/evolver-entity-detail/tests/contract.test.ts
+      finding: Focused unit/contract coverage exists for detail projection behavior.
+    - path: refference/meta_webui_demo/shells/web/frontend/tests/e2e/evolver-detail.spec.ts
+      finding: Playwright fixture coverage exists for direct detail routes and simulated run projections.
+    - path: refference/meta_webui_demo/shells/web/frontend/tests/e2e/evolver.spec.ts
+      finding: Playwright fixture coverage includes simulated event_history and revision-safe user flows.
+decision:
+  writable_authoritative_ui_found: false
+  implementation_performed: false
+  reference_copy_modified: false
+  reason: Parent repository instructions classify refference/meta_webui_demo as reference-only; implementing there would mutate a non-authoritative copy from Meta Ball's perspective.
+  next_owner: meta_webui_demo maintainers
+  next_action: Coordinate a change in the meta_webui_demo repository if the existing history capability needs extension.
+  escalates_schema_or_protocol_change: false
+unresolved_risks:
+  - The reference checkout's remote is available, but its local submodule status does not make it an authorized writable source for this parent task.
+  - No new backend route, payload field, schema, or hardware claim is proposed by this recon.
+  - Browser execution was not run because no writable UI implementation was made and the authoritative UI source is out of scope.

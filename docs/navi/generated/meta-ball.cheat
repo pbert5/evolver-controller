@@ -1,0 +1,361 @@
+# GENERATED FILE. DO NOT EDIT.
+# Run tools/generate_navi_cheats after changing docs/navi/cheatsheets/.
+% Meta Ball
+% Repository workflows
+
+# Run the complete test topology
+tools/test all
+
+# Run the fast unit and contract lane
+tools/test fast
+
+# Run root integration contracts
+tools/test integration
+
+# Run tests for one component
+tools/test component <component>
+  component: controller, hardware, server, metactl, or root
+
+# Read the architecture and ownership guide
+less docs/architecture.md
+
+# Read the eVOLVER operator guide
+less docs/operator.md
+
+# Start the Server Dev Container
+tools/dev-env server up
+
+# Open a shell in the Server Dev Container
+tools/dev-env server shell
+
+# Start the eVOLVER Edge Dev Container
+tools/dev-env evolver-edge up
+
+# Check the edge runtime status
+tools/dev-env evolver-edge exec evoctl status
+
+# Show the repository worktree status
+git status --short --branch
+
+# Dev Container lifecycle
+tools/dev-env server up
+tools/dev-env server shell
+tools/dev-env server exec <command>
+tools/dev-env server rebuild
+tools/dev-env server down
+tools/dev-env server status
+tools/dev-env server network
+tools/dev-env server smoke
+tools/dev-env evolver-edge up
+tools/dev-env evolver-edge shell
+tools/dev-env evolver-edge exec <command>
+tools/dev-env evolver-edge rebuild
+tools/dev-env evolver-edge down
+tools/dev-env evolver-edge status
+tools/dev-env evolver-edge smoke
+
+# Testing and evidence
+tools/test all
+tools/test fast
+tools/test integration
+tools/test component <component>
+tools/test evidence <component> <pytest-node>
+tools/test coverage
+tools/test simulator
+tools/test integration
+tools/test-postgres-acceptance
+tools/generate_navi_cheats --check
+metactl actions list --filter calibration
+
+# Meta BAL discovery and API Workbench
+metactl
+metactl --help
+metactl actions list
+metactl actions show <action-id>
+metactl interactive
+metactl tui
+metactl doctor --format json
+metactl api tui --repo .
+metactl api tui --repo . --live
+metactl api check --repo .
+metactl api check --repo . --audit
+metactl api test <action-id> --repo . --dry-run
+metactl api test --repo . --app evolver --trust-tests
+metactl api tui --openapi <openapi-file> --server <server-url>
+metactl api tui --repo . --fixture <fixture-file>
+
+# Repository, submodule, release and database workflows
+git status --short --branch
+git submodule status --recursive
+tools/check-locks
+tools/check-locks --relock
+tools/test-serial
+tools/test-simulator
+tools/test-postgres-acceptance
+docker compose -f deploy/evolver-edge/compose.yaml config
+docker compose -f deploy/postgres-acceptance/compose.yaml up --detach --wait postgres
+
+% Generated metactl action catalog
+% Meta BAL path controllers commands list [action_id=evolver.controllers.commands.list]
+metactl controllers commands list <controller_id>
+
+% Meta BAL path controllers commands show [action_id=evolver.controllers.commands.show]
+metactl controllers commands show <controller_id> <command_id>
+
+% Meta BAL path controllers commands watch [action_id=evolver.controllers.commands.show]
+metactl controllers commands watch <controller_id> <command_id>
+
+% Meta BAL path controllers manual lease show [action_id=evolver.controllers.manual.lease.show]
+metactl controllers manual lease show <controller_id>
+
+% Meta BAL path controllers manual lease revoke [action_id=evolver.controllers.manual.lease.revoke]
+metactl controllers manual lease revoke <controller_id>
+
+% Meta BAL path controllers manual lease emergency-release [action_id=evolver.controllers.manual.lease.emergency_release]
+metactl controllers manual lease emergency-release <controller_id>
+
+% Meta BAL path controllers manual command [action_id=evolver.controllers.manual.command]
+metactl controllers manual command <controller_id>
+
+% Meta BAL path controllers manual stir [action_id=evolver.controllers.manual.stir]
+metactl controllers manual stir <controller_id>
+
+% Meta BAL path controllers recovery request [action_id=evolver.controllers.recovery.request]
+metactl controllers recovery request <controller_id>
+
+% Meta BAL path controllers recovery status [action_id=evolver.controllers.recovery.status]
+metactl controllers recovery status <controller_id>
+
+% Meta BAL path controllers recovery diff [action_id=evolver.controllers.recovery.diff]
+metactl controllers recovery diff <controller_id>
+
+% Meta BAL path controllers release set [action_id=evolver.controllers.release.set]
+metactl controllers release set <controller_id>
+
+% Meta BAL path controllers list [action_id=evolver.controllers.list]
+metactl controllers list
+
+% Meta BAL path controllers show [action_id=evolver.controllers.show]
+metactl controllers show <controller_id>
+
+% Meta BAL path controllers freshness [action_id=evolver.controllers.freshness]
+metactl controllers freshness <controller_id>
+
+% Meta BAL path controllers add [action_id=evolver.controllers.add]
+metactl controllers add
+
+% Meta BAL path controllers adopt [action_id=evolver.controllers.add]
+metactl controllers adopt
+
+% Meta BAL path controllers refresh [action_id=evolver.controllers.refresh]
+metactl controllers refresh <controller_id>
+
+% Meta BAL path controllers rescan [action_id=evolver.controllers.rescan]
+metactl controllers rescan <controller_id>
+
+% Meta BAL path controllers archive [action_id=evolver.controllers.archive]
+metactl controllers archive <controller_id>
+
+% Meta BAL path controllers restore [action_id=evolver.controllers.restore]
+metactl controllers restore <controller_id>
+
+% Meta BAL path controllers measurements [action_id=evolver.controllers.measurements]
+metactl controllers measurements <controller_id>
+
+% Meta BAL path controllers telemetry [action_id=evolver.controllers.telemetry]
+metactl controllers telemetry <controller_id>
+
+% Meta BAL path controllers activities [action_id=evolver.controllers.activities]
+metactl controllers activities <controller_id>
+
+% Meta BAL path controllers events [action_id=evolver.controllers.events]
+metactl controllers events <controller_id>
+
+% Meta BAL path controllers evidence [action_id=evolver.controllers.evidence]
+metactl controllers evidence <controller_id>
+
+% Meta BAL path controllers logs [action_id=evolver.controllers.logs]
+metactl controllers logs <controller_id>
+
+% Meta BAL path instruments list [action_id=evolver.instruments.list]
+metactl instruments list
+
+% Meta BAL path instruments show [action_id=evolver.instruments.show]
+metactl instruments show <instrument_id>
+
+% Meta BAL path runs list [action_id=evolver.runs.list]
+metactl runs list
+
+% Meta BAL path runs show [action_id=evolver.runs.show]
+metactl runs show <run_id>
+
+% Meta BAL path runs pause [action_id=evolver.runs.pause]
+metactl runs pause <run_id>
+
+% Meta BAL path runs resume [action_id=evolver.runs.resume]
+metactl runs resume <run_id>
+
+% Meta BAL path runs stop [action_id=evolver.runs.stop]
+metactl runs stop <run_id>
+
+% Meta BAL path experiments validate [action_id=evolver.experiments.validate]
+metactl experiments validate
+
+% Meta BAL path experiments describe [action_id=evolver.experiments.describe]
+metactl experiments describe
+
+% Meta BAL path experiments plan [action_id=evolver.experiments.plan]
+metactl experiments plan
+
+% Meta BAL path experiments enqueue [action_id=evolver.experiments.enqueue] [planned]
+metactl experiments enqueue
+
+% Meta BAL path experiments run [action_id=evolver.experiments.run] [planned]
+metactl experiments run
+
+% Meta BAL path releases build [action_id=evolver.release.build]
+metactl releases build
+
+% Meta BAL action core.access.status [action_id=core.access.status] [planned]
+metactl core.access.status
+
+% Meta BAL action evolver.release.build [action_id=evolver.release.build]
+metactl evolver.release.build
+
+% Meta BAL action evolver.controllers.add [action_id=evolver.controllers.add]
+metactl evolver.controllers.add
+
+% Meta BAL action evolver.edge.status [action_id=evolver.edge.status]
+metactl evolver.edge.status
+
+% Meta BAL action evolver.edge.controllers [action_id=evolver.edge.controllers]
+metactl evolver.edge.controllers
+
+% Meta BAL action evolver.edge.instruments [action_id=evolver.edge.instruments]
+metactl evolver.edge.instruments
+
+% Meta BAL action evolver.edge.runs [action_id=evolver.edge.runs]
+metactl evolver.edge.runs
+
+% Meta BAL action evolver.controllers.list [action_id=evolver.controllers.list]
+metactl evolver.controllers.list
+
+% Meta BAL action evolver.controllers.show [action_id=evolver.controllers.show]
+metactl evolver.controllers.show
+
+% Meta BAL action evolver.controllers.freshness [action_id=evolver.controllers.freshness]
+metactl evolver.controllers.freshness
+
+% Meta BAL action evolver.controllers.refresh [action_id=evolver.controllers.refresh]
+metactl evolver.controllers.refresh
+
+% Meta BAL action evolver.controllers.rescan [action_id=evolver.controllers.rescan]
+metactl evolver.controllers.rescan
+
+% Meta BAL action evolver.controllers.archive [action_id=evolver.controllers.archive]
+metactl evolver.controllers.archive
+
+% Meta BAL action evolver.controllers.restore [action_id=evolver.controllers.restore]
+metactl evolver.controllers.restore
+
+% Meta BAL action evolver.controllers.release.set [action_id=evolver.controllers.release.set]
+metactl evolver.controllers.release.set
+
+% Meta BAL action evolver.controllers.commands.list [action_id=evolver.controllers.commands.list]
+metactl evolver.controllers.commands.list
+
+% Meta BAL action evolver.controllers.commands.show [action_id=evolver.controllers.commands.show]
+metactl evolver.controllers.commands.show
+
+% Meta BAL action evolver.controllers.manual.lease [action_id=evolver.controllers.manual.lease]
+metactl evolver.controllers.manual.lease
+
+% Meta BAL action evolver.controllers.manual.lease.show [action_id=evolver.controllers.manual.lease.show]
+metactl evolver.controllers.manual.lease.show
+
+% Meta BAL action evolver.controllers.manual.lease.revoke [action_id=evolver.controllers.manual.lease.revoke]
+metactl evolver.controllers.manual.lease.revoke
+
+% Meta BAL action evolver.controllers.manual.lease.emergency_release [action_id=evolver.controllers.manual.lease.emergency_release]
+metactl evolver.controllers.manual.lease.emergency_release
+
+% Meta BAL action evolver.controllers.manual.command [action_id=evolver.controllers.manual.command]
+metactl evolver.controllers.manual.command
+
+% Meta BAL action evolver.controllers.manual.stir [action_id=evolver.controllers.manual.stir]
+metactl evolver.controllers.manual.stir
+
+% Meta BAL action evolver.controllers.measurements [action_id=evolver.controllers.measurements]
+metactl evolver.controllers.measurements
+
+% Meta BAL action evolver.controllers.telemetry [action_id=evolver.controllers.telemetry]
+metactl evolver.controllers.telemetry
+
+% Meta BAL action evolver.controllers.activities [action_id=evolver.controllers.activities]
+metactl evolver.controllers.activities
+
+% Meta BAL action evolver.controllers.events [action_id=evolver.controllers.events]
+metactl evolver.controllers.events
+
+% Meta BAL action evolver.controllers.evidence [action_id=evolver.controllers.evidence]
+metactl evolver.controllers.evidence
+
+% Meta BAL action evolver.controllers.logs [action_id=evolver.controllers.logs]
+metactl evolver.controllers.logs
+
+% Meta BAL action evolver.controllers.recovery.request [action_id=evolver.controllers.recovery.request]
+metactl evolver.controllers.recovery.request
+
+% Meta BAL action evolver.controllers.recovery.status [action_id=evolver.controllers.recovery.status]
+metactl evolver.controllers.recovery.status
+
+% Meta BAL action evolver.controllers.recovery.diff [action_id=evolver.controllers.recovery.diff]
+metactl evolver.controllers.recovery.diff
+
+% Meta BAL action evolver.instruments.list [action_id=evolver.instruments.list]
+metactl evolver.instruments.list
+
+% Meta BAL action evolver.instruments.show [action_id=evolver.instruments.show]
+metactl evolver.instruments.show
+
+% Meta BAL action evolver.runs.list [action_id=evolver.runs.list]
+metactl evolver.runs.list
+
+% Meta BAL action evolver.runs.show [action_id=evolver.runs.show]
+metactl evolver.runs.show
+
+% Meta BAL action evolver.runs.pause [action_id=evolver.runs.pause]
+metactl evolver.runs.pause
+
+% Meta BAL action evolver.runs.resume [action_id=evolver.runs.resume]
+metactl evolver.runs.resume
+
+% Meta BAL action evolver.runs.stop [action_id=evolver.runs.stop]
+metactl evolver.runs.stop
+
+% Meta BAL action evolver.experiments.validate [action_id=evolver.experiments.validate]
+metactl evolver.experiments.validate
+
+% Meta BAL action evolver.experiments.describe [action_id=evolver.experiments.describe]
+metactl evolver.experiments.describe
+
+% Meta BAL action evolver.experiments.plan [action_id=evolver.experiments.plan]
+metactl evolver.experiments.plan
+
+% Meta BAL action evolver.experiments.enqueue [action_id=evolver.experiments.enqueue] [planned]
+metactl evolver.experiments.enqueue
+
+% Meta BAL action evolver.experiments.run [action_id=evolver.experiments.run] [planned]
+metactl evolver.experiments.run
+
+% Meta BAL action evolver.run.start [action_id=evolver.run.start] [planned]
+metactl evolver.run.start
+
+% Meta BAL action evolver.run.pause [action_id=evolver.run.pause] [planned]
+metactl evolver.run.pause
+
+% Meta BAL action evolver.run.stop [action_id=evolver.run.stop] [planned]
+metactl evolver.run.stop
+
+% Meta BAL action deployment.config.validate [action_id=deployment.config.validate] [planned]
+metactl deployment.config.validate

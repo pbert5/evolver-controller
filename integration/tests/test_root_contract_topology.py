@@ -74,7 +74,7 @@ def test_enrolled_operator_catalog_is_the_single_route_and_schema_source():
         for name in __import__("re").findall(r"\{([^{}]+)\}", route["path"]):
             assert actions[action_id]["parameters"][name].get("required") is True
 
-    server_contract = ROOT / "evolver-server/src/meta_webui_application_backend/evolver_control/contract.py"
+    server_contract = ROOT / "evolver/evolver-server/src/meta_webui_application_backend/evolver_control/contract.py"
     source = server_contract.read_text(encoding="utf-8")
     assert 'from .actions import ACTION_ADAPTERS' in source
     assert "def operator_actions" in source
@@ -84,7 +84,7 @@ def test_enrolled_operator_catalog_is_the_single_route_and_schema_source():
 def test_public_action_manifest_has_catalog_topology_without_importing_child_tests():
     _, catalogs = _catalogs()
     expected = {action_id for _, catalog in catalogs for action_id in catalog.api}
-    service = ROOT / "evolver-server/src/meta_webui_application_backend/evolver_control/service.py"
+    service = ROOT / "evolver/evolver-server/src/meta_webui_application_backend/evolver_control/service.py"
     source = service.read_text(encoding="utf-8")
     assert CONTRACT["server_action_manifest_route"] in source
     assert "contract.manifest()" in source

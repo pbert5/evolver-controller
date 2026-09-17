@@ -1,0 +1,328 @@
+# Editing legend: [ID] stable identifier | [REF] existing configured object | [TYPE] structural contract | [ADVANCED] edit with care
+# Details: application/schemas/field-reference.md
+# Scoped contract: Shared eVOLVER controller and hardware inventory contracts. This schema is descriptive; it does not authorize actuation.
+id: https://w3id.org/meta-webui/evolver/hardware # [ID] Stable shared schema identifier.
+name: meta_webui_evolver_hardware # [ID] Stable LinkML module name.
+title: Meta WebUI eVOLVER controller and hardware contracts
+prefixes:
+  linkml: https://w3id.org/linkml/
+  evolver: https://w3id.org/meta-webui/evolver/
+default_prefix: evolver
+default_range: string
+imports:
+- linkml:types # [REF] LinkML scalar types.
+- base # [REF] Shared primitives.
+classes:
+  WebUIController:
+    is_a: NamedEntity
+    description: Stable central-controller identity. A URL is a location, never this identity.
+    attributes:
+      public_key_fingerprint:
+      created_at:
+        range: datetime
+        required: true
+  Controller:
+    is_a: NamedEntity
+    description: Durable edge-controller computer. It owns local execution and hardware connectivity, not the central WebUI.
+    attributes:
+      public_key_fingerprint:
+      software_version:
+      provenance:
+        range: ControllerProvenance
+        required: true
+      connection_state:
+        range: ControllerConnectionState
+        required: true
+      sync_freshness:
+        range: SyncFreshness
+        required: true
+      last_sync_at:
+        range: datetime
+      instruments:
+        range: Instrument
+        multivalued: true
+        inlined_as_list: true
+  ControllerBinding:
+    description: Durable authorization relationship between an edge controller and a central WebUI identity.
+    attributes:
+      controller_id:
+        range: Controller
+        required: true
+      webui_controller_id:
+        range: WebUIController
+        required: true
+      controller_generation:
+        range: ControllerGeneration
+        required: true
+      server_url:
+        range: uri
+        required: true
+      bound_at:
+        range: datetime
+        required: true
+      status:
+        range: ControllerBindingState
+        required: true
+  ControllerGeneration:
+    description: Monotonic fencing epoch for a ControllerBinding; commands from lower generations are stale.
+    attributes:
+      value:
+        range: integer
+        required: true
+      changed_at:
+        range: datetime
+        required: true
+      reason:
+  Instrument:
+    is_a: NamedEntity
+    description: One whole physical min-eVOLVER or simulator attached to a Controller.
+    attributes:
+      controller_id:
+        range: Controller
+        required: true
+      serial_number:
+      instrument_type:
+        range: InstrumentType
+        required: true
+      connection_state:
+        range: InstrumentConnectionState
+        required: true
+      devices:
+        range: Device
+        multivalued: true
+        inlined_as_list: true
+      vial_positions:
+        range: VialPosition
+        multivalued: true
+        inlined_as_list: true
+  Device:
+    is_a: NamedEntity
+    description: Subsystem within an Instrument, such as a pump, OD sensor, stirrer, or heater.
+    attributes:
+      instrument_id:
+        range: Instrument
+        required: true
+      device_type:
+        range: DeviceType
+        required: true
+      capability_status:
+        range: CapabilityStatus
+        multivalued: true
+        inlined_as_list: true
+      operational_state:
+        range: DeviceOperationalState
+        required: true
+      state_observed_at:
+        range: datetime
+      pump_state:
+        range: PumpOperationalState
+  CapabilityStatus:
+    description: Observed verification status; firmware acknowledgement alone is protocol_verified at most.
+    attributes:
+      capability:
+        required: true
+      verification:
+        range: VerificationState
+        required: true
+      observed_at:
+        range: datetime
+      evidence:
+  VialPosition:
+    is_a: NamedEntity
+    description: Stable physical vial position. Telemetry keys on this hardware identity, never a sample barcode.
+    attributes:
+      instrument_id:
+        range: Instrument
+        required: true
+      position_index:
+        range: integer
+        required: true
+  VialAssignment:
+    description: Time-bounded occupancy of a VialPosition by a reference to a BAL sample record. This is a join record, not a BAL Sample or SampleContainer.
+    attributes:
+      id:
+        identifier: true
+        required: true
+      vial_position_id:
+        range: VialPosition
+        required: true
+      sample_reference:
+        range: BALSampleReference
+        inlined: true
+        required: true
+      assignment_state:
+        range: VialAssignmentState
+        required: true
+      assigned_by:
+        required: true
+      assignment_reason:
+      sample_id:
+        description: Deprecated compatibility alias for the external BAL sample identifier; sample_reference is authoritative.
+      assigned_at:
+        range: datetime
+        required: true
+      released_at:
+        range: datetime
+  BALSampleReference:
+    description: External reference to a BAL sample record. eVOLVER stores identity and provenance only; BAL remains authoritative for sample and container semantics.
+    attributes:
+      sample_barcode:
+        required: true
+      bal_schema_version:
+        required: true
+      source_record_id:
+        required: true
+      source_uri:
+        range: uri
+  DeploymentRecord:
+    is_a: NamedEntity
+    description: Immutable append-only record of a software or firmware deployment observation. A record never authorizes deployment or actuation.
+    attributes:
+      controller_id:
+        range: Controller
+        required: true
+      artifact:
+        range: DeploymentArtifact
+        inlined: true
+        required: true
+      deployment_kind:
+        range: DeploymentKind
+        required: true
+      status:
+        range: DeploymentStatus
+        required: true
+      requested_at:
+        range: datetime
+        required: true
+      completed_at:
+        range: datetime
+      recorded_at:
+        range: datetime
+        required: true
+      requested_by:
+      failure_reason:
+  DeploymentArtifact:
+    description: Content-addressed immutable software or firmware artifact identity.
+    attributes:
+      version:
+        required: true
+      digest:
+        required: true
+      media_type:
+        required: true
+      release_id:
+        required: true
+      target:
+        required: true
+  ManualControlLease:
+    is_a: NamedEntity
+    description: Time-bounded exclusive operator lease for manual intent. It is not an actuation record and cannot override safety or generation fencing.
+    attributes:
+      controller_id:
+        range: Controller
+        required: true
+      instrument_id:
+        range: Instrument
+        required: true
+      device_id:
+        range: Device
+      holder:
+        required: true
+      state:
+        range: ManualControlLeaseState
+        required: true
+      acquired_at:
+        range: datetime
+        required: true
+      expires_at:
+        range: datetime
+        required: true
+      released_at:
+        range: datetime
+      release_reason:
+enums:
+  ControllerProvenance:
+    permissible_values:
+      physical: {}
+      simulator: {}
+      test_fixture: {}
+  SyncFreshness:
+    permissible_values:
+      never_synced: {}
+      fresh: {}
+      aging: {}
+      stale: {}
+      unknown: {}
+  ControllerConnectionState:
+    permissible_values:
+      connected: {}
+      orphaned: {}
+      disconnected: {}
+      recovery_required: {}
+  ControllerBindingState:
+    permissible_values:
+      active: {}
+      stale: {}
+      handoff_pending: {}
+      revoked: {}
+  InstrumentConnectionState:
+    permissible_values:
+      connected: {}
+      disconnected: {}
+      commissioning: {}
+      unavailable: {}
+  InstrumentType:
+    permissible_values:
+      min_evolver: {}
+      evolver: {}
+      simulator: {}
+  DeviceType:
+    permissible_values:
+      pump: {}
+      od_sensor: {}
+      temperature_sensor: {}
+      heater: {}
+      stirrer: {}
+      od_led: {}
+      controller_board: {}
+  DeviceOperationalState:
+    permissible_values:
+      unknown: {}
+      unavailable: {}
+      ready: {}
+      running: {}
+      stopped: {}
+      faulted: {}
+      maintenance: {}
+  PumpOperationalState:
+    permissible_values:
+      unknown: {}
+      idle: {}
+      priming: {}
+      dispensing: {}
+      blocked: {}
+      faulted: {}
+      unavailable: {}
+  VialAssignmentState:
+    permissible_values:
+      assigned: {}
+      released: {}
+      superseded: {}
+  DeploymentKind:
+    permissible_values:
+      software: {}
+      firmware: {}
+  DeploymentStatus:
+    permissible_values:
+      requested: {}
+      staged: {}
+      applied: {}
+      verified: {}
+      failed: {}
+      rolled_back: {}
+  ManualControlLeaseState:
+    permissible_values:
+      active: {}
+      expired: {}
+      released: {}
+      revoked: {}

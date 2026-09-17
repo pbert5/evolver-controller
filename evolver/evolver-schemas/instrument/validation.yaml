@@ -1,0 +1,52 @@
+id: https://w3id.org/meta-webui/evolver/validation
+name: meta_webui_evolver_validation
+title: eVOLVER validation evidence
+prefixes: {linkml: https://w3id.org/linkml/, evolver: https://w3id.org/meta-webui/evolver/}
+default_prefix: evolver
+default_range: string
+imports: [linkml:types, base, measurement, calibration]
+classes:
+  ValidationPlan:
+    is_a: NamedEntity
+    attributes:
+      protocol_id: {required: true}
+      protocol_version: {required: true}
+      criteria: {range: AcceptanceCriterion, multivalued: true, inlined_as_list: true, required: true}
+  AcceptanceCriterion:
+    is_a: NamedEntity
+    attributes:
+      metric: {required: true}
+      aggregation: {}
+      window: {range: Quantity, inlined: true}
+      comparator: {range: Comparator, required: true}
+      threshold: {range: decimal}
+      lower_bound: {range: decimal}
+      upper_bound: {range: decimal}
+      unit: {}
+      severity: {range: CriterionSeverity, required: true}
+      required: {range: boolean, required: true}
+  CriterionResult:
+    is_a: AcceptanceCriterion
+    attributes:
+      result: {range: CriterionOutcome, required: true}
+      observed_value: {range: decimal}
+      evidence_reference: {}
+  ValidationArtifact:
+    is_a: NamedEntity
+    attributes:
+      target_resource: {required: true}
+      source_run_id: {required: true}
+      protocol_id: {required: true}
+      protocol_version: {required: true}
+      calibration_artifacts: {range: BundleCalibrationReference, multivalued: true, inlined_as_list: true}
+      raw_evidence_references: {multivalued: true}
+      criterion_results: {range: CriterionResult, multivalued: true, inlined_as_list: true, required: true}
+      overall_result: {range: ValidationOutcome, required: true}
+      created_at: {range: datetime, required: true}
+      created_by: {required: true}
+      digest: {required: true}
+enums:
+  Comparator: {permissible_values: {eq: {}, lt: {}, lte: {}, gt: {}, gte: {}, between: {}}}
+  CriterionSeverity: {permissible_values: {info: {}, warning: {}, error: {}}}
+  CriterionOutcome: {permissible_values: {pass: {}, fail: {}, inconclusive: {}, not_evaluated: {}}}
+  ValidationOutcome: {permissible_values: {pass: {}, fail: {}, inconclusive: {}, degraded: {}}}

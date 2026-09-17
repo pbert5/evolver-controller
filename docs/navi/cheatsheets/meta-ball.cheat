@@ -1,0 +1,94 @@
+% Meta Ball
+% Repository workflows
+
+# Run the complete test topology
+tools/test all
+
+# Run the fast unit and contract lane
+tools/test fast
+
+# Run root integration contracts
+tools/test integration
+
+# Run tests for one component
+tools/test component <component>
+  component: controller, hardware, server, metactl, or root
+
+# Read the architecture and ownership guide
+less docs/architecture.md
+
+# Read the eVOLVER operator guide
+less docs/operator.md
+
+# Start the Server Dev Container
+tools/dev-env server up
+
+# Open a shell in the Server Dev Container
+tools/dev-env server shell
+
+# Start the eVOLVER Edge Dev Container
+tools/dev-env evolver-edge up
+
+# Check the edge runtime status
+tools/dev-env evolver-edge exec evoctl status
+
+# Show the repository worktree status
+git status --short --branch
+
+# Dev Container lifecycle
+tools/dev-env server up
+tools/dev-env server shell
+tools/dev-env server exec <command>
+tools/dev-env server rebuild
+tools/dev-env server down
+tools/dev-env server status
+tools/dev-env server network
+tools/dev-env server smoke
+tools/dev-env evolver-edge up
+tools/dev-env evolver-edge shell
+tools/dev-env evolver-edge exec <command>
+tools/dev-env evolver-edge rebuild
+tools/dev-env evolver-edge down
+tools/dev-env evolver-edge status
+tools/dev-env evolver-edge smoke
+
+# Testing and evidence
+tools/test all
+tools/test fast
+tools/test integration
+tools/test component <component>
+tools/test evidence <component> <pytest-node>
+tools/test coverage
+tools/test simulator
+tools/test integration
+tools/test-postgres-acceptance
+tools/generate_navi_cheats --check
+metactl actions list --filter calibration
+
+# Meta BAL discovery and API Workbench
+metactl
+metactl --help
+metactl actions list
+metactl actions show <action-id>
+metactl interactive
+metactl tui
+metactl doctor --format json
+metactl api tui --repo .
+metactl api tui --repo . --live
+metactl api check --repo .
+metactl api check --repo . --audit
+metactl api test <action-id> --repo . --dry-run
+metactl api test --repo . --app evolver --trust-tests
+metactl api tui --openapi <openapi-file> --server <server-url>
+metactl api tui --repo . --fixture <fixture-file>
+
+# Repository, submodule, release and database workflows
+git status --short --branch
+git submodule status --recursive
+tools/check-locks
+tools/check-locks --relock
+tools/test-serial
+tools/test-simulator
+tools/test-postgres-acceptance
+docker compose -f deploy/evolver-edge/compose.yaml config
+docker compose -f deploy/postgres-acceptance/compose.yaml up --detach --wait postgres

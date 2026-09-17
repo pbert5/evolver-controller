@@ -17,10 +17,11 @@ CATALOG = ROOT / "metactl/applications/evolver/actions.json"
 TEST_ROOTS = (
     "private-schema/tests",
     "integration/tests",
-    "evolver-controller/tests",
-    "evolver-hardware/tests",
-    "evolver-server/tests",
+    "evolver/evolver-controller/tests",
+    "evolver/evolver-hardware/tests",
+    "evolver/evolver-server/tests",
     "metactl/tests",
+    "evolver/evolver-schemas/tests",
 )
 
 
@@ -69,3 +70,27 @@ def test_hardware_safety_is_explicitly_non_physical() -> None:
     assert "no physical hardware" in development
     assert "no node.js" in development
     assert "no physical outputs" not in development  # avoid silently weakening component policy
+
+
+def test_retired_execution_and_native_deployment_identifiers_cannot_return() -> None:
+    """Keep the current product boundary explicit without banning prose."""
+    roots = (ROOT / "evolver/evolver-schemas", ROOT / "evolver/evolver-controller",
+             ROOT / "evolver/evolver-server", ROOT / "metactl", ROOT / "docs", ROOT / "README.md")
+    forbidden = ("isolated_legacy_runner", "NativePackageBackend", "NixUpdateBackend")
+    for root in roots:
+        paths = (root,) if root.is_file() else root.rglob("*")
+        for path in paths:
+            if (not path.is_file() or path.suffix in {".pyc", ".lock"}
+                    or "tests" in path.parts or ".pytest_cache" in path.parts):
+                continue
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            assert not any(marker in text for marker in forbidden), f"retired identifier in {path}"
+
+
+def test_normalized_history_migration_declares_scientific_relations() -> None:
+    migration = next((ROOT / "evolver/evolver-server/applications/deployment/databases/postgres/migrations").glob("0026_*.sql"))
+    text = migration.read_text(encoding="utf-8")
+    for table in ("experiment_bundles", "experiment_runs", "run_revisions", "run_events",
+                  "run_measurements", "run_activities", "run_action_executions",
+                  "run_telemetry", "validation_artifacts"):
+        assert f"evolver.{table}" in text

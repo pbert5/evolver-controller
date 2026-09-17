@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+export PYTHONPATH="/workspaces/meta_bal/evolver/evolver-server/src${PYTHONPATH:+:$PYTHONPATH}"
+exec uv run --project /workspaces/meta_bal/metactl --extra workbench metactl "$@"

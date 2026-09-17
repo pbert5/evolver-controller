@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+set -euo pipefail
+sudo chown -R vscode:vscode /home/vscode/.cache/uv /home/vscode/.codex 2>/dev/null || true

@@ -1,0 +1,35 @@
+version: "1.0.0"
+revision: trusted-actions-1
+actions:
+  set_temperature:
+    versions: ["1", "1.0"]
+    description: Set a temperature controller target.
+  set_stirring:
+    versions: ["1", "1.0"]
+    description: Set a stirring controller target.
+  pulse_pump:
+    versions: ["1", "1.0"]
+    description: Dispense a bounded pump pulse.
+  run_pump:
+    versions: ["1", "1.0"]
+    description: Run a pump for a bounded duration.
+  stop_actuator:
+    versions: ["1", "1.0"]
+  capture_measurement:
+    versions: ["1", "1.0"]
+  wait:
+    versions: ["1", "1.0"]
+  start_activity:
+    versions: ["1", "1.0"]
+  stop_activity:
+    versions: ["1", "1.0"]
+  request_observation:
+    versions: ["1", "1.0"]
+  evaluate_criteria:
+    versions: ["1", "1.0"]
+  emit_marker:
+    versions: ["1", "1.0"]
+  complete_run:
+    versions: ["1", "1.0"]
+  fail_run:
+    versions: ["1", "1.0"]

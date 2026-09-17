@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+relock=0
+case "${1:-}" in
+  '') ;;
+  --relock) relock=1; shift; [[ $# -eq 0 ]] || { echo 'usage: tools/check-locks [--relock]' >&2; exit 2; } ;;
+  -h|--help) echo 'usage: tools/check-locks [--relock]'; exit 0 ;;
+  *) echo "tools/check-locks: unknown option: $1" >&2; exit 2 ;;
+esac
+
+cd "$ROOT"
+if (( relock )); then uv lock; else uv lock --check; fi
+
+for profile in server evolver-edge; do
+  config=".devcontainer/$profile/devcontainer.json"
+  lock=".devcontainer/$profile/devcontainer-lock.json"
+  config_features=$(jq -S -c '.features // {} | keys' "$config")
+  lock_features=$(jq -S -c '.features // {} | keys' "$lock")
+  [[ "$config_features" == "$lock_features" ]] || {
+    echo "tools/check-locks: $lock does not cover exactly the features in $config" >&2
+    exit 1
+  }
+  jq -e '.features | to_entries[] | .value.resolved and .value.integrity' "$lock" >/dev/null
+done
+echo 'lock checks passed'

@@ -1,0 +1,111 @@
+id: https://w3id.org/meta-webui/evolver/experiment_program
+name: meta_webui_evolver_experiment_program
+title: eVOLVER declarative experiment programs
+prefixes:
+  linkml: https://w3id.org/linkml/
+  evolver: https://w3id.org/meta-webui/evolver/
+default_prefix: evolver
+default_range: string
+imports:
+- linkml:types
+- base
+classes:
+  ExperimentProgram:
+    is_a: NamedEntity
+    attributes:
+      version: {required: true}
+      entry_step_id: {required: true}
+      steps: {range: ExperimentStep, multivalued: true, inlined_as_list: true, required: true}
+      parameters: {range: ProgramParameter, multivalued: true, inlined_as_list: true}
+      completion_policy: {range: CompletionPolicy, inlined: true, required: true}
+      failure_policy: {range: FailurePolicy, inlined: true, required: true}
+  ExperimentStep:
+    is_a: NamedEntity
+    attributes:
+      entry_actions: {range: ActionInvocation, multivalued: true, inlined_as_list: true}
+      periodic_actions: {range: ScheduledAction, multivalued: true, inlined_as_list: true}
+      exit_conditions: {range: ConditionExpression, multivalued: true, inlined_as_list: true}
+      timeout: {range: Quantity, inlined: true}
+      transitions: {range: StepTransition, multivalued: true, inlined_as_list: true}
+      intervention_policy: {range: InterventionPolicy, inlined: true}
+  ProgramParameter:
+    is_a: NamedEntity
+    attributes:
+      type: {range: ParameterValueType, required: true}
+      unit: {}
+      default: {}
+      minimum: {range: decimal}
+      maximum: {range: decimal}
+      mutable_during_run: {range: boolean, required: true}
+  ActionInvocation:
+    is_a: NamedEntity
+    description: Trusted action identity only; never executable source or an import path.
+    attributes:
+      action_id: {required: true}
+      action_version: {required: true}
+      target_selector: {}
+      parameters: {range: SerializedPayload, inlined: true}
+      required_capabilities: {multivalued: true}
+      expected_evidence_level: {range: VerificationState}
+      failure_behavior: {range: ActionFailureBehavior}
+  ScheduledAction:
+    attributes:
+      action: {range: ActionInvocation, inlined: true, required: true}
+      trigger: {range: Trigger, inlined: true, required: true}
+      repeat_count: {range: integer}
+      maximum_runtime: {range: Quantity, inlined: true}
+      seed: {range: integer}
+      algorithm_version: {}
+      resolved_at: {}
+  Trigger:
+    attributes:
+      kind: {range: TriggerKind, required: true}
+      elapsed: {range: Quantity, inlined: true}
+      interval: {range: Quantity, inlined: true}
+      absolute_time: {range: datetime}
+      condition: {range: ConditionExpression, inlined: true}
+      random_window: {range: RandomWindow, inlined: true}
+  RandomWindow:
+    attributes:
+      earliest: {range: Quantity, inlined: true, required: true}
+      latest: {range: Quantity, inlined: true, required: true}
+      seed: {range: integer, required: true}
+      algorithm_version: {required: true}
+  ConditionExpression:
+    attributes:
+      operator: {range: ConditionOperator, required: true}
+      operands: {range: ConditionOperand, multivalued: true, inlined_as_list: true, required: true}
+      aggregation: {}
+      window: {range: Quantity, inlined: true}
+      unit: {}
+  ConditionOperand:
+    attributes:
+      kind: {range: OperandKind, required: true}
+      reference: {}
+      literal: {}
+      parameter: {}
+  StepTransition:
+    attributes:
+      target_step_id: {required: true}
+      condition: {range: ConditionExpression, inlined: true, required: true}
+  CompletionPolicy:
+    attributes:
+      mode: {range: CompletionMode, required: true}
+      timeout: {range: Quantity, inlined: true}
+  FailurePolicy:
+    attributes:
+      mode: {range: FailureMode, required: true}
+      intervention: {range: InterventionPolicy, inlined: true}
+  InterventionPolicy:
+    attributes:
+      mode: {range: InterventionMode, required: true}
+      instructions: {}
+enums:
+  ParameterValueType: {permissible_values: {number: {}, integer: {}, boolean: {}, string: {}, quantity: {}, enum: {}}}
+  TriggerKind: {permissible_values: {immediate: {}, elapsed_time: {}, fixed_interval: {}, absolute_time: {}, condition: {}, step_completion: {}, random_window: {}, on_demand: {}}}
+  ConditionOperator: {permissible_values: {eq: {}, ne: {}, lt: {}, lte: {}, gt: {}, gte: {}, and: {}, or: {}, not: {}, between: {}}}
+  OperandKind: {permissible_values: {measurement: {}, state: {}, literal: {}, parameter: {}, elapsed_time: {}, activity_setting: {}, activity_state: {}}}
+  ActionFailureBehavior: {permissible_values: {fail_step: {}, fail_run: {}, retry_bounded: {}, request_intervention: {}, ignore: {}}}
+  CompletionMode: {permissible_values: {all_steps: {}, explicit_action: {}, condition: {}}}
+  FailureMode: {permissible_values: {stop_run: {}, request_intervention: {}, continue: {}}}
+  InterventionMode: {permissible_values: {never: {}, optional: {}, blocking: {}}}

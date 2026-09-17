@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly SCRIPT_DIR=$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+readonly ROOT_DIR=$(cd -- "$SCRIPT_DIR/.." && pwd)
+readonly COMPOSE_FILE="$ROOT_DIR/deploy/postgres-acceptance/compose.yaml"
+readonly PROJECT="meta-ball-postgres-acceptance-${META_BALL_WORKTREE_ID:-$$}"
+readonly COMPOSE=(docker compose -f "$COMPOSE_FILE" -p "$PROJECT")
+
+cleanup() {
+  "${COMPOSE[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true
+}
+trap cleanup EXIT INT TERM
+
+"${COMPOSE[@]}" up --detach --wait postgres
+published_port=$("${COMPOSE[@]}" port postgres 5432 | sed -E 's/.*:([0-9]+)$/\1/')
+host_gateway=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')
+[[ -n "$host_gateway" ]] || { echo 'test-postgres-acceptance: Docker host gateway was not found' >&2; exit 1; }
+[[ "$published_port" =~ ^[0-9]+$ ]] || { echo 'test-postgres-acceptance: PostgreSQL published port was not found' >&2; exit 1; }
+
+# The runner normally executes inside the Server Dev Container while Docker
+# runs on the host daemon. Reach the isolated published port through the
+# standard host gateway rather than a daemon-internal bridge address.
+export META_WEBUI_INTERFACE_DATABASE_URL="postgresql://meta_webui_acceptance:meta_webui_acceptance@${host_gateway}:${published_port}/meta_webui_acceptance"
+export META_WEBUI_BUILD_REVISION="postgres-acceptance"
+export PYTHONPATH="$ROOT_DIR:$ROOT_DIR/evolver/evolver-server/src${PYTHONPATH:+:$PYTHONPATH}"
+
+uv run --project "$ROOT_DIR/evolver/evolver-server" pytest -q \
+  "$ROOT_DIR/integration/tests/test_postgres_acceptance.py"

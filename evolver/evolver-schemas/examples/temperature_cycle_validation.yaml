@@ -1,0 +1,48 @@
+id: temperature-cycle-validation
+name: Temperature cycle validation
+purpose: validation
+program:
+  id: temperature-cycle
+  version: "1.0"
+  entry_step_id: cycle
+  parameters:
+  - id: cycle_count
+    type: integer
+    default: 2
+    minimum: 1
+    maximum: 10
+    mutable_during_run: false
+  completion_policy: {mode: all_steps}
+  failure_policy: {mode: stop_run}
+  steps:
+  - id: cycle
+    entry_actions:
+    - id: set-temperature
+      action_id: set_temperature
+      action_version: "1.0"
+      target_selector: instrument.heater
+      parameters: {target: 20}
+    periodic_actions:
+    - action: {id: capture-temperature, action_id: capture_measurement, action_version: "1.0", target_selector: instrument.temperature}
+      trigger: {kind: fixed_interval, interval: {value: 10, unit: second}}
+    transitions:
+    - target_step_id: cycle
+      condition:
+        operator: gte
+        operands:
+        - {kind: elapsed_time, reference: elapsed}
+        - {kind: literal, literal: 20}
+validation_plan:
+  id: temperature-cycle-criteria
+  protocol_id: temperature_cycle
+  protocol_version: "1.0"
+  criteria:
+  - id: cycle-range
+    metric: temperature_c
+    comparator: between
+    lower_bound: 19.5
+    upper_bound: 30.5
+    unit: degree_Celsius
+    aggregation: last
+    severity: error
+    required: true

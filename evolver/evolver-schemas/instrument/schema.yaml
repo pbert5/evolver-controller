@@ -1,0 +1,17 @@
+id: https://w3id.org/meta-webui/evolver/instrument
+name: meta_webui_evolver_instrument
+title: eVOLVER instrument integration schema
+prefixes: {linkml: https://w3id.org/linkml/, evolver: https://w3id.org/meta-webui/evolver/}
+default_prefix: evolver
+default_range: string
+imports:
+- base
+- hardware
+- calibration
+- experiment_program
+- requirements
+- measurement
+- validation
+- fixture
+- experiment
+- protocol

@@ -169,7 +169,7 @@ def main() -> int:
                         *sum((["--artifact", item] for item in artifacts), []), "--firmware",
                         str(next(firmware.glob("samd21-minievolver-*.bin"))), "--firmware-manifest",
                         str(firmware / "firmware-manifest.json"), "--require-firmware-toolchain",
-                        "--schema-root", str(root / "applications/evolver/schemas")], cwd=root, check=True)
+                        "--schema-root", str(root / "evolver/evolver-schemas")], cwd=root, check=True)
     release = args.output / version
     subprocess.run([args.validator_python, "tools/validate_evolver_release.py", str(release)], cwd=root, check=True)
     print(json.dumps({"release": version, "git_revision": revision, "path": str(release.resolve())}, sort_keys=True))
