@@ -1007,6 +1007,9 @@ def route_owner(path: str) -> str | None:
     """Classify every accepted eVOLVER route for public ingress ownership."""
     if path in MACHINE_FACING_PATHS:
         return "machine"
+    if path in {"/api/evolver/od-blanks", "/api/evolver/calibrations/od-blanks",
+                "/api/evolver/calibrations/pump-fixtures"}:
+        return None
     if path in {"/api/evolver/enrollment-tokens", "/api/evolver/server-endpoints", "/api/evolver/controllers", "/api/evolver/controllers/freshness", "/api/evolver/runs", "/api/evolver/instruments", "/api/evolver/maintenance", "/api/evolver/dashboard", "/api/evolver/calibrations", "/api/evolver/calibration-workspace", "/api/evolver/od-blanks", "/api/evolver/releases/history", "/api/evolver/audit-events", "/api/evolver/experiments/validate", "/api/evolver/experiments/describe", "/api/evolver/experiments/plan"} or path.startswith(("/api/evolver/controllers/", "/api/evolver/runs/", "/api/evolver/instruments/", "/api/evolver/interventions/", "/api/evolver/calibrations/", "/api/evolver/releases/")):
         return "human"
     return None
@@ -2491,23 +2494,11 @@ def dispatch(method: str, path: str, body: Any, *, query: str = "", authorizatio
         return dashboard(range_name=range_name) if method == "GET" else (HTTPStatus.METHOD_NOT_ALLOWED, _error("method not allowed", "MethodNotAllowed"))
     if path == "/api/evolver/calibration-workspace":
         return calibration_workspace(state_root=state_root) if method == "GET" else (HTTPStatus.METHOD_NOT_ALLOWED, _error("method not allowed", "MethodNotAllowed"))
-    if path in {"/api/evolver/od-blanks", "/api/evolver/calibrations/od-blanks"}:
-        if method != "GET":
-            return HTTPStatus.METHOD_NOT_ALLOWED, _error("OD blank evidence is read-only", "MethodNotAllowed")
-        from urllib.parse import parse_qs
-        instrument_id = parse_qs(query).get("instrument_id", [None])[0]
-        raw_channel = parse_qs(query).get("channel_index", [None])[0]
-        try:
-            channel_index = int(raw_channel) if raw_channel is not None else None
-        except ValueError:
-            return HTTPStatus.BAD_REQUEST, _error("channel_index must be an integer")
-        return od_blank_evidence(instrument_id=instrument_id, channel_index=channel_index, state_root=state_root)
+    if path in {"/api/evolver/od-blanks", "/api/evolver/calibrations/od-blanks",
+                "/api/evolver/calibrations/pump-fixtures"}:
+        return HTTPStatus.NOT_FOUND, _error("unsupported calibration route", "NotFound")
     if path == "/api/evolver/calibrations":
         return calibrations(state_root=state_root) if method == "GET" else create_calibration_session(body, operator=operator, state_root=state_root)
-    if path == "/api/evolver/calibrations/pump-fixtures" and method == "POST":
-        if not isinstance(body, dict) or not isinstance(body.get("instrument_id"), str):
-            return HTTPStatus.BAD_REQUEST, _error("instrument_id is required")
-        return create_pump_fixture_artifacts(body["instrument_id"], body.get("records"), operator=operator, state_root=state_root)
     if path.startswith("/api/evolver/calibrations/"):
         suffix = path.removeprefix("/api/evolver/calibrations/").strip("/")
         if "/" not in suffix and method == "GET": return calibrations(calibration_id=suffix, state_root=state_root)

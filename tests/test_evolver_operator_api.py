@@ -95,6 +95,39 @@ def test_operator_calibration_run_is_authenticated_typed_and_transport_neutral(t
         }})
         assert denied["error"]["kind"] == "unauthorized"
 
+    with EdgeStore(tmp_path / "forbidden") as store, OperatorServer(
+        path=tmp_path / "forbidden.sock", store=store,
+        operator=OperatorIdentity("alice", "local_operator", frozenset()),
+    ):
+        denied = _wire(tmp_path / "forbidden.sock", {"operation": "calibration_run", "params": {
+            "action": "create", "run_id": "cal-run", "calibration_type": "temperature",
+            "instrument_id": "instrument-1", "operator": "alice",
+        }})
+        assert denied["error"]["kind"] == "forbidden"
+
+
+def test_calibration_activation_requires_calibration_run_type_and_revision_fence(tmp_path: Path) -> None:
+    path = tmp_path / "operator.sock"
+    operator = OperatorIdentity("alice", "local_operator", frozenset({"manage_calibration"}))
+    artifact = {"id": "temp-a", "instrument_id": "instrument-1", "calibration_type": "temperature",
+                "method": "temperature_linear_v1", "method_version": "1",
+                "coefficients": {"slope": 1.0, "intercept": 0.0},
+                "evidence_digest": "sha256:evidence", "artifact_digest": "sha256:artifact"}
+    with EdgeStore(tmp_path / "state") as store, OperatorServer(path=path, store=store, operator=operator):
+        created = request("calibration_run", path, params={
+            "action": "create", "run_id": "cal-run", "calibration_type": "temperature",
+            "instrument_id": "instrument-1", "operator": "alice",
+        })
+        activated = request("calibration_run", path, params={
+            "action": "activate_artifact", "run_id": "cal-run", "operator": "alice",
+            "based_on_revision": created["current_revision"], "artifact": artifact,
+        })
+        assert activated["run"]["current_revision"] == created["current_revision"] + 1
+        stale = _wire(path, {"operation": "calibration_run", "params": {
+            "action": "activate_artifact", "run_id": "cal-run", "operator": "alice",
+            "based_on_revision": created["current_revision"], "artifact": artifact,
+        }})
+        assert stale["error"]["kind"] == "calibration_run_error"
 
 def test_operator_maintenance_operation_is_explicitly_delegated(tmp_path: Path) -> None:
     path = tmp_path / "operator.sock"

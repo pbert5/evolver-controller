@@ -12,7 +12,6 @@ from meta_webui_application_backend.evolver_control.actions import dispatch
     ("evolver.calibrations.list", "list"),
     ("evolver.calibrations.sessions.create", "create"),
     ("evolver.calibrations.sessions.observation", "observation"),
-    ("evolver.calibrations.sessions.add_observation", "observation"),
     ("evolver.calibrations.sessions.fit", "fit"),
     ("evolver.calibrations.sessions.accept", "accept"),
     ("evolver.calibrations.sessions.cancel", "cancel"),
@@ -80,3 +79,18 @@ def test_central_calibration_mutations_are_denied_without_permission() -> None:
                               operator=operator)
     assert status is HTTPStatus.FORBIDDEN
     assert result["kind"] == "OperatorPermissionDenied"
+
+
+def test_removed_calibration_alias_is_rejected() -> None:
+    operator = evolver_controller.OperatorIdentity("alice", "test", frozenset({"manage_calibration"}))
+    with pytest.raises(ValueError, match="unknown central eVOLVER action"):
+        dispatch("evolver.calibrations.sessions.add_observation", {}, operator=operator)
+
+
+def test_retired_od_and_fixture_routes_are_not_public() -> None:
+    for path in ("/api/evolver/od-blanks", "/api/evolver/calibrations/od-blanks",
+                 "/api/evolver/calibrations/pump-fixtures"):
+        assert evolver_controller.route_owner(path) is None
+        status, result = evolver_controller.dispatch("GET", path, None)
+        assert status is HTTPStatus.NOT_FOUND
+        assert result["kind"] == "NotFound"

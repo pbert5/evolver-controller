@@ -150,6 +150,10 @@ def _dispatch(store: EdgeStore, operation: str, params: dict[str, Any], *,
             return store.calibration_preflight(params["references"], requirements=params.get("requirements", []))
         raise OperatorProtocolError("calibration action must be artifacts or preflight", kind="invalid_request")
     if operation == "calibration_run":
+        if operator is None:
+            raise OperatorProtocolError("authenticated operator attribution is required", kind="unauthorized")
+        if "manage_calibration" not in operator.permissions:
+            raise OperatorProtocolError("manage_calibration permission is required", kind="forbidden")
         subject = _operator_subject(operator)
         return _calibration_run(store, params, subject)
     if operation == "run":
@@ -310,12 +314,17 @@ def _calibration_run(store: EdgeStore, params: dict[str, Any], subject: str) -> 
         except (KeyError, ValueError, TypeError, RuntimeError) as error:
             raise OperatorProtocolError(str(error), kind="calibration_run_error") from error
 
-    _only(params, {"action", "run_id", "artifact", "operator"}, "calibration_run")
+    _only(params, {"action", "run_id", "artifact", "operator", "based_on_revision"}, "calibration_run")
     artifact = params.get("artifact")
     if not isinstance(artifact, dict):
         raise OperatorProtocolError("artifact must be an object", kind="invalid_request")
+    based_on_revision = params.get("based_on_revision")
+    if isinstance(based_on_revision, bool) or not isinstance(based_on_revision, int):
+        raise OperatorProtocolError("based_on_revision must be an integer", kind="invalid_request")
     try:
-        return store.activate_calibration_artifact(artifact=artifact, run_id=run_id, activated_by=subject)
+        return store.activate_calibration_artifact(artifact=artifact, run_id=run_id,
+                                                   activated_by=subject,
+                                                   based_on_revision=based_on_revision)
     except (KeyError, ValueError, TypeError, RuntimeError) as error:
         raise OperatorProtocolError(str(error), kind="calibration_run_error") from error
 

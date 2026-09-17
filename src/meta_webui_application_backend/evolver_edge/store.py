@@ -703,20 +703,33 @@ class EdgeStore:
         return self.run(run_id)
 
     def activate_calibration_artifact(self, *, artifact: Mapping[str, Any], run_id: str,
-                                      activated_by: str) -> Json:
+                                      activated_by: str, based_on_revision: int | None = None) -> Json:
         """Record activation as an append-only run fact with artifact provenance."""
         from ..evolver_calibration import activation_record
         run = self.run(run_id)
         if run["state"] not in {"running", "paused"}:
             raise EdgeStoreError("calibration activation requires an active ExperimentRun")
+        if run["effective_state"].get("kind") != "calibration":
+            raise EdgeStoreError("calibration activation requires a calibration ExperimentRun")
         if artifact.get("instrument_id") not in run.get("instrument_ids", []):
             raise EdgeStoreError("calibration artifact target is not owned by the run")
+        if artifact.get("calibration_type") != run["effective_state"].get("calibration_type"):
+            raise EdgeStoreError("calibration artifact type does not match the run")
         expected = run["effective_state"].get("component_id")
         if expected and artifact.get("component_id") and artifact.get("component_id") != expected:
             raise EdgeStoreError("calibration artifact component is not owned by the run")
+        if based_on_revision is None:
+            based_on_revision = run["current_revision"]
+        if isinstance(based_on_revision, bool) or not isinstance(based_on_revision, int):
+            raise EdgeStoreError("based_on_revision must be an integer")
         record = activation_record(artifact, run_id=run_id, activated_by=activated_by)
+        revision = self.apply_patch({
+            "run_id": run_id, "based_on_revision": based_on_revision,
+            "patch_kind": "calibration_activation",
+            "change": {"activations": [*run["effective_state"].get("activations", []), record]},
+        })
         event = self.append_event(run_id=run_id, event_type=record["event_type"],
-                                  revision=run["current_revision"], details=record)
+                                  revision=revision["revision"], details=record)
         self.record_activity(activity_type="calibration_activation", run_id=run_id,
                              activity_id=f"activation:{artifact.get('id')}:{run_id}",
                              details=record)
