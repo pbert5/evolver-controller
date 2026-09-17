@@ -1,0 +1,78 @@
+name: eVOLVER code artifact
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/evolver-code-artifact.yml"
+
+permissions:
+  contents: read
+
+env:
+  EVOLVER_CODE_REPOSITORY: pbert5/evolver-arduino
+  EVOLVER_CODE_COMMIT: 952a6fd713c40caa072444a0e0e3fc4fc6ee4639
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out the exact eVOLVER source
+        uses: actions/checkout@11d5961a326750d5838078e36cf38b85af677262
+        with:
+          repository: ${{ env.EVOLVER_CODE_REPOSITORY }}
+          ref: ${{ env.EVOLVER_CODE_COMMIT }}
+          path: evolver_code
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Build and verify the immutable source artifact
+        id: artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C evolver_code rev-parse HEAD)" = "$EVOLVER_CODE_COMMIT"
+          mkdir -p "$RUNNER_TEMP/evolver-code-artifact"
+          git -C evolver_code archive --format=tar --prefix=evolver_code/ "$EVOLVER_CODE_COMMIT" \
+            | gzip -n > "$RUNNER_TEMP/evolver-code-artifact/evolver_code-${EVOLVER_CODE_COMMIT}.tar.gz"
+          artifact="$RUNNER_TEMP/evolver-code-artifact/evolver_code-${EVOLVER_CODE_COMMIT}.tar.gz"
+          sha256="$(sha256sum "$artifact" | cut -d' ' -f1)"
+          size="$(stat -c '%s' "$artifact")"
+          python3 - "$artifact" "$sha256" "$size" "$RUNNER_TEMP/evolver-code-artifact/PROVENANCE.json" <<'PY'
+          import json
+          import os
+          import sys
+
+          artifact, sha256, size, destination = sys.argv[1:]
+          payload = {
+              "format": 1,
+              "source_repository": os.environ["EVOLVER_CODE_REPOSITORY"],
+              "source_commit": os.environ["EVOLVER_CODE_COMMIT"],
+              "artifact": os.path.basename(artifact),
+              "sha256": sha256,
+              "size": int(size),
+          }
+          with open(destination, "w", encoding="utf-8") as stream:
+              json.dump(payload, stream, indent=2, sort_keys=True)
+              stream.write("\n")
+          PY
+          python3 - "$RUNNER_TEMP/evolver-code-artifact/PROVENANCE.json" "$artifact" <<'PY'
+          import hashlib
+          import json
+          import os
+          import sys
+
+          provenance = json.loads(open(sys.argv[1], encoding="utf-8").read())
+          artifact = sys.argv[2]
+          assert provenance["source_repository"] == os.environ["EVOLVER_CODE_REPOSITORY"]
+          assert provenance["source_commit"] == os.environ["EVOLVER_CODE_COMMIT"]
+          assert provenance["sha256"] == hashlib.sha256(open(artifact, "rb").read()).hexdigest()
+          assert provenance["size"] == os.path.getsize(artifact)
+          PY
+
+      - name: Upload the validated eVOLVER code artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: evolver-code-${{ env.EVOLVER_CODE_COMMIT }}
+          path: ${{ runner.temp }}/evolver-code-artifact/
+          if-no-files-found: error
