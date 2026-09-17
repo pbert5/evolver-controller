@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import re
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,7 +24,9 @@ def catalog_actions() -> dict[str, dict]:
     actions: dict[str, dict] = {}
     for reference in index["catalogs"]:
         catalog = json.loads((index_path.parent / reference["path"]).read_text(encoding="utf-8"))
+        api = catalog.get("api", {})
         for action in catalog["actions"]:
+            action = {**action, "_api_path": api.get(action["id"], {}).get("path", "")}
             actions[action["id"]] = action
     return actions
 
@@ -47,6 +50,8 @@ def presentation_entries(actions: dict[str, dict]) -> tuple[str, set[str]]:
         if isinstance(node, str):
             action_id = node
             metadata = actions.get(action_id, {})
+            if not positionals:
+                positionals = tuple(re.findall(r"\{([^}]+)\}", str(metadata.get("_api_path", ""))))
             covered.add(action_id)
             status = metadata.get("status", "unknown")
             marker = " [planned]" if status != "implemented" else ""

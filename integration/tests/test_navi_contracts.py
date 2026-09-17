@@ -41,6 +41,12 @@ def test_navi_uses_the_first_class_presentation_paths_with_action_metadata():
     assert "[planned]" in generated
 
 
+def test_generated_navi_includes_authoritative_path_positionals():
+    generated = (ROOT / "docs/navi/generated/meta-ball.cheat").read_text()
+    assert "metactl controllers show <controller_id>" in generated
+    assert "metactl controllers freshness <controller_id>" in generated
+
+
 def test_curated_navi_catalog_covers_primary_developer_lanes():
     generated = (ROOT / "docs/navi/generated/meta-ball.cheat").read_text().lower()
     for phrase in ("server shell", "evolver-edge up", "tools/test all", "postgres",

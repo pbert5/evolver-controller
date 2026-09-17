@@ -59,6 +59,10 @@ A queued or accepted command is not proof of physical success. Read
 [Physical Evidence](_concepts/physical-evidence.md) before interpreting an
 actuation or hardware result.
 
+Safe-stop remains an unresolved product decision. This path may record a
+safe-stop intent, but must not present that intent as a physically completed
+stop or imply whether the eventual policy is lease-free or lease-bound.
+
 ## Cross-reference graph
 
 Concept aliases for Obsidian-style navigation:

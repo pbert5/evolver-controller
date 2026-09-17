@@ -106,40 +106,40 @@ metactl controllers commands show <controller_id> <command_id>
 metactl controllers commands watch <controller_id> <command_id>
 
 % Meta BAL path controllers manual lease show [action_id=evolver.controllers.manual.lease.show]
-metactl controllers manual lease show
+metactl controllers manual lease show <controller_id>
 
 % Meta BAL path controllers manual lease revoke [action_id=evolver.controllers.manual.lease.revoke]
-metactl controllers manual lease revoke
+metactl controllers manual lease revoke <controller_id>
 
 % Meta BAL path controllers manual lease emergency-release [action_id=evolver.controllers.manual.lease.emergency_release]
-metactl controllers manual lease emergency-release
+metactl controllers manual lease emergency-release <controller_id>
 
 % Meta BAL path controllers manual command [action_id=evolver.controllers.manual.command]
-metactl controllers manual command
+metactl controllers manual command <controller_id>
 
 % Meta BAL path controllers manual stir [action_id=evolver.controllers.manual.stir]
-metactl controllers manual stir
+metactl controllers manual stir <controller_id>
 
 % Meta BAL path controllers recovery request [action_id=evolver.controllers.recovery.request]
-metactl controllers recovery request
+metactl controllers recovery request <controller_id>
 
 % Meta BAL path controllers recovery status [action_id=evolver.controllers.recovery.status]
-metactl controllers recovery status
+metactl controllers recovery status <controller_id>
 
 % Meta BAL path controllers recovery diff [action_id=evolver.controllers.recovery.diff]
-metactl controllers recovery diff
+metactl controllers recovery diff <controller_id>
 
 % Meta BAL path controllers release set [action_id=evolver.controllers.release.set]
-metactl controllers release set
+metactl controllers release set <controller_id>
 
 % Meta BAL path controllers list [action_id=evolver.controllers.list]
 metactl controllers list
 
 % Meta BAL path controllers show [action_id=evolver.controllers.show]
-metactl controllers show
+metactl controllers show <controller_id>
 
 % Meta BAL path controllers freshness [action_id=evolver.controllers.freshness]
-metactl controllers freshness
+metactl controllers freshness <controller_id>
 
 % Meta BAL path controllers add [action_id=evolver.controllers.add]
 metactl controllers add
@@ -148,55 +148,55 @@ metactl controllers add
 metactl controllers adopt
 
 % Meta BAL path controllers refresh [action_id=evolver.controllers.refresh]
-metactl controllers refresh
+metactl controllers refresh <controller_id>
 
 % Meta BAL path controllers rescan [action_id=evolver.controllers.rescan]
-metactl controllers rescan
+metactl controllers rescan <controller_id>
 
 % Meta BAL path controllers archive [action_id=evolver.controllers.archive]
-metactl controllers archive
+metactl controllers archive <controller_id>
 
 % Meta BAL path controllers restore [action_id=evolver.controllers.restore]
-metactl controllers restore
+metactl controllers restore <controller_id>
 
 % Meta BAL path controllers measurements [action_id=evolver.controllers.measurements]
-metactl controllers measurements
+metactl controllers measurements <controller_id>
 
 % Meta BAL path controllers telemetry [action_id=evolver.controllers.telemetry]
-metactl controllers telemetry
+metactl controllers telemetry <controller_id>
 
 % Meta BAL path controllers activities [action_id=evolver.controllers.activities]
-metactl controllers activities
+metactl controllers activities <controller_id>
 
 % Meta BAL path controllers events [action_id=evolver.controllers.events]
-metactl controllers events
+metactl controllers events <controller_id>
 
 % Meta BAL path controllers evidence [action_id=evolver.controllers.evidence]
-metactl controllers evidence
+metactl controllers evidence <controller_id>
 
 % Meta BAL path controllers logs [action_id=evolver.controllers.logs]
-metactl controllers logs
+metactl controllers logs <controller_id>
 
 % Meta BAL path instruments list [action_id=evolver.instruments.list]
 metactl instruments list
 
 % Meta BAL path instruments show [action_id=evolver.instruments.show]
-metactl instruments show
+metactl instruments show <instrument_id>
 
 % Meta BAL path runs list [action_id=evolver.runs.list]
 metactl runs list
 
 % Meta BAL path runs show [action_id=evolver.runs.show]
-metactl runs show
+metactl runs show <run_id>
 
 % Meta BAL path runs pause [action_id=evolver.runs.pause]
-metactl runs pause
+metactl runs pause <run_id>
 
 % Meta BAL path runs resume [action_id=evolver.runs.resume]
-metactl runs resume
+metactl runs resume <run_id>
 
 % Meta BAL path runs stop [action_id=evolver.runs.stop]
-metactl runs stop
+metactl runs stop <run_id>
 
 % Meta BAL path experiments validate [action_id=evolver.experiments.validate]
 metactl experiments validate
