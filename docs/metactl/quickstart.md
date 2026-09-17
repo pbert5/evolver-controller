@@ -61,6 +61,7 @@ metactl controllers list
 metactl controllers show <controller-id>
 metactl controllers freshness <controller-id>
 metactl controllers commands list <controller-id>
+metactl controllers commands show <controller-id> <command-id>
 metactl controllers commands watch <controller-id> <command-id>
 metactl controllers recovery status <controller-id>
 metactl instruments list

@@ -39,7 +39,10 @@ def presentation_entries(actions: dict[str, dict]) -> tuple[str, set[str]]:
 
     def visit(node: object, parts: tuple[str, ...], positionals: tuple[str, ...] = ()) -> None:
         if isinstance(node, dict) and isinstance(node.get("action_id"), str):
-            visit(node["action_id"], parts, positionals)
+            leaf_positionals = node.get("positionals")
+            if not isinstance(leaf_positionals, list):
+                leaf_positionals = positionals
+            visit(node["action_id"], parts, tuple(str(item) for item in leaf_positionals))
             return
         if isinstance(node, str):
             action_id = node
