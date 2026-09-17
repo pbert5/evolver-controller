@@ -25,6 +25,7 @@ class UnknownAction(ValueError):
 # behavior while catalog clients get exact, stable dispatch matches.
 _CALIBRATION_ACTION_ALIASES = {
     "evolver.calibrations.list": "calibrations",
+    "evolver.calibrations.show": "calibrations",
     "evolver.calibrations.sessions.create": "calibration_create",
     "evolver.calibrations.sessions.observation": "calibration_observation",
     "evolver.calibrations.sessions.fit": "calibration_fit",

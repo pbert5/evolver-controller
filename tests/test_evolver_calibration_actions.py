@@ -72,6 +72,24 @@ def test_central_calibration_actions_use_manage_calibration_and_strip_envelope(m
     assert calls[0][2] == {"raw_value": 100, "reference_value": 20}
 
 
+def test_calibration_show_alias_preserves_read_only_detail_response(monkeypatch) -> None:
+    expected = {"calibration": {"id": "calibration-1", "evidence_digest": "sha256:evidence"},
+                "webui_controller": {"revision": 7}}
+    calls = []
+
+    def show(*, calibration_id, state_root):
+        calls.append((calibration_id, state_root))
+        return HTTPStatus.OK, expected
+
+    monkeypatch.setattr(evolver_controller, "calibrations", show)
+
+    status, result = dispatch("evolver.calibrations.show", {"calibration_id": "calibration-1"})
+
+    assert status is HTTPStatus.OK
+    assert result == expected
+    assert calls == [("calibration-1", None)]
+
+
 def test_central_calibration_mutations_are_denied_without_permission() -> None:
     operator = evolver_controller.OperatorIdentity("alice", "test", frozenset())
     status, result = dispatch("calibration_create", {"calibration_type": "temperature",
