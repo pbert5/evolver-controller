@@ -8,7 +8,10 @@ spawning. Keep `agents.enabled = true`, `agents.max_depth = 2`,
 8`; preserve every named role in `.codex/agents/`. Use named stream-router roles
 for bounded hierarchical dispatch; `agents.max_depth` permits root -> router ->
 leaf while preventing deeper recursion. Use `features.hooks` for lifecycle
-hooks. `features.codex_hooks` is deprecated and must not be reintroduced.
+hooks. `features.codex_hooks` is deprecated and must not be reintroduced. The
+`test-architect` role is read-only and may use shell tools for harmless
+repository reconnaissance; it must not edit, commit, push, or mutate runtime
+state.
 
 # Repository agent guidance
 

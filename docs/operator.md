@@ -20,6 +20,33 @@ For local controller work, use [evoctl](evoctl.md). Central and edge state are
 intentionally different responsibilities; see
 [Central vs Edge](_concepts/central-vs-edge.md).
 
+Normal commands are live commands. They use the local operator service and
+never silently fall back to a direct SQLite read:
+
+`evoctl -> operator.sock -> controller -> hardware.sock -> hardware -> serial`
+
+If the operator service is stopped or unreachable, the CLI reports that state
+and points to `tools/evolver-edge up`, `tools/evolver-edge status`, and
+`tools/evolver-edge logs controller`. The edge launcher returns an unavailable
+exit status instead of presenting stale local data as live state.
+
+Offline mode is an intentional rescue/maintenance mode. It reads the durable
+controller store without contacting the operator socket and does not prove
+central state or physical hardware was observed. Use the explicit route when
+the controller service is stopped:
+
+```text
+tools/evolver-edge rescue recovery
+tools/evolver-edge rescue export-state recovery.tar.zst
+```
+
+Inside the edge container, `evoctl rescue ...` delegates to that host helper;
+it never reads the local controller store. Direct `evoctl --offline ...` is
+rejected with the same canonical rescue guidance.
+Recovery/planning commands include `recovery`, `export-state`,
+`lifecycle-plan`, and `update status`; offline output must be labelled as
+offline by the operator.
+
 ## Safety boundary
 
 `metactl` is a client of the central operator API. It must not open the

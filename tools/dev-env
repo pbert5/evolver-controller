@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+ROOT=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 profile=server
 action=''
 declare -a action_args=()

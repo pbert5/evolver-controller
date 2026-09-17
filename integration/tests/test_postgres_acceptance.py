@@ -79,6 +79,14 @@ def _start_control_process(url: str, port: int) -> subprocess.Popen[bytes]:
         "META_WEBUI_EVOLVER_CONTROL_HOST": "127.0.0.1",
         "META_WEBUI_EVOLVER_CONTROL_PORT": str(port),
         "META_WEBUI_EVOLVER_CONTROL_SHARED_SECRET": "acceptance-gateway-secret",
+        # Enrollment accepts only deployment-approved, controller-reachable
+        # HTTPS endpoints. Keep this fixture explicit so PostgreSQL coverage
+        # exercises persistence rather than bypassing endpoint validation.
+        "META_WEBUI_EVOLVER_CONTROLLER_ENDPOINTS": (
+            '[{"id":"acceptance-controller","label":"Acceptance controller",'
+            '"url":"https://acceptance.invalid","enabled":true,'
+            '"controller_reachable":true}]'
+        ),
         "PYTHONPATH": f"{root / 'evolver/evolver-server/src'}{os.pathsep}{environment.get('PYTHONPATH', '')}",
     })
     return subprocess.Popen(
@@ -193,7 +201,7 @@ def test_deployed_control_process_uses_postgres_store_across_restart() -> None:
             base_url,
             "POST",
             "/api/evolver/enrollment-tokens",
-            body={"server_url": "http://acceptance.invalid"},
+            body={"server_url": "https://acceptance.invalid"},
             headers={
                 "X-Meta-Webui-Evolver-Control-Secret": "acceptance-gateway-secret",
                 "X-Meta-Webui-Evolver-Operator": "acceptance",

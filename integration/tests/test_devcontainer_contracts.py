@@ -126,6 +126,37 @@ def test_environment_lock_checker_has_explicit_relock_mode():
     assert "[--relock]" in result.stdout
 
 
+def test_harness_scripts_work_when_worktree_gitdir_is_unavailable(tmp_path):
+    """Mounted worktrees may retain a .git pointer to a host-only path."""
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    (tmp_path / ".git").write_text("gitdir: /mypool/unavailable/.git/worktrees/checkout\n")
+    for name in ("dev-env", "check-locks"):
+        script = tools / name
+        script.write_bytes((ROOT / "tools" / name).read_bytes())
+        script.chmod(0o755)
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    (fake_bin / "git").write_text(
+        "#!/usr/bin/env bash\n"
+        "[[ $1 == -C && $3 == branch && $4 == --show-current ]] && echo mounted\n"
+    )
+    (fake_bin / "git").chmod(0o755)
+    env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}"}
+    env.pop("META_BALL_WORKTREE_ID", None)
+
+    identity = subprocess.run([str(tools / "dev-env"), "identity"], env=env,
+                              capture_output=True, text=True, check=False)
+    assert identity.returncode == 0, identity.stderr
+    assert identity.stdout.strip().startswith("mounted-")
+
+    help_result = subprocess.run([str(tools / "check-locks"), "--help"], env=env,
+                                 capture_output=True, text=True, check=False)
+    assert help_result.returncode == 0, help_result.stderr
+    assert "tools/check-locks [--relock]" in help_result.stdout
+
+
 def test_dev_env_smoke_covers_shared_and_edge_contracts():
     source = (ROOT / "tools/dev-env").read_text()
     for command in ("rtk", "uv", "python", "pytest", "navi", "codex", "docker", "evoctl", "metactl"):
@@ -221,35 +252,40 @@ def test_interactive_shell_layers_on_base_zsh_and_keeps_bash_available():
     assert "zoxide init zsh" in fragment
 
 
-def test_cache_contract_is_worktree_scoped_and_edge_runtime_is_stable():
+def test_cache_contract_is_worktree_scoped_and_edge_mounts_only_operator_runtime():
     server = json.loads((ROOT / ".devcontainer/server/devcontainer.json").read_text())
     edge = json.loads((ROOT / ".devcontainer/evolver-edge/devcontainer.json").read_text())
     server_mounts = "\n".join(server["mounts"])
     edge_mounts = "\n".join(edge["mounts"])
     assert "meta-ball-${localEnv:META_BALL_WORKTREE_ID}-uv-cache" in server_mounts
     assert "meta-ball-${localEnv:META_BALL_WORKTREE_ID}-uv-cache" in edge_mounts
-    assert "evolver-edge-runtime,target=/run/evolver-controller" in edge_mounts
-    assert "evolver-edge-runtime,target=/run/evolver-controller" not in server_mounts
+    assert "evolver-edge-operator-runtime,target=/run/evolver-controller" in edge_mounts
+    assert "evolver-edge-hardware-runtime" not in edge_mounts
+    assert "evolver-edge-state" not in edge_mounts
+    assert "/var/lib/evolver-controller" not in edge_mounts
+    assert "/dev" not in edge_mounts
+    assert "evolver-edge-operator-runtime,target=/run/evolver-controller" not in server_mounts
 
 
-def test_evolver_edge_persists_state_and_bootstraps_non_root_storage():
+def test_evolver_edge_does_not_persist_controller_state_or_bootstrap_storage():
     edge = json.loads((ROOT / ".devcontainer/evolver-edge/devcontainer.json").read_text())
     edge_mounts = "\n".join(edge["mounts"])
     bootstrap = (ROOT / ".devcontainer/evolver-edge/scripts/bootstrap-evolver-edge").read_text()
 
-    assert "source=evolver-edge-state,target=/var/lib/evolver-controller" in edge_mounts
-    assert "source=evolver-edge-runtime,target=/run/evolver-controller" in edge_mounts
-    assert "sudo install -d" in bootstrap
-    assert "sudo chown vscode:vscode" in bootstrap
-    assert "/var/lib/evolver-controller" in bootstrap
-    assert "/run/evolver-controller" in bootstrap
+    assert "evolver-edge-state" not in edge_mounts
+    assert "/var/lib/evolver-controller" not in edge_mounts
+    assert "evolver-edge-hardware-runtime" not in edge_mounts
+    assert "sudo install -d" not in bootstrap
+    assert "sudo chown vscode:vscode" not in bootstrap
+    assert "/var/lib/evolver-controller" not in bootstrap
+    assert "/run/evolver-controller" not in bootstrap
 
 
-def test_evolver_edge_state_volume_is_named_for_recreate_persistence():
+def test_evolver_edge_overlay_has_no_state_volume():
     config = json.loads((ROOT / ".devcontainer/evolver-edge/devcontainer.json").read_text())
     edge_mounts = "\n".join(config["mounts"])
 
-    assert "source=evolver-edge-state,target=/var/lib/evolver-controller" in edge_mounts
+    assert "evolver-edge-state" not in edge_mounts
 
 
 def test_evolver_edge_devcontainer_is_source_backed_and_has_docker_without_serial():
@@ -285,9 +321,10 @@ def test_edge_has_no_database_service_or_required_database_dependency():
         assert forbidden not in compose
 
 
-def test_edge_runtime_volume_is_stable_and_shared_with_edge_devcontainer():
+def test_edge_runtime_volumes_are_split_by_private_channel():
     compose = (ROOT / "deploy/evolver-edge/compose.yaml").read_text()
     config = json.loads((ROOT / ".devcontainer/evolver-edge/devcontainer.json").read_text())
-    assert "evolver-edge-runtime:\n    name: evolver-edge-runtime" in compose
-    assert any("source=evolver-edge-runtime,target=/run/evolver-controller" in mount
+    assert "evolver-edge-operator-runtime:\n    name: evolver-edge-operator-runtime" in compose
+    assert "evolver-edge-hardware-runtime:\n    name: evolver-edge-hardware-runtime" in compose
+    assert any("source=evolver-edge-operator-runtime,target=/run/evolver-controller" in mount
                for mount in config["mounts"])

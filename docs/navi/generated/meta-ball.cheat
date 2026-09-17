@@ -61,8 +61,8 @@ tools/test integration
 tools/test component <component>
 tools/test evidence <component> <pytest-node>
 tools/test coverage
-tools/test frontend
-tools/test e2e
+tools/test simulator
+tools/test integration
 tools/test-postgres-acceptance
 tools/generate_navi_cheats --check
 metactl actions list --filter calibration
