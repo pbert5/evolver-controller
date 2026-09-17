@@ -20,6 +20,22 @@ class UnknownAction(ValueError):
     """Raised when a caller supplies an action outside this adapter contract."""
 
 
+# These IDs are part of the frozen central action catalog.  Keep the compact
+# names below as the implementation vocabulary so older callers retain their
+# behavior while catalog clients get exact, stable dispatch matches.
+_CALIBRATION_ACTION_ALIASES = {
+    "evolver.calibrations.list": "calibrations",
+    "evolver.calibrations.sessions.create": "calibration_create",
+    "evolver.calibrations.sessions.add_observation": "calibration_observation",
+    "evolver.calibrations.sessions.fit": "calibration_fit",
+    "evolver.calibrations.sessions.accept": "calibration_accept",
+    "evolver.calibrations.sessions.cancel": "calibration_cancel",
+    "evolver.calibrations.sessions.capture": "calibration_capture_observation",
+    "evolver.calibrations.artifacts.deliver": "calibration_deliver",
+    "evolver.calibrations.artifacts.supersede": "calibration_supersede",
+    "evolver.calibrations.artifacts.invalidate": "calibration_invalidate",
+}
+
 def _body(parameters: Mapping[str, Any]) -> dict[str, Any]:
     return dict(parameters)
 
@@ -42,6 +58,7 @@ def dispatch(action: str, parameters: Mapping[str, Any] | None = None, *,
     """
     if not isinstance(action, str) or not action:
         raise UnknownAction("action must be a non-empty string")
+    action = _CALIBRATION_ACTION_ALIASES.get(action, action)
     params = parameters if isinstance(parameters, Mapping) else {}
     body = _body(params)
 
