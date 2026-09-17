@@ -34,10 +34,13 @@ def test_discover_registers_provisioned_hardware_in_controller_inventory(tmp_pat
         "instrument_type": "minievolver", "device_identity": "MEV-1",
         "identity_state": "provisioned", "vial_positions": [], "capabilities": {},
     }
-    with _store(tmp_path) as store:
+    with EdgeStore(tmp_path / "state") as store:
+        store.bind(webui_controller_id="central", server_url="https://central", credential="secret", generation=7)
         broker = HardwareBroker(store, request=lambda *_: discovered)
-        result = broker.discover(operator="ash")
-        assert result["id"] == "instrument-1"
+        first = broker.discover(operator="ash")
+        second = broker.discover(operator="ash")
+        assert first["id"] == "instrument-1"
+        assert second["id"] == "instrument-1"
         inventory = store.list_instruments()
         assert len(inventory) == 1
         assert inventory[0]["id"] == "instrument-1"
