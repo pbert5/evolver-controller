@@ -139,7 +139,7 @@ usage:
   tools/test integration [pytest args...]
   tools/test simulator [pytest args...]
   tools/test coverage [pytest args...]
-  tools/test component <root|controller|hardware|server|metactl> [pytest args...]
+  tools/test component <root|controller|hardware|server|metactl|procedure-runtime> [pytest args...]
   tools/test evidence <root|controller|hardware|server|metactl> <pytest node IDs...>
 
 PYTEST_WORKERS controls xdist workers for parallel lanes: auto (default) or a
