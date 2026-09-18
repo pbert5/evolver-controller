@@ -142,10 +142,12 @@ def plan_calibrated_temperature(*, artifact: Mapping[str, Any], target_temperatu
         raw_max_value = calibration_range["raw_max"]
     except (KeyError, TypeError, ValueError) as error:
         raise EdgeStoreError("temperature calibration coefficients and range are invalid") from error
-    if isinstance(raw_min_value, bool) or not isinstance(raw_min_value, int) \
-            or isinstance(raw_max_value, bool) or not isinstance(raw_max_value, int):
+    if isinstance(raw_min_value, bool) or not isinstance(raw_min_value, (int, float)) \
+            or isinstance(raw_max_value, bool) or not isinstance(raw_max_value, (int, float)) \
+            or not math.isfinite(float(raw_min_value)) or not math.isfinite(float(raw_max_value)) \
+            or not float(raw_min_value).is_integer() or not float(raw_max_value).is_integer():
         raise EdgeStoreError("temperature calibration raw bounds are invalid")
-    raw_min, raw_max = raw_min_value, raw_max_value
+    raw_min, raw_max = int(raw_min_value), int(raw_max_value)
     if not all(math.isfinite(value) for value in (slope, intercept, reference_min, reference_max)) \
             or slope == 0 or reference_min > reference_max or raw_min > raw_max:
         raise EdgeStoreError("temperature calibration coefficients and range are invalid")

@@ -156,7 +156,9 @@ def _trusted_action_id(action: Mapping[str, Any]) -> str | None:
 def compile_trusted_action(action: Mapping[str, Any], *, command_id: str,
                            run_id: str, run_revision: int, bundle_id: str,
                            state: str, instrument_id: str,
-                           controller_generation: int = 0) -> dict[str, Any]:
+                           controller_generation: int = 0,
+                           lease_token: str | None = None,
+                           lease_owner: str | None = None) -> dict[str, Any]:
     """Adapt catalog actions to the typed edge command vocabulary.
 
     This is intentionally the only place where trusted catalog names become
@@ -186,10 +188,16 @@ def compile_trusted_action(action: Mapping[str, Any], *, command_id: str,
         plan = plan_calibrated_temperature(artifact=artifact, target_temperature_c=value,
                                             instrument=instrument, vial_position_id=vial_position_id,
                                             channel=target.get("channel", parameters.get("channel")))
+        resolved_vial = artifact.get("vial_position_id") if vial_position_id is None else vial_position_id
+        lease_token = lease_token or action.get("lease_token")
+        lease_owner = lease_owner or action.get("lease_owner")
+        if not isinstance(lease_token, str) or not lease_token or not isinstance(lease_owner, str) or not lease_owner:
+            raise EdgeStoreError("temperature setpoint requires an active lease")
         context["calibration"] = plan["calibration"]
+        context.update({"lease_token": lease_token, "lease_owner": lease_owner})
         return {"schema_version": DEVICE_PROTOCOL_VERSION, "command_id": command_id,
                 "operation": plan["operation"], "target": {"device_id": instrument_id,
-                "instrument_id": instrument_id, "vial_position_id": vial_position_id},
+                "instrument_id": instrument_id, "vial_position_id": resolved_vial},
                 "parameters": plan["parameters"], "context": context}
     if action_id in {"calibrated_dispense", "dispense"}:
         artifact = action.get("calibration_artifact")

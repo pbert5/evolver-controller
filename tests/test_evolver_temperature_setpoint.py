@@ -43,6 +43,14 @@ def test_calibrated_temperature_inverts_and_maps_stable_vial_identity():
     assert plan["calibration"]["quantization_error_c"] == 0.0
 
 
+def test_calibrated_temperature_accepts_integral_float_raw_bounds_from_fitted_artifacts():
+    plan = plan_calibrated_temperature(
+        artifact=artifact(calibration_range={"reference_min": 10.0, "reference_max": 50.0,
+                                              "raw_min": 10.0, "raw_max": 100.0}),
+        target_temperature_c=30, instrument=INSTRUMENT)
+    assert plan["parameters"]["raw_target_adc"] == 20
+
+
 @pytest.mark.parametrize("bad", [
     artifact(assessment={"status": "stale"}),
     artifact(calibration_type="pump_flow_rate"),
@@ -90,7 +98,7 @@ def test_trusted_temperature_requires_artifact_and_preserves_typed_provenance():
     command = compile_trusted_action({
         "action_id": "set_temperature", "target": {"vial_position_id": "vial-2"},
         "parameters": {"target": 30}, "calibration_artifact": artifact(),
-        "instrument": INSTRUMENT,
+        "instrument": INSTRUMENT, "lease_token": "lease", "lease_owner": "operator",
     }, **common)
     assert command["operation"] == "set_temperature"
     assert command["parameters"] == {"channel": 2, "raw_target_adc": 20}
@@ -103,7 +111,8 @@ def test_simulator_projects_calibrated_target_and_safe_stop_clears_it():
         "parameters": {"target": 30}, "calibration_artifact": artifact(),
         "instrument": INSTRUMENT,
     }, command_id="temp-sim", run_id="run-a", run_revision=0, bundle_id="bundle-a",
-       state="running", instrument_id="instrument-1", controller_generation=7)
+       state="running", instrument_id="instrument-1", controller_generation=7,
+       lease_token="lease", lease_owner="operator")
     sink = SimulatorDeviceCommandSink()
     sink.send(command)
     assert sink.state("instrument-1")["temperature"]["target_c"] == 30.0
@@ -132,11 +141,25 @@ def test_physical_sink_forwards_only_typed_calibrated_operation():
     command = compile_trusted_action({
         "action_id": "set_temperature", "target": {"vial_position_id": "vial-2"},
         "parameters": {"target": 30}, "calibration_artifact": artifact(),
-        "instrument": INSTRUMENT,
+        "instrument": INSTRUMENT, "lease_token": "lease", "lease_owner": "operator",
     }, command_id="temp-physical", run_id="run-a", run_revision=0, bundle_id="bundle-a",
-       state="running", instrument_id="instrument-1", controller_generation=7)
+       state="running", instrument_id="instrument-1", controller_generation=7,
+       lease_token="lease", lease_owner="operator")
     service = Service()
     result = HardwareDeviceCommandSink(Store(), service).send(command)
     assert result["request_accepted"] is True
     assert service.calls[0][0][:2] == ("set_temperature", "device-a")
     assert service.calls[0][0][2] == {"channel": 2, "raw_target_adc": 20}
+
+
+def test_trusted_temperature_serializes_artifact_vial_and_requires_lease():
+    common = dict(command_id="temp-lease", run_id="run-a", run_revision=0,
+                  bundle_id="bundle-a", state="running", instrument_id="instrument-1",
+                  controller_generation=7)
+    action = {"action_id": "set_temperature", "parameters": {"target": 30},
+              "calibration_artifact": artifact(), "instrument": INSTRUMENT}
+    with pytest.raises(EdgeStoreError, match="lease"):
+        compile_trusted_action(action, **common)
+    command = compile_trusted_action(action, lease_token="lease", lease_owner="operator", **common)
+    assert command["target"]["vial_position_id"] == "vial-2"
+    assert command["context"]["lease_token"] == "lease"
