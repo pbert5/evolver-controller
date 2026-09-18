@@ -442,6 +442,7 @@ class WorkflowHost:
         history: list[Mapping[str, Any]] = []
         requested = dict(inspection or {})
         first_inspection: dict[str, Any] = {}
+        runtime_inspection: dict[str, Any] = {}
         for stage in session.definition.stages:
             procedure = self.procedures.get((stage.procedure_id, stage.procedure_version))
             if procedure is None:
@@ -475,6 +476,8 @@ class WorkflowHost:
                     step_data["instance_id"] = item.id
                     if item.id == active_instance and step.id == current:
                         representations = step_data["representation"]
+                        runtime_inspection = {"stage_id": stage.id, "instance_id": item.id,
+                                              "procedure_id": procedure.id, "step_id": step.id}
                     steps.append(step_data)
                     if step.id == current and item.id == active_instance:
                         selected_step = step.id
@@ -513,6 +516,15 @@ class WorkflowHost:
                 selected_data = next((item for item in candidates if item.get("step_id") == selected_step_id), None)
                 if selected_data:
                     break
+        if selected_data is None and not requested and runtime_inspection:
+            for stage in stages:
+                if stage["id"] != runtime_inspection["stage_id"]:
+                    continue
+                for instance in stage.get("instances", ()):
+                    if instance.get("id") == runtime_inspection["instance_id"]:
+                        selected_data = next((item for item in instance.get("steps", ())
+                                              if item.get("step_id") == runtime_inspection["step_id"]), None)
+                        break
         if selected_data is None:
             selected_data = next((item for stage in stages for item in stage.get("steps", ())
                                   if item.get("step_id") == selected_step), None)

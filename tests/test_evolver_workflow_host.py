@@ -312,3 +312,18 @@ def test_inspection_selection_honors_repeatable_instance_identity():
     })
 
     assert projection["inspection"]["instance_id"] == "points-2"
+
+
+def test_default_inspection_follows_active_instance_when_step_ids_repeat():
+    host = ScenarioRegistry().host("repeatable_calibration")
+    session = host.new_session(host.show_workflow("scenario.repeatable-calibration"))
+    session.preflight()
+    session.advance()
+    session.continue_stage()
+    host.add_stage_instance(session, "points", {"reference_value": 1.0})
+    host.add_stage_instance(session, "points", {"reference_value": 2.0})
+
+    projection = host.project_session_for_ui(session)
+
+    assert projection["inspection"]["stage_id"] == session.active_stage_id == "points"
+    assert projection["inspection"]["instance_id"] == session.active_instance_id == "points-2"
