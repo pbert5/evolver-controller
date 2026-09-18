@@ -233,6 +233,9 @@ provides-extras = ["dev"]
 name = "evolver-procedure-runtime"
 version = "0.1.0"
 source = { editable = "evolver/evolver-procedure-runtime" }
+dependencies = [
+    { name = "pyyaml" },
+]
 
 [package.optional-dependencies]
 dev = [
@@ -246,6 +249,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=6" },
     { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.8" },
+    { name = "pyyaml", specifier = ">=6" },
 ]
 provides-extras = ["dev"]
 
