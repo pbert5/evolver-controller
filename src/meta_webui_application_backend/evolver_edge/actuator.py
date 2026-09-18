@@ -491,6 +491,10 @@ class HardwareDeviceCommandSink:
                     raise EdgeStoreError("temperature calibration fingerprint mismatch")
                 if not isinstance(calibration.get("hardware_fingerprint"), Mapping) or not calibration["hardware_fingerprint"]:
                     raise EdgeStoreError("temperature hardware fingerprint is required")
+                assessment = artifact.get("assessment")
+                if (not isinstance(assessment, Mapping) or calibration.get("status") != assessment.get("status")
+                        or calibration.get("status") != "valid"):
+                    raise EdgeStoreError("temperature calibration is not valid")
                 calibration_range = artifact.get("calibration_range")
                 if not isinstance(calibration_range, Mapping):
                     raise EdgeStoreError("temperature calibration bounds are missing")
@@ -595,6 +599,10 @@ class HardwareIPCDeviceCommandSink:
                     raise EdgeStoreError("temperature calibration fingerprint mismatch")
                 if not isinstance(calibration.get("hardware_fingerprint"), Mapping) or not calibration["hardware_fingerprint"]:
                     raise EdgeStoreError("temperature hardware fingerprint is required")
+                assessment = artifact.get("assessment")
+                if (not isinstance(assessment, Mapping) or calibration.get("status") != assessment.get("status")
+                        or calibration.get("status") != "valid"):
+                    raise EdgeStoreError("temperature calibration is not valid")
                 bounds = artifact.get("calibration_range")
                 if not isinstance(bounds, Mapping) or any(calibration.get(field) != bounds.get(field)
                                                            for field in ("reference_min", "reference_max", "raw_min", "raw_max")):

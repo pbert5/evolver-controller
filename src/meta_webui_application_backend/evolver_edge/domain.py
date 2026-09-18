@@ -163,6 +163,7 @@ def plan_calibrated_temperature(*, artifact: Mapping[str, Any], target_temperatu
                 "artifact_id": artifact["id"], "artifact_digest": artifact["artifact_digest"],
                 "calibration_fingerprint": artifact["artifact_digest"],
                 "hardware_fingerprint": artifact.get("hardware_fingerprint"),
+                "status": assessment["status"],
                 "instrument_id": artifact["instrument_id"],
                 "vial_position_id": artifact["vial_position_id"],
                 "calibration_type": artifact["calibration_type"],

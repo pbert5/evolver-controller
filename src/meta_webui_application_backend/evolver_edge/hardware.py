@@ -720,6 +720,8 @@ class HardwareService(ReadOnlyHardwareService):
                         raise ValueError("temperature calibration identity is incomplete")
                 if not isinstance(calibration["hardware_fingerprint"], Mapping) or not calibration["hardware_fingerprint"]:
                     raise ValueError("temperature hardware fingerprint is required")
+                if calibration["status"] != "valid":
+                    raise ValueError("temperature calibration is not valid")
                 reference_min, reference_max = float(calibration["reference_min"]), float(calibration["reference_max"])
                 raw_min, raw_max = int(calibration["raw_min"]), int(calibration["raw_max"])
             except (KeyError, TypeError, ValueError) as error:
