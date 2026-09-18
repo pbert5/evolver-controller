@@ -410,6 +410,25 @@ def _bounded(name: str, value: Any) -> int:
     return value
 
 
+def _temperature_authority_field(value: Any, name: str, *, numeric: bool = False) -> str:
+    """Validate one field of the firmware TEMP v2 authority envelope.
+
+    The firmware parser is intentionally stricter than the JSON/typed edge
+    command boundary: correlation and lease are uint32 values, while owner is
+    a bounded protocol token.  Do not stringify or hash values here; changing
+    an authority value would turn a stale/replayed command into a different
+    command at the physical boundary.
+    """
+    if not isinstance(value, str) or not value or len(value) > 31:
+        raise ValueError(f"{name} must be a non-empty protocol field")
+    if any(char in "|!\r\n" or not char.isprintable() for char in value):
+        raise ValueError(f"{name} contains a protocol delimiter")
+    if numeric and (not value.isascii() or not value.isdecimal() or int(value) <= 0
+                    or int(value) > 0xFFFFFFFF):
+        raise ValueError(f"{name} must be a positive uint32")
+    return value
+
+
 class ReadOnlyHardwareService:
     """One-owner physical discovery/read service with a process-wide lock.
 
@@ -650,7 +669,12 @@ class HardwareService(ReadOnlyHardwareService):
                 raise ValueError("temperature calibration bounds are invalid") from error
             if not reference_min <= float(temperature) <= reference_max or not raw_min <= raw <= raw_max:
                 raise ValueError("temperature target is outside calibration bounds")
-            return self._execute(request, f"TEMP|2|{channel}|{raw}_!", "TEMP", actuator=True, retryable=True)
+            correlation = _temperature_authority_field(request.command_id, "correlation", numeric=True)
+            owner = _temperature_authority_field(request.lease_owner or effective_operator, "owner")
+            lease = _temperature_authority_field(request.lease_token, "lease", numeric=True)
+            generation = _temperature_authority_field(str(request.controller_generation), "generation", numeric=True)
+            frame = f"TEMP|2|SET|{correlation}|{channel}|{raw}|{owner}|{lease}|{generation}_!"
+            return self._execute(request, frame, "TEMP", actuator=True, retryable=True)
         raise ValueError(f"unsupported hardware operation {request.operation}")
 
     def command(self, operation: str, target_identity: str, parameters: Mapping[str, Any], **context: Any) -> HardwareResult:

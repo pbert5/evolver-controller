@@ -182,7 +182,7 @@ class FakeTemperatureTransport:
         self.commands.append(payload)
         if payload == "WHO_ARE_YOU_!":
             return "MEV|2|MEV-1|1|HELLO|type=minievolver,proto=2,fw=0.2,hw_proto=2,id=MEV-1"
-        if payload.startswith("TEMP|2|"):
+        if payload.startswith("TEMP|2|SET|"):
             return "HW|2|OK|TEMP|applied=1"
         raise AssertionError(payload)
 
@@ -198,15 +198,67 @@ def test_physical_sink_fake_integration_emits_exact_temp_v2_payload_without_real
             "action_id": "set_temperature", "target": {"vial_position_id": "vial-2"},
             "parameters": {"target": 30}, "calibration_artifact": artifact(),
             "instrument": INSTRUMENT,
-        }, command_id="temp-wire", run_id="run-a", run_revision=0, bundle_id="bundle-a",
+        }, command_id="123", run_id="run-a", run_revision=0, bundle_id="bundle-a",
            state="running", instrument_id="instrument-1", controller_generation=7,
-           lease_token="lease", lease_owner="operator")
+           lease_token="17", lease_owner="operator")
         # The fake store only needs the same durable lease contract as the real edge.
-        store.set_control_lease(lease_token="lease", owner="operator", generation=7,
+        store.set_control_lease(lease_token="17", owner="operator", generation=7,
                                 expires_at="2099-01-01T00:00:00+00:00")
         result = HardwareDeviceCommandSink(store, service).send(command)
         assert result["request_accepted"] is True
-        assert "TEMP|2|2|20_!" in transport.commands
+        assert "TEMP|2|SET|123|2|20|operator|17|7_!" in transport.commands
+        replay = HardwareDeviceCommandSink(store, service).send(command)
+        assert replay["request_accepted"] is True
+        assert transport.commands.count("TEMP|2|SET|123|2|20|operator|17|7_!") == 1
+
+
+def test_physical_sink_rejects_stale_generation_before_fake_io(tmp_path):
+    with EdgeStore(tmp_path) as store:
+        store.bind(webui_controller_id="central", server_url="https://central", credential="secret", generation=7)
+        store.register_instruments([{"id": "instrument-1", "device_identity": "MEV-1",
+                                     "instrument_type": "minievolver", "vial_positions": INSTRUMENT["vial_positions"]}])
+        transport = FakeTemperatureTransport()
+        service = HardwareService(store, transport, allow_physical=True)
+        command = compile_trusted_action({
+            "action_id": "set_temperature", "target": {"vial_position_id": "vial-2"},
+            "parameters": {"target": 30}, "calibration_artifact": artifact(),
+            "instrument": INSTRUMENT,
+        }, command_id="124", run_id="run-a", run_revision=0, bundle_id="bundle-a",
+           state="running", instrument_id="instrument-1", controller_generation=6,
+           lease_token="17", lease_owner="operator")
+        with pytest.raises(EdgeStoreError, match="active positive controller generation"):
+            HardwareDeviceCommandSink(store, service).send(command)
+        assert transport.commands == []
+
+
+@pytest.mark.parametrize("field, value", [
+    ("command_id", "temp-wire"),
+    ("lease_token", "lease"),
+    ("lease_owner", "different-owner"),
+])
+def test_physical_sink_rejects_non_firmware_authority_fields_before_fake_io(tmp_path, field, value):
+    with EdgeStore(tmp_path) as store:
+        store.bind(webui_controller_id="central", server_url="https://central", credential="secret", generation=7)
+        store.register_instruments([{"id": "instrument-1", "device_identity": "MEV-1",
+                                     "instrument_type": "minievolver", "vial_positions": INSTRUMENT["vial_positions"]}])
+        transport = FakeTemperatureTransport()
+        service = HardwareService(store, transport, allow_physical=True)
+        command = compile_trusted_action({
+            "action_id": "set_temperature", "target": {"vial_position_id": "vial-2"},
+            "parameters": {"target": 30}, "calibration_artifact": artifact(),
+            "instrument": INSTRUMENT,
+        }, command_id="123", run_id="run-a", run_revision=0, bundle_id="bundle-a",
+           state="running", instrument_id="instrument-1", controller_generation=7,
+           lease_token="17", lease_owner="operator")
+        if field == "command_id":
+            command["command_id"] = value
+        else:
+            command["context"][field] = value
+        store.set_control_lease(lease_token="17", owner="operator", generation=7,
+                                expires_at="2099-01-01T00:00:00+00:00")
+        result = HardwareDeviceCommandSink(store, service).send(command)
+        assert result["request_accepted"] is False
+        assert transport.commands == []
 
 
 def test_physical_sink_rejects_tampered_provenance_before_fake_io():
