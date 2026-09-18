@@ -60,6 +60,7 @@ def test_composed_simulator_acceptance_is_restart_safe_and_evidenced(harness):
             "run": {"access": "mutate", "mode": "live"},
             "instrument": {"access": "read", "mode": "live"},
             "calibration": {"access": "read", "mode": "live"},
+            "calibration_run": {"access": "mutate", "mode": "live"},
             "hardware_lease": {"access": "mutate", "mode": "live"},
             "hardware_layout": {"access": "mutate", "mode": "live"},
             "hardware_provision_identity": {"access": "mutate", "mode": "live"},

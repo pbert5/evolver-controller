@@ -333,6 +333,39 @@ metactl evolver.runs.resume
 % Meta BAL action evolver.runs.stop [action_id=evolver.runs.stop]
 metactl evolver.runs.stop
 
+% Meta BAL action evolver.calibrations.list [action_id=evolver.calibrations.list]
+metactl evolver.calibrations.list
+
+% Meta BAL action evolver.calibrations.show [action_id=evolver.calibrations.show]
+metactl evolver.calibrations.show
+
+% Meta BAL action evolver.calibrations.sessions.create [action_id=evolver.calibrations.sessions.create]
+metactl evolver.calibrations.sessions.create
+
+% Meta BAL action evolver.calibrations.sessions.observation [action_id=evolver.calibrations.sessions.observation]
+metactl evolver.calibrations.sessions.observation
+
+% Meta BAL action evolver.calibrations.sessions.fit [action_id=evolver.calibrations.sessions.fit]
+metactl evolver.calibrations.sessions.fit
+
+% Meta BAL action evolver.calibrations.sessions.accept [action_id=evolver.calibrations.sessions.accept]
+metactl evolver.calibrations.sessions.accept
+
+% Meta BAL action evolver.calibrations.sessions.cancel [action_id=evolver.calibrations.sessions.cancel]
+metactl evolver.calibrations.sessions.cancel
+
+% Meta BAL action evolver.calibrations.sessions.capture [action_id=evolver.calibrations.sessions.capture]
+metactl evolver.calibrations.sessions.capture
+
+% Meta BAL action evolver.calibrations.artifacts.deliver [action_id=evolver.calibrations.artifacts.deliver]
+metactl evolver.calibrations.artifacts.deliver
+
+% Meta BAL action evolver.calibrations.artifacts.supersede [action_id=evolver.calibrations.artifacts.supersede]
+metactl evolver.calibrations.artifacts.supersede
+
+% Meta BAL action evolver.calibrations.artifacts.invalidate [action_id=evolver.calibrations.artifacts.invalidate]
+metactl evolver.calibrations.artifacts.invalidate
+
 % Meta BAL action evolver.experiments.validate [action_id=evolver.experiments.validate]
 metactl evolver.experiments.validate
 
