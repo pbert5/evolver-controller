@@ -13,7 +13,9 @@ from typing import Any, Callable, Mapping, Protocol
 from uuid import NAMESPACE_URL, uuid5
 
 from .hardware import DEVICE_PROTOCOL_VERSION, HardwareService, validate_device_operation
+from .hardware_ipc import DEFAULT_SOCKET, request as hardware_ipc_request
 from .store import EdgeStore, EdgeStoreError, StaleGenerationError
+from .domain import plan_calibrated_dispense
 
 
 class DeviceCommandSink(Protocol):
@@ -95,6 +97,12 @@ class ManualCommandExecutor:
                 return {"command_id": command_id, "disposition": "rejected_run_ownership", "reason": "run does not own target instrument"}
         if operation != "safe_stop" and not isinstance(instrument_id, str):
             return {"command_id": command_id, "disposition": "rejected_invalid", "reason": "instrument_id is required"}
+        if operation != "safe_stop":
+            try:
+                self.store.instrument(instrument_id)
+            except (KeyError, EdgeStoreError):
+                return {"command_id": command_id, "disposition": "rejected_invalid",
+                        "reason": "instrument_id is not present in local durable inventory"}
         parameters = dict(command.get("parameters") or {})
         if operation == "heater_pulse":
             # Device protocol v2 is intentionally narrower than the central
@@ -110,23 +118,95 @@ class ManualCommandExecutor:
             operation_for_device = "set_stir"
         else:
             operation_for_device = "safe_stop"
+        context = {"run_id": run_id, "controller_generation": generation}
+        if operation == "safe_stop":
+            requested_by = command.get("requested_by")
+            if not isinstance(requested_by, str) or not requested_by:
+                return {"command_id": command_id, "disposition": "rejected_invalid",
+                        "reason": "safe-stop operator attribution is required"}
+            context["operator"] = requested_by
+        else:
+            context.update({"lease_token": command.get("lease_token"),
+                            "lease_owner": command.get("lease_holder")})
         typed = {"schema_version": DEVICE_PROTOCOL_VERSION, "command_id": command_id,
                  "operation": operation_for_device,
                  "target": {"instrument_id": instrument_id, "device_id": target.get("device_id", instrument_id)},
                  "parameters": parameters,
-                 "context": {"run_id": run_id, "controller_generation": generation,
-                             "lease_token": command.get("lease_token"), "lease_owner": command.get("lease_holder")}}
+                 "context": context}
         try:
             result = dict(self.sink.send(typed))
         except Exception as error:
             return {"command_id": command_id, "disposition": "failed", "reason": str(error)}
-        return {"command_id": command_id, "disposition": "completed", "result": result}
+        accepted = result.get("request_accepted", True)
+        disposition = "completed" if accepted else ("partial" if operation == "safe_stop" else "failed")
+        return {"command_id": command_id, "disposition": disposition, "result": result}
 
 
 def _int(value: Any, name: str, low: int, high: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
         raise EdgeStoreError(f"{name} must be an integer in {low}..{high}")
     return value
+
+
+def _trusted_action_id(action: Mapping[str, Any]) -> str | None:
+    value = action.get("action_id", action.get("action"))
+    return value if isinstance(value, str) else None
+
+
+def compile_trusted_action(action: Mapping[str, Any], *, command_id: str,
+                           run_id: str, run_revision: int, bundle_id: str,
+                           state: str, instrument_id: str,
+                           controller_generation: int = 0) -> dict[str, Any]:
+    """Adapt catalog actions to the typed edge command vocabulary.
+
+    This is intentionally the only place where trusted catalog names become
+    executable edge intent.  It does not widen the hardware protocol: a
+    temperature target is a logical controller target, while pump actions are
+    bounded timed pulses.
+    """
+    action_id = _trusted_action_id(action)
+    if action_id not in {"set_temperature", "run_pump", "pulse_pump", "calibrated_dispense", "dispense"}:
+        raise EdgeStoreError(f"unsupported trusted action: {action_id}")
+    version = action.get("action_version", action.get("version", "1"))
+    if version not in {"1", "1.0"}:
+        raise EdgeStoreError(f"unsupported {action_id} version: {version}")
+    parameters = action.get("parameters") if isinstance(action.get("parameters"), Mapping) else {}
+    target = action.get("target") if isinstance(action.get("target"), Mapping) else {}
+    target_instrument = target.get("instrument_id", instrument_id)
+    if target_instrument != instrument_id:
+        raise EdgeStoreError("action target instrument is not assigned to this run")
+    context: dict[str, Any] = {"run_id": run_id, "run_revision": run_revision,
+                               "bundle_id": bundle_id, "execution_state": state,
+                               "action_id": action_id, "controller_generation": controller_generation}
+    if action_id == "set_temperature":
+        value = parameters.get("target", parameters.get("target_temperature", parameters.get("temperature_c")))
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= float(value) <= 100:
+            raise EdgeStoreError("temperature target must be numeric in 0..100 °C")
+        return {"schema_version": DEVICE_PROTOCOL_VERSION, "command_id": command_id,
+                "operation": "set_temperature", "target": {"device_id": instrument_id,
+                "instrument_id": instrument_id}, "parameters": {"temperature_c": float(value)},
+                "context": context}
+    if action_id in {"calibrated_dispense", "dispense"}:
+        artifact = action.get("calibration_artifact")
+        volume = parameters.get("volume_ul")
+        channel = target.get("channel", parameters.get("channel"))
+        if not isinstance(artifact, Mapping):
+            raise EdgeStoreError("calibrated dispense requires a calibration artifact")
+        plan = plan_calibrated_dispense(artifact=artifact, volume_ul=volume, channel=channel)
+        context["calibration"] = plan["calibration"]
+        parameters = plan["parameters"]
+    else:
+        channel = target.get("channel", parameters.get("channel"))
+        parameters = {"channel": _int(channel, "pump channel", 0, 5),
+                      "direction": parameters.get("direction", "forward"),
+                      "duration_ms": _int(parameters.get("duration_ms"), "pump duration_ms", 1, 1000)}
+    try:
+        validate_device_operation("pulse_pump", parameters)
+    except (ValueError, KeyError) as error:
+        raise EdgeStoreError(str(error)) from error
+    return {"schema_version": DEVICE_PROTOCOL_VERSION, "command_id": command_id,
+            "operation": "pump_pulse", "target": {"device_id": instrument_id,
+            "instrument_id": instrument_id}, "parameters": parameters, "context": context}
 
 
 def compile_device_command(action: Mapping[str, Any], *, command_id: str,
@@ -136,6 +216,11 @@ def compile_device_command(action: Mapping[str, Any], *, command_id: str,
     if isinstance(controller_generation, bool) or not isinstance(controller_generation, int) \
             or controller_generation < 0:
         raise EdgeStoreError("controller_generation must be a non-negative integer")
+    if _trusted_action_id(action) in {"set_temperature", "run_pump", "pulse_pump", "calibrated_dispense", "dispense"}:
+        return compile_trusted_action(action, command_id=command_id, run_id=run_id,
+                                       run_revision=run_revision, bundle_id=bundle_id,
+                                       state=state, instrument_id=instrument_id,
+                                       controller_generation=controller_generation)
     if action.get("kind", "device_command") != "device_command":
         raise EdgeStoreError("only declarative device_command actions are executable")
     operation = action.get("operation")
@@ -244,18 +329,43 @@ class RunActuatorExecutor:
 
 class SimulatorDeviceCommandSink:
     """Deterministic sink; no sleep, serial, network, or real hardware."""
-    def __init__(self) -> None:
+    def __init__(self, store: EdgeStore | None = None) -> None:
+        self.store = store
         self.now_ms = 0
         self.outputs: dict[tuple[str, str, int], dict[str, Any]] = {}
+        self.temperature_targets: dict[str, float] = {}
         self.commands: list[dict[str, Any]] = []
         self._results: dict[str, Mapping[str, Any]] = {}
+        if store is not None:
+            for instrument in store.list_instruments():
+                observation = instrument.get("effective_device_state")
+                self.now_ms = max(self.now_ms, int(instrument.get("simulator_clock_ms", 0)))
+                if not isinstance(observation, Mapping):
+                    continue
+                for kind in ("pump", "stir", "heater"):
+                    channels = observation.get(kind, {}).get("channels", {})
+                    if isinstance(channels, Mapping):
+                        for channel, value in channels.items():
+                            if isinstance(value, Mapping) and value.get("active_until_ms", 0) > self.now_ms:
+                                self.outputs[(instrument["id"], kind, int(channel))] = dict(value)
+                target = observation.get("temperature", {}).get("target_c")
+                if isinstance(target, (int, float)) and not isinstance(target, bool):
+                    self.temperature_targets[instrument["id"]] = float(target)
+
+    def _persist(self, instrument_ids: set[str] | None = None) -> None:
+        if self.store is None:
+            return
+        ids = instrument_ids or {item["id"] for item in self.store.list_instruments()}
+        for instrument_id in ids:
+            self.store.record_simulator_device_state(instrument_id, self.state(instrument_id), clock_ms=self.now_ms)
 
     def send(self, command: Mapping[str, Any]) -> Mapping[str, Any]:
         if command.get("command_id") in self._results:
             return self._results[str(command["command_id"])]
         if command.get("schema_version") != DEVICE_PROTOCOL_VERSION:
             raise EdgeStoreError("unsupported device protocol")
-        operation = command.get("operation")
+        operation = {"pulse_pump": "pump_pulse", "pulse_heater": "heater_pulse"}.get(
+            command.get("operation"), command.get("operation"))
         target = command.get("target", {})
         instrument_id = target.get("instrument_id")
         p = command.get("parameters", {})
@@ -266,6 +376,11 @@ class SimulatorDeviceCommandSink:
             self.outputs[key] = {"effective_state": "active", "direction": "forward", "owner": "run",
                                  "command_id": command["command_id"], "duration_ms": p["duration_ms"],
                                  "active_until_ms": self.now_ms + p["duration_ms"], "evidence": "simulated"}
+        elif operation == "set_temperature":
+            target = p.get("temperature_c")
+            if isinstance(target, bool) or not isinstance(target, (int, float)) or not 0 <= float(target) <= 100:
+                raise EdgeStoreError("temperature target must be numeric in 0..100 °C")
+            self.temperature_targets[instrument_id] = float(target)
         elif operation in {"stir_pulse", "set_stir"}:
             _int(p.get("channel"), "stir channel", 0, 1); _int(p.get("level"), "level", 1, 250); _int(p.get("duration_ms"), "duration_ms", 1, 1000)
             key = (instrument_id, "stir", p["channel"])
@@ -287,13 +402,16 @@ class SimulatorDeviceCommandSink:
         self.commands.append(dict(command))
         result = {"command_id": command["command_id"], "request_accepted": True,
                 "protocol_response": f"SIMULATED|{operation}", "verification": "simulated_effective_state",
-                "observed_evidence": {"simulated": True}}
+                "physical_actuation": False,
+                "observed_evidence": {"simulated": True, "effective_device_state": self.state(instrument_id)}}
         self._results[str(command["command_id"])] = result
+        self._persist(None if operation == "safe_stop" else {instrument_id})
         return result
 
     def advance(self, milliseconds: int) -> None:
         self.now_ms += milliseconds
         self.outputs = {key: value for key, value in self.outputs.items() if value["active_until_ms"] > self.now_ms}
+        self._persist()
 
     def state(self, instrument_id: str) -> dict[str, Any]:
         pumps = {str(channel): value for (instrument, kind, channel), value in self.outputs.items()
@@ -302,10 +420,14 @@ class SimulatorDeviceCommandSink:
                  if instrument == instrument_id and kind == "stir"}
         heaters = {str(channel): value for (instrument, kind, channel), value in self.outputs.items()
                    if instrument == instrument_id and kind == "heater"}
+        target = self.temperature_targets.get(instrument_id)
+        temperature = {"effective_state": "inactive", "evidence": "simulated"}
+        if target is not None:
+            temperature["target_c"] = target
         return {"pump": {"effective_state": "active" if pumps else "inactive", "channels": pumps, "evidence": "simulated"},
                 "stir": {"effective_state": "active" if stirs else "inactive", "channels": stirs, "evidence": "simulated"},
                 "heater": {"effective_state": "active" if heaters else "inactive", "channels": heaters, "evidence": "simulated"},
-                "temperature": {"effective_state": "inactive", "evidence": "simulated"}}
+                "temperature": temperature}
 
 
 class HardwareDeviceCommandSink:
@@ -322,6 +444,8 @@ class HardwareDeviceCommandSink:
             raise EdgeStoreError("unsupported device protocol")
         if command.get("operation") == "pump_stop":
             raise EdgeStoreError("pump_stop is not supported by physical hardware; use safe_stop")
+        if command.get("operation") == "set_temperature":
+            raise EdgeStoreError("temperature setpoint is not supported by verified firmware")
         target = command.get("target", {})
         instrument_id = target.get("instrument_id")
         instruments = self.store.list_instruments() if command.get("operation") == "safe_stop" else [self.store.instrument(instrument_id)]
@@ -338,12 +462,80 @@ class HardwareDeviceCommandSink:
         for index, instrument in enumerate(instruments):
             device_identity = instrument.get("device_identity")
             if not isinstance(device_identity, str) or not device_identity:
-                raise EdgeStoreError("instrument has no provisioned device identity; safe stop is not confirmed for all instruments")
-            result = self.service.command(operation, device_identity, parameters,
-                                          command_id=command["command_id"] if index == 0 else f"{command['command_id']}:{index}",
-                                          run_id=context.get("run_id"), controller_generation=generation,
-                                          lease_token=context.get("lease_token"), lease_owner=context.get("lease_owner"),
-                                          require_lease=bool(context.get("lease_token")))
-            results.append(result.as_json())
+                results.append({"command_id": f"{command['command_id']}:{index}",
+                                "request_accepted": False, "verification": "unverified",
+                                "error": "instrument has no provisioned device identity"})
+                continue
+            try:
+                result = self.service.command(operation, device_identity, parameters,
+                                              command_id=command["command_id"] if index == 0 else f"{command['command_id']}:{index}",
+                                              run_id=context.get("run_id"), controller_generation=generation,
+                                              operator=context.get("operator"),
+                                              lease_token=context.get("lease_token"), lease_owner=context.get("lease_owner"),
+                                              require_lease=operation != "safe_stop")
+                results.append(result.as_json())
+            except Exception as error:
+                results.append({"command_id": f"{command['command_id']}:{index}",
+                                "request_accepted": False, "verification": "unverified",
+                                "error": str(error)})
+        accepted = bool(results) and all(item.get("request_accepted", False) for item in results)
         return results[0] if len(results) == 1 else {"command_id": command["command_id"], "request_accepted": all(item["request_accepted"] for item in results),
-                                                      "verification": "protocol_verified", "results": results}
+                                                      "verification": "protocol_verified" if accepted else "unverified", "results": results}
+
+
+class HardwareIPCDeviceCommandSink:
+    """Send typed device commands to the exclusive hardware daemon."""
+
+    def __init__(self, store: EdgeStore, socket_path: str | None = None,
+                 *, request: Callable[[str, dict[str, Any], float | None], dict[str, Any]] = hardware_ipc_request,
+                 timeout: float = 5.0) -> None:
+        self.store, self.socket_path, self.request, self.timeout = store, socket_path or DEFAULT_SOCKET, request, timeout
+
+    def send(self, command: Mapping[str, Any]) -> Mapping[str, Any]:
+        if command.get("schema_version") != DEVICE_PROTOCOL_VERSION:
+            raise EdgeStoreError("unsupported device protocol")
+        operation = command.get("operation")
+        if operation == "set_temperature":
+            raise EdgeStoreError("temperature setpoint is not supported by verified firmware")
+        if operation not in {"set_stir", "pulse_heater", "safe_stop"}:
+            raise EdgeStoreError(f"unsupported manual device operation: {operation}")
+        target = command.get("target") if isinstance(command.get("target"), Mapping) else {}
+        instrument_id = target.get("instrument_id")
+        instruments = self.store.list_instruments() if operation == "safe_stop" else [self.store.instrument(instrument_id)]
+        context = command.get("context") if isinstance(command.get("context"), Mapping) else {}
+        generation = context.get("controller_generation")
+        if not isinstance(generation, int) or isinstance(generation, bool) or generation <= 0:
+            raise EdgeStoreError("hardware command requires the active positive controller generation")
+        if operation == "safe_stop":
+            operator = context.get("operator")
+            if not isinstance(operator, str) or not operator:
+                raise EdgeStoreError("safe-stop operator attribution is required")
+        else:
+            lease_token, lease_owner = context.get("lease_token"), context.get("lease_owner")
+            if not isinstance(lease_token, str) or not isinstance(lease_owner, str) or not lease_token or not lease_owner:
+                raise EdgeStoreError("hardware command requires an active lease")
+        results: list[Mapping[str, Any]] = []
+        for index, instrument in enumerate(instruments):
+            device_identity = instrument.get("device_identity")
+            if not isinstance(device_identity, str) or not device_identity:
+                results.append({"command_id": f"{command['command_id']}:{index}",
+                                "request_accepted": False, "verification": "unverified",
+                                "error": "instrument has no provisioned device identity"})
+                continue
+            payload = {"operation": operation, "physical": True, "target_identity": device_identity,
+                       "operator": context.get("operator") if operation == "safe_stop" else lease_owner,
+                       "controller_generation": generation,
+                       "command_id": command["command_id"] if index == 0 else f"{command['command_id']}:{index}",
+                       "parameters": dict(command.get("parameters") or {})}
+            if operation != "safe_stop":
+                payload.update({"lease_token": lease_token, "lease_owner": lease_owner})
+            try:
+                results.append(self.request(self.socket_path, payload, self.timeout))
+            except Exception as error:
+                results.append({"command_id": payload["command_id"], "request_accepted": False,
+                                "verification": "unverified", "error": str(error)})
+        if len(results) == 1:
+            return results[0]
+        accepted = bool(results) and all(item.get("request_accepted", False) for item in results)
+        return {"command_id": command["command_id"], "request_accepted": accepted,
+                "verification": "protocol_verified" if accepted else "unverified", "results": results}
