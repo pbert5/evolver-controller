@@ -4,7 +4,7 @@ import pytest
 import yaml
 
 
-ROOT = Path(__file__).parents[1] / "examples"
+ROOT = Path(__file__).parents[2] / "workflows" / "examples"
 DESCRIPTORS = sorted(ROOT.glob("*.yaml"))
 TRUSTED_ACTIONS = {
     "capture_measurement", "emit_marker", "pulse_pump", "request_observation",
