@@ -108,16 +108,9 @@ def doctor_report(
     streams = store.telemetry_streams()
     checks.append(_check("telemetry_spool", "PASS", f"{len(streams)} stream(s), {store.telemetry_spool_path}"))
 
-    if application_root:
-        app_root = application_root
-    elif os.environ.get("META_WEBUI_APPLICATION_ROOT"):
-        app_root = Path(os.environ["META_WEBUI_APPLICATION_ROOT"])
-    else:
-        candidates = (Path.cwd() / "applications" / "deployment", Path("/etc/meta-webui/applications/deployment"))
-        app_root = next((candidate for candidate in candidates if (candidate / "app.yaml").is_file()), candidates[0])
     textual_available = importlib.util.find_spec("textual") is not None
-    tui_ok = textual_available and (app_root / "app.yaml").is_file()
-    detail = str(app_root) if tui_ok else "Textual or application configuration is unavailable"
+    tui_ok = textual_available
+    detail = "controller-native Textual app available" if tui_ok else "controller TUI extra is unavailable"
     checks.append(_check("tui_runtime", "PASS" if tui_ok else "WARN", detail))
 
     installed = store.meta("controller_software_release")
