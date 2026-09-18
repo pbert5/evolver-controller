@@ -75,13 +75,13 @@ explicit release contract:
 
 ```text
 evoctl update apply RELEASE   # explicit governed release
-evoctl upgrade                # planned latest/recommended governed release
-tools/evolver-edge upgrade    # planned developer checkout refresh/rebuild
+evoctl upgrade                # latest/recommended governed release
+tools/evolver-edge upgrade    # developer checkout refresh/rebuild
 ```
 
-Until #112 is implemented and accepted, use the existing documented
-`tools/evolver-edge` and `evoctl update ...` paths rather than assuming the
-planned short aliases exist.
+The integrated lifecycle aliases are available on the `hardware-testing` line.
+Use `tools/evolver-edge upgrade` only for the developer checkout flow; use
+`evoctl update ...` and governed `evoctl upgrade` for release operations.
 
 ## Workflow CLI
 
