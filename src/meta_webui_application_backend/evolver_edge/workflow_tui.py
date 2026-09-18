@@ -259,6 +259,34 @@ class WorkflowWorkspace:
     def copy_focused(self, value: Any | None = None) -> str:
         return semantic_copy(self.inspector() if value is None else value)
 
+    def set_representation(self, mode: str) -> None:
+        if mode not in {"Step", "Action", "API", "CLI", "Raw"}:
+            raise ValueError(mode)
+        self.representation = mode
+
+    def set_drawer_view(self, view: str) -> None:
+        if view not in {"Info", "Inputs", "Safety", "Evidence", "Outputs", "Events"}:
+            raise ValueError(view)
+        self.drawer_view = view
+        self.drawer_open = True
+
+    def add_instance(self, tab_id: str, stage_id: str, values: Mapping[str, Any]) -> Any:
+        """Delegate repeatable-stage creation; UI owns no cardinality rules."""
+        tab = self._tab(tab_id)
+        if tab.session is None:
+            raise ValueError("session has not been started")
+        add = getattr(self.host, "add_stage_instance", None)
+        if add is None:
+            add = getattr(tab.session, "add_instance", None)
+        if add is None:
+            raise ValueError("stage instances are unavailable")
+        return add(tab.session, stage_id, values) if callable(getattr(self.host, "add_stage_instance", None)) else add(stage_id, values)
+
+    def input_schema(self) -> tuple[Mapping[str, Any], ...]:
+        """Return the session-projected fields without interpreting them."""
+        value = self.current.snapshot.drawer.get("Input schema", ())
+        return tuple(value) if isinstance(value, (list, tuple)) else ()
+
     def _tab(self, tab_id: str) -> WorkflowTab:
         return next(tab for tab in self.tabs if tab.tab_id == tab_id)
 
@@ -279,26 +307,160 @@ class FakeWorkflowHost:
         return self._sessions[workflow["id"]].pop(0)
 
 
-def run_textual(host: WorkflowHostLike) -> int:
-    """Run the optional Textual UI; imports remain lazy for offline/model tests."""
+def create_textual_app(host: WorkflowHostLike):
+    """Create the real workflow app; imports stay lazy for model-only installs."""
     try:
         from textual.app import App, ComposeResult
-        from textual.containers import Horizontal, Vertical
-        from textual.widgets import Footer, Header, Label, ListItem, ListView, Static, TabbedContent, TabPane
+        from textual.containers import Horizontal, Vertical, Container
+        from textual.widgets import (Button, Footer, Header, Input, Label, ListItem,
+                                      ListView, Static, Tab, TabbedContent, TabPane, Tree)
+        from textual.screen import ModalScreen
     except (ImportError, ModuleNotFoundError) as error:
         raise RuntimeError("the Workflow TUI is unavailable; install evoctl[tui]") from error
+
+    class ChoiceModal(ModalScreen[str | None]):
+        """Searchable workflow selector. Selection only creates an unstarted tab."""
+        def __init__(self, workspace: WorkflowWorkspace):
+            super().__init__()
+            self.workspace = workspace
+
+        def compose(self) -> ComposeResult:
+            with Container(id="workflow-selector"):
+                yield Label("New Workflow")
+                yield Input(placeholder="Search workflows", id="workflow-search")
+                yield ListView(id="workflow-choices")
+                yield Label("Enter Open · Esc Cancel", id="selector-help")
+
+        async def on_mount(self) -> None:
+            await self._refresh()
+            self.query_one("#workflow-search", Input).focus()
+
+        async def _refresh(self) -> None:
+            choices = self.query_one("#workflow-choices", ListView)
+            await choices.remove_children()
+            for item in self.workspace.workflows(self.query_one("#workflow-search", Input).value if self.is_mounted else ""):
+                ident = str(_field(item, "id", ""))
+                choices.append(ListItem(Label(str(_field(item, "title", ident))), id=f"choice-{ident}"))
+
+        async def on_input_changed(self, event: Input.Changed) -> None:
+            if event.input.id == "workflow-search":
+                await self._refresh()
+                self.query_one("#workflow-search", Input).focus()
+
+        def on_input_submitted(self, event: Input.Submitted) -> None:
+            if event.input.id == "workflow-search":
+                self._choose_first()
+
+        def _choose_first(self) -> None:
+            choices = self.query_one("#workflow-choices", ListView)
+            item = choices.highlighted_child or (choices.children[0] if choices.children else None)
+            if item is not None:
+                self.dismiss((item.id or "").removeprefix("choice-"))
+
+        def on_key(self, event: Any) -> None:
+            if event.key == "enter":
+                self._choose_first()
+                event.stop()
+
+        def on_list_view_selected(self, event: ListView.Selected) -> None:
+            ident = (event.item.id or "").removeprefix("choice-")
+            if ident:
+                self.dismiss(ident)
+
+        def key_enter(self) -> None:
+            choices = self.query_one("#workflow-choices", ListView)
+            item = choices.highlighted_child or (choices.children[0] if choices.children else None)
+            if item is not None:
+                self.dismiss((item.id or "").removeprefix("choice-"))
+
+        def key_escape(self) -> None:
+            self.dismiss(None)
+
+    class InputModal(ModalScreen[tuple[str, Mapping[str, str]] | None]):
+        """Typed operator-input surface with deliberately separate save/continue."""
+        def __init__(self, workspace: WorkflowWorkspace, tab: WorkflowTab):
+            super().__init__()
+            self.workspace, self.tab = workspace, tab
+
+        def compose(self) -> ComposeResult:
+            with Container(id="input-modal"):
+                yield Label("Operator Input", id="input-title")
+                schema = self.tab.snapshot.drawer.get("Input schema", ())
+                fields = schema if isinstance(schema, (list, tuple)) else ()
+                if not fields:
+                    fields = ({"name": "value", "label": "Value", "type": "text"},)
+                for field in fields:
+                    name = str(field.get("name", "value"))
+                    yield Label(f"{field.get('label', name)} ({field.get('type', 'text')})")
+                    yield Input(id=f"input-{name}", name=name, value=str(field.get("value", "")))
+                with Horizontal(id="input-actions"):
+                    yield Button("Save only", id="save-only")
+                    yield Button("Confirm + Continue", id="confirm-continue", variant="primary")
+                    yield Button("Cancel", id="cancel-input")
+
+        def _values(self) -> dict[str, str]:
+            return {field.name: field.value for field in self.query("Input") if field.name}
+
+        def on_button_pressed(self, event: Button.Pressed) -> None:
+            if event.button.id == "cancel-input":
+                self.dismiss(None)
+            elif event.button.id == "save-only":
+                self.dismiss(("save", self._values()))
+            elif event.button.id == "confirm-continue":
+                self.dismiss(("confirm", self._values()))
+
+    class CloseModal(ModalScreen[bool | None]):
+        def compose(self) -> ComposeResult:
+            with Container(id="close-modal"):
+                yield Label("Procedure is still active. Abort safely and close?")
+                with Horizontal():
+                    yield Button("Return to procedure", id="return-close")
+                    yield Button("Abort procedure safely and close", id="abort-close", variant="error")
+
+        def on_button_pressed(self, event: Button.Pressed) -> None:
+            self.dismiss(event.button.id == "abort-close")
+
+    class InstanceModal(ModalScreen[tuple[str, str, Mapping[str, str]] | None]):
+        """Form for one repeatable stage; validation/cardinality remain host-owned."""
+        def __init__(self, tab: WorkflowTab, stage_id: str, fields: tuple[Mapping[str, Any], ...]):
+            super().__init__()
+            self.tab, self.stage_id, self.fields = tab, stage_id, fields
+
+        def compose(self) -> ComposeResult:
+            with Container(id="instance-modal"):
+                yield Label(f"Add Instance · {self.stage_id}")
+                for field in self.fields or ({"name": "value", "label": "Value"},):
+                    name = str(field.get("name", "value"))
+                    yield Label(str(field.get("label", name)))
+                    yield Input(id=f"instance-{name}", name=name, placeholder=str(field.get("type", "text")))
+                with Horizontal():
+                    yield Button("Create instance", id="create-instance", variant="primary")
+                    yield Button("Cancel", id="cancel-instance")
+
+        def on_button_pressed(self, event: Button.Pressed) -> None:
+            if event.button.id == "cancel-instance":
+                self.dismiss(None)
+            elif event.button.id == "create-instance":
+                self.dismiss((self.stage_id, "create", {field.name: field.value for field in self.query("Input") if field.name}))
 
     class WorkflowApp(App[None]):
         BINDINGS = [
             ("ctrl+n", "new_workflow", "New workflow"), ("ctrl+k", "close_workflow", "Close tab"),
             ("ctrl+left", "previous_tab", "Previous tab"), ("ctrl+right", "next_tab", "Next tab"),
             ("ctrl+[", "previous_tab", "Previous tab"), ("ctrl+]", "next_tab", "Next tab"),
+            ("ctrl+shift+c", "copy_focused", "Copy semantic content"),
+            ("i", "open_input", "Operator input"), ("a", "add_instance", "Add instance"),
+            ("d", "toggle_drawer", "Details"),
         ]
         CSS = """
-        #top-tabs { height: 3; }
+        #top-tabs { height: 3; border: solid $surface; padding: 1; }
         #main { height: 1fr; }
-        .pane { border: solid $surface; padding: 1; }
-        #drawer { height: 7; border-top: solid $surface; }
+        .pane { border: solid $surface; padding: 1; width: 1fr; }
+        #session { height: 6; }
+        #drawer { height: 9; border-top: solid $surface; padding: 1; }
+        #workflow-selector, #input-modal, #instance-modal, #close-modal { width: 70; height: auto; max-height: 80%; padding: 1 2; border: thick $accent; background: $surface; }
+        #workflow-choices { height: 1fr; min-height: 5; }
+        #input-actions { height: 3; align: center middle; }
         """
 
         def __init__(self):
@@ -310,21 +472,32 @@ def run_textual(host: WorkflowHostLike) -> int:
             yield Static("", id="top-tabs")
             with Horizontal(id="main"):
                 yield ListView(id="library", classes="pane")
-                yield ListView(id="procedure", classes="pane")
+                yield Tree("Procedure", id="procedure", classes="pane")
                 with Vertical(classes="pane"):
                     yield Static("", id="session")
                     with TabbedContent(id="representations"):
                         for mode in ("Step", "Action", "API", "CLI", "Raw"):
                             with TabPane(mode, id=f"representation-{mode.lower()}"):
                                 yield Static("", id=f"representation-value-{mode.lower()}")
-            yield Static("", id="drawer")
+            with TabbedContent(id="drawer-tabs"):
+                for view in ("Info", "Inputs", "Safety", "Evidence", "Outputs", "Events"):
+                    with TabPane(view, id=f"drawer-{view.lower()}"):
+                        yield Static("", id=f"drawer-value-{view.lower()}")
             yield Footer()
 
         def on_mount(self) -> None:
             self.refresh_view()
 
+        def on_key(self, event: Any) -> None:
+            # Modal input retains focus while the filtered list is rebuilt.
+            # Handle Enter at the app boundary so keyboard selection remains
+            # deterministic across Textual versions.
+            if event.key == "enter" and isinstance(self.screen, ChoiceModal):
+                self.screen._choose_first()
+                event.stop()
+
         def refresh_view(self) -> None:
-            tabs = "  ".join(f"[{tab.snapshot.status_glyph} {tab.snapshot.title}]" for tab in self.workspace.tabs)
+            tabs = "  ".join(f"{'▶ ' if i == self.workspace.active_index else ''}{tab.snapshot.status_glyph} {tab.snapshot.title} · {tab.snapshot.metadata.get('target', '')}" for i, tab in enumerate(self.workspace.tabs))
             self.query_one("#top-tabs", Static).update(tabs)
             tab = self.workspace.current
             library = self.query_one("#library", ListView)
@@ -335,19 +508,23 @@ def run_textual(host: WorkflowHostLike) -> int:
                     library.append(ListItem(Label(f"○ {_field(item, 'title', workflow_id)}"), id=f"workflow-{workflow_id}"))
             else:
                 library.append(ListItem(Label(f"{tab.snapshot.status_glyph} {tab.snapshot.title}")))
-            procedure = self.query_one("#procedure", ListView)
+            procedure = self.query_one("#procedure", Tree)
             procedure.clear()
             if tab.tab_id == "library":
-                procedure.append(ListItem(Label("Select a workflow")))
+                procedure.root.add("Select a workflow")
             else:
-                procedure.append(ListItem(Label("○ Initial Parameters")))
+                procedure.root.add("⚙ Initial Parameters", data={"id": "initial-parameters"})
                 for procedure_data in tab.snapshot.procedures:
-                    procedure.append(ListItem(Label(f"{procedure_data.get('status', '○')} {procedure_data.get('title', procedure_data.get('id', 'Procedure'))}")))
-            self.query_one("#session", Static).update(f"{tab.snapshot.status_glyph} {tab.snapshot.title}\n{tab.snapshot.progress}  lease={tab.snapshot.lease}")
+                    node = procedure.root.add(f"{procedure_data.get('status', '○')} {procedure_data.get('title', procedure_data.get('id', 'Procedure'))}", data=procedure_data)
+                    for step in procedure_data.get("steps", ()):
+                        node.add(f"  {step.get('status', '○')} {step.get('title', step.get('id', 'Step'))}", data=step)
+            self.query_one("#session", Static).update(f"{tab.snapshot.status_glyph} {tab.snapshot.title}\nTarget: {tab.snapshot.metadata.get('target', 'unknown')}  {tab.snapshot.progress}  lease={tab.snapshot.lease}")
             for mode in ("Step", "Action", "API", "CLI", "Raw"):
                 self.query_one(f"#representation-value-{mode.lower()}", Static).update(semantic_copy(tab.snapshot.representations.get(mode, "Not available")))
-            drawer = tab.snapshot.drawer if self.workspace.drawer_open else {}
-            self.query_one("#drawer", Static).update(("Drawer: open\n" + semantic_copy(drawer)) if drawer else "Drawer: collapsed")
+            for view in ("Info", "Inputs", "Safety", "Evidence", "Outputs", "Events"):
+                value = tab.snapshot.drawer.get(view, "Not available") if self.workspace.drawer_open else "Drawer collapsed (press d to open)"
+                self.query_one(f"#drawer-value-{view.lower()}", Static).update(semantic_copy(value))
+            self.query_one("#drawer-tabs", TabbedContent).active = f"drawer-{self.workspace.drawer_view.lower()}"
 
         def action_previous_tab(self) -> None:
             self.workspace.cycle_tab(-1); self.refresh_view()
@@ -356,11 +533,11 @@ def run_textual(host: WorkflowHostLike) -> int:
             self.workspace.cycle_tab(1); self.refresh_view()
 
         def action_new_workflow(self) -> None:
-            values = self.workspace.workflows()
-            if values:
-                item = values[0]
-                self.workspace.open_workflow(_field(item, "id"))
-                self.refresh_view()
+            def opened(workflow_id: str | None) -> None:
+                if workflow_id:
+                    self.workspace.open_workflow(workflow_id)
+                    self.refresh_view()
+            self.push_screen(ChoiceModal(self.workspace), opened)
 
         def on_list_view_selected(self, event: Any) -> None:
             item_id = getattr(event.item, "id", "") or ""
@@ -369,9 +546,75 @@ def run_textual(host: WorkflowHostLike) -> int:
                 self.refresh_view()
 
         def action_close_workflow(self) -> None:
-            if self.workspace.close_current() is CloseDecision.RETURN:
-                self.notify("Procedure is still active; abort explicitly to close", severity="warning")
-            self.refresh_view()
+            if self.workspace.current.snapshot.status.upper() in {"RUNNING", "WAITING", "PAUSED"}:
+                self.push_screen(CloseModal(), self._close_decision)
+            else:
+                self.workspace.close_current()
+                self.refresh_view()
 
-    WorkflowApp().run()
+        def _close_decision(self, abort: bool | None) -> None:
+            if abort:
+                self.workspace.close_current(abort=True)
+                self.refresh_view()
+
+        def action_toggle_drawer(self) -> None:
+            self.workspace.toggle_drawer(); self.refresh_view()
+
+        def action_open_input(self) -> None:
+            tab = self.workspace.current
+            if tab.tab_id != "library":
+                def done(result):
+                    if result:
+                        action, values = result
+                        self.workspace.save_inputs(tab.tab_id, values)
+                        if action == "confirm":
+                            self.workspace.confirm_inputs(tab.tab_id)
+                        self.refresh_view()
+                self.push_screen(InputModal(self.workspace, tab), done)
+
+        def action_add_instance(self) -> None:
+            tab = self.workspace.current
+            if tab.tab_id == "library" or tab.session is None:
+                return
+            procedures = tab.snapshot.procedures
+            candidate = next((item for item in procedures if item.get("cardinality") == "repeatable" or item.get("can_add")), None)
+            if candidate is None:
+                self.notify("No repeatable stage is available", severity="warning")
+                return
+            stage_id = str(candidate.get("id", candidate.get("stage_id", "")))
+            fields = tuple(candidate.get("parameters", candidate.get("instance_parameters", ())))
+            def added(result):
+                if result:
+                    try:
+                        self.workspace.add_instance(tab.tab_id, result[0], result[2])
+                    except Exception as error:
+                        self.notify(str(error), severity="error")
+                    self.refresh_view()
+            self.push_screen(InstanceModal(tab, stage_id, fields), added)
+
+        def action_copy_focused(self) -> None:
+            value = self.workspace.copy_focused()
+            try:
+                self.copy_to_clipboard(value)
+            except Exception:
+                pass
+            self.notify("Copied semantic content", severity="information")
+
+        def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
+            tab_id = event.pane.id or ""
+            if tab_id.startswith("representation-"):
+                self.workspace.set_representation(tab_id.removeprefix("representation-").title())
+            elif tab_id.startswith("drawer-"):
+                self.workspace.set_drawer_view(tab_id.removeprefix("drawer-").title())
+
+    return WorkflowApp()
+
+
+def run_textual(host: WorkflowHostLike) -> int:
+    """Run the optional Textual UI; imports remain lazy for model-only tests."""
+    try:
+        app = create_textual_app(host)
+    except (ImportError, ModuleNotFoundError) as error:
+        raise RuntimeError("the Workflow TUI is unavailable; install evoctl[tui]") from error
+    app.run()
     return 0
