@@ -167,6 +167,8 @@ def _dispatch(store: EdgeStore, operation: str, params: dict[str, Any], *,
             target_identity = params.get("target_identity") or instrument.get("device_identity")
             if not isinstance(target_identity, str) or not target_identity:
                 raise OperatorProtocolError("instrument has no provisioned device identity", kind="not_found")
+            if params.get("target_identity") is not None and params["target_identity"] != instrument.get("device_identity"):
+                raise OperatorProtocolError("target_identity does not match instrument_id", kind="invalid_request")
             try:
                 if action == "status":
                     return hardware_broker.status(operator=operator.subject, target_identity=target_identity)
