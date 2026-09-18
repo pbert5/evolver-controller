@@ -63,6 +63,7 @@ _COMMAND_REGISTRY: dict[str, CommandSpec] = {
     "hardware.provision-identity": CommandSpec(CommandMode.LIVE),
     "hardware.discover": CommandSpec(CommandMode.LIVE),
     "hardware.protocol-test": CommandSpec(CommandMode.LIVE),
+    "hardware.safe-stop": CommandSpec(CommandMode.LIVE),
     "hardware.actuate": CommandSpec(CommandMode.LIVE),
     "hardware.quarantine-command": CommandSpec(CommandMode.MAINTENANCE, "rejected"),
     "update.status": CommandSpec(CommandMode.MAINTENANCE, "delegated", "controller-service"),
@@ -151,6 +152,9 @@ def _live_request(args: argparse.Namespace) -> tuple[str, dict[str, Any]] | None
             return "hardware", {"operation": "discover"}
         if args.hardware_command == "protocol-test":
             return "hardware", {"operation": "protocol_test"}
+        if args.hardware_command == "safe-stop":
+            return "hardware", {"operation": "safe_stop", "physical": args.physical,
+                                 "operator": args.operator}
         if args.hardware_command == "actuate":
             parameters = {"channel": args.channel}
             if args.operation == "set_output":
@@ -337,7 +341,7 @@ def build_parser() -> argparse.ArgumentParser:
     provision.add_argument("--device-id", required=True); provision.add_argument("--owner-id", required=True)
     provision.add_argument("--operator", required=True); provision.add_argument("--physical", action="store_true")
     actuator = hardware_sub.add_parser("actuate", help="one bounded maintenance command; physical opt-in required")
-    actuator.add_argument("operation", choices=("set_output", "pulse_pump", "set_stir", "pulse_heater", "safe_stop"))
+    actuator.add_argument("operation", choices=("set_output", "pulse_pump", "set_stir", "pulse_heater"))
     actuator.add_argument("--target", required=True)
     actuator.add_argument("--channel", type=int, default=0)
     actuator.add_argument("--duration-ms", type=int)
@@ -347,6 +351,9 @@ def build_parser() -> argparse.ArgumentParser:
     actuator.add_argument("--lease-token")
     actuator.add_argument("--controller-generation", type=int,
                           help="controller generation asserted by the active lease")
+    safe_stop = hardware_sub.add_parser("safe-stop", help="stop all registered physical outputs")
+    safe_stop.add_argument("--physical", action="store_true", required=True)
+    safe_stop.add_argument("--operator", required=True, help="audited operator attribution")
     lease = hardware_sub.add_parser("lease", help="bounded local commissioning lease")
     lease_sub = lease.add_subparsers(dest="lease_command", required=True)
     acquire = lease_sub.add_parser("acquire"); acquire.add_argument("--operator", required=True); acquire.add_argument("--ttl-seconds", type=int, default=900)
@@ -408,7 +415,7 @@ def main(argv: list[str] | None = None) -> int:
             command_key = f"hardware.lease.{args.lease_command}"
     spec = command_spec(command_key)
     if spec.mode is CommandMode.MAINTENANCE and not (
-            args.command == "hardware" and args.hardware_command in {"discover", "protocol-test", "actuate"}):
+            args.command == "hardware" and args.hardware_command in {"discover", "protocol-test", "safe-stop", "actuate"}):
         _emit(maintenance_disposition(command_key))
         return 2 if spec.disposition == "rejected" else 0
     live_operations = {"status", "binding", "runs", "instruments", "doctor"}
@@ -430,6 +437,9 @@ def main(argv: list[str] | None = None) -> int:
             params = {"operation": "discover"}
         elif args.hardware_command == "protocol-test":
             params = {"operation": "protocol_test"}
+        elif args.hardware_command == "safe-stop":
+            params = {"operation": "safe_stop", "physical": args.physical,
+                      "operator": args.operator}
         elif args.hardware_command == "actuate":
             parameters = {"channel": args.channel}
             if args.operation == "set_output":

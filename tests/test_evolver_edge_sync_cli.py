@@ -180,6 +180,14 @@ def test_cli_control_mapping_reuses_hardware_command_parser():
         "hardware", "actuate", "pulse_pump"]
 
 
+def test_cli_safe_stop_is_first_class_and_has_no_lease_or_target():
+    from meta_webui_application_backend.evolver_edge.cli import _live_request, build_parser
+
+    args = build_parser().parse_args(["hardware", "safe-stop", "--physical", "--operator", "alice"])
+    assert _live_request(args) == ("hardware", {"operation": "safe_stop", "physical": True,
+                                                  "operator": "alice"})
+
+
 def test_cli_validation_delegates_to_bounded_domain(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["evoctl", "--state-root", str(tmp_path), "validation",
                                         "pulse_pump", "--parameters", '{"channel": 2, "duration_ms": 40}'])

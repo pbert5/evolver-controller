@@ -101,3 +101,20 @@ def test_mutating_broker_fences_safety_and_bounds(tmp_path):
             broker.command("set_stir", parameters={"channel": 0, "duration_ms": 1001, "level": 5}, **common)
         with pytest.raises(LeaseValidationError):
             broker.command("set_stir", parameters={"channel": 0, "duration_ms": 100, "level": 5}, **{**common, "lease_token": "wrong"})
+
+
+def test_safe_stop_is_lease_free_all_inventory_and_preserves_operator(tmp_path):
+    calls = []
+    with _store(tmp_path) as store:
+        store.register_instruments([{"id": "instrument-2", "instrument_type": "minievolver",
+                                     "device_identity": "MEV-2", "vial_positions": [], "capabilities": {}}])
+        broker = HardwareBroker(store, request=lambda _path, payload, _timeout: calls.append(payload) or {
+            "command_id": payload["command_id"], "request_accepted": True,
+            "verification": "protocol_verified"})
+        result = broker.safe_stop(operator="operator", physical=True)
+
+    assert {call["target_identity"] for call in calls} == {"MEV-1", "MEV-2"}
+    assert all(call["operator"] == "operator" for call in calls)
+    assert all(call["controller_generation"] == 7 for call in calls)
+    assert all("lease_token" not in call and "lease_owner" not in call for call in calls)
+    assert result["request_accepted"] is True

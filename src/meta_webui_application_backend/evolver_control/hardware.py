@@ -105,3 +105,34 @@ class HardwareBroker:
                         "parameters": dict(parameters), "target_identity": target,
                         "controller_generation": generation})
         return self._send(payload)
+
+    def safe_stop(self, *, operator: str, physical: bool = False,
+                  command_id: str | None = None) -> dict[str, Any]:
+        operator = self._operator(operator)
+        if physical is not True:
+            raise PermissionError("physical opt-in is required")
+        if self.store is None:
+            raise ValueError("controller inventory is required")
+        binding = self.store.binding() or {}
+        generation = binding.get("generation")
+        if isinstance(generation, bool) or not isinstance(generation, int) or generation <= 0:
+            raise PermissionError("active positive controller generation is required")
+        results = []
+        for index, instrument in enumerate(self.store.list_instruments()):
+            device_identity = instrument.get("device_identity")
+            item_id = f"{command_id or 'safe-stop'}:{index}"
+            if not isinstance(device_identity, str) or not device_identity:
+                results.append({"command_id": item_id, "request_accepted": False,
+                                "verification": "unverified",
+                                "error": "instrument has no provisioned device identity"})
+                continue
+            try:
+                results.append(self._send({"operation": "safe_stop", "target_identity": device_identity,
+                                           "parameters": {}, "physical": True, "operator": operator,
+                                           "controller_generation": generation, "command_id": item_id}))
+            except Exception as error:
+                results.append({"command_id": item_id, "request_accepted": False,
+                                "verification": "unverified", "error": str(error)})
+        accepted = bool(results) and all(item.get("request_accepted", False) for item in results)
+        return {"command_id": command_id or "safe-stop", "request_accepted": accepted,
+                "verification": "protocol_verified" if accepted else "unverified", "results": results}

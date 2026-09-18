@@ -100,7 +100,7 @@ def _dispatch(store: EdgeStore, operation: str, params: dict[str, Any], *,
               operator: "OperatorIdentity | None" = None, hardware_broker: Any | None = None) -> Any:
     if operation == "hardware":
         hardware_operation = params.get("operation")
-        if hardware_operation not in {"discover", "protocol_test", "hardware_command"}:
+        if hardware_operation not in {"discover", "protocol_test", "hardware_command", "safe_stop"}:
             raise OperatorProtocolError("unsupported hardware operation", kind="unsupported_operation")
         if operator is None:
             if hardware_operation in {"discover", "protocol_test"}:
@@ -109,6 +109,13 @@ def _dispatch(store: EdgeStore, operation: str, params: dict[str, Any], *,
                     kind="maintenance_delegated")
             raise OperatorProtocolError("authenticated operator attribution is required", kind="unauthorized")
         body = _hardware_request(params, operator.subject)
+        if hardware_operation == "safe_stop":
+            status, result = central_dispatch("hardware_safe_stop", body, operator=operator,
+                                               hardware_broker=hardware_broker, state_root=store.root)
+            if status is not HTTPStatus.OK:
+                raise OperatorProtocolError(result.get("error", "hardware operation failed"),
+                                            kind=result.get("kind", "hardware_error"))
+            return result
         if hardware_operation == "hardware_command":
             body["operation"] = params["operation_name"]
         status, result = central_dispatch(
@@ -339,6 +346,12 @@ def _hardware_request(params: dict[str, Any], subject: str) -> dict[str, Any]:
         target = params.get("target_identity")
         if target is not None and (not isinstance(target, str) or not target):
             raise OperatorProtocolError("target_identity must be a non-empty string", kind="invalid_request")
+    elif operation == "safe_stop":
+        allowed = {"operation", "physical", "command_id", "operator"}
+        if params.get("physical") is not True:
+            raise OperatorProtocolError("physical opt-in is required", kind="unsafe")
+        if "operator" in params and params["operator"] != subject:
+            raise OperatorProtocolError("operator does not match authenticated operator", kind="unauthorized")
     elif operation == "hardware_command":
         allowed = {"operation", "operation_name", "target_identity", "parameters",
                    "controller_generation", "lease_token", "lease_owner", "physical", "command_id", "operator"}
@@ -371,6 +384,8 @@ def _hardware_request(params: dict[str, Any], subject: str) -> dict[str, Any]:
         result = {key: params[key] for key in allowed if key in params and key not in {"operator"}}
         result["lease_owner"] = subject
         return result
+    if operation == "safe_stop":
+        return {key: params[key] for key in allowed if key in params and key != "operator"}
     return dict(params)
 
 
