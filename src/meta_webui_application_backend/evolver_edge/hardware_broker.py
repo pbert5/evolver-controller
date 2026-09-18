@@ -111,6 +111,9 @@ class HardwareBroker:
         instrument = self._instrument_for_target(target_identity)
         response = self._call({"operation": "get_status", "target_identity": target_identity,
                                "operator": operator})
+        reported_identity = response.get("device_identity")
+        if reported_identity is not None and reported_identity != target_identity:
+            raise HardwareBrokerProtocolError("hardware status identity does not match target identity")
         observed_at = response.get("observed_at") or datetime.now(UTC).isoformat()
         return {"instrument_id": instrument.get("id"), "controller_id": instrument.get("controller_id"),
                 "device_identity": target_identity, "status": dict(response),
@@ -132,10 +135,17 @@ class HardwareBroker:
         response = self._call({"operation": "read_sensor", "target_identity": target_identity,
                                "parameters": {"sensor": sensor, "channel": channel},
                                "operator": operator})
+        reported_identity = response.get("device_identity")
+        if reported_identity is not None and reported_identity != target_identity:
+            raise HardwareBrokerProtocolError("sensor identity does not match target identity")
+        if "value" not in response and "raw_value" not in response:
+            raise HardwareBrokerProtocolError("sensor response is missing raw value")
         calibration = self._calibration(response)
         calibrated = calibration.get("state") in {"calibrated", "valid", "verified"} and bool(
             calibration.get("artifact_id") or calibration.get("artifact_digest"))
         raw_value = self._numeric(response.get("value", response.get("raw_value")))
+        if isinstance(raw_value, bool) or not isinstance(raw_value, (int, float)):
+            raise HardwareBrokerProtocolError("sensor response raw value is malformed")
         derived = response.get("derived_value") if calibrated else None
         vial = positions[channel] if isinstance(positions[channel], Mapping) else {}
         return {"instrument_id": instrument.get("id"), "device_identity": target_identity,
