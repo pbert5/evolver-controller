@@ -9,7 +9,7 @@ from typing import Any, Mapping
 
 import zstandard
 
-from .store import EdgeStore, EdgeStoreError, Json, _canonical, _decode
+from .store import EdgeStore, EdgeStoreError, Json, _canonical, _decode, canonical_digest
 
 
 ARCHIVE_MEMBER = "recovery.json"
@@ -124,4 +124,33 @@ def _validate(snapshot: Any) -> Mapping[str, Any]:
     controller = snapshot.get("controller", {})
     if not isinstance(controller, dict) or "credential" in controller or "credential" in controller.get("binding", {}):
         raise EdgeStoreError("recovery archive unexpectedly contains a controller credential")
+
+    # Keep all immutable-object checks in the preflight phase.  The import
+    # below deliberately uses raw SQL so that the relational portion remains
+    # one atomic operation; accepting a bad digest while doing those inserts
+    # would otherwise leave a partially restored state behind.
+    for bundle in snapshot["bundles"]:
+        if not isinstance(bundle, Mapping):
+            raise EdgeStoreError("recovery archive contains an invalid bundle")
+        supplied = bundle.get("digest")
+        if not supplied:
+            raise EdgeStoreError("recovery bundle requires a digest")
+        content = dict(bundle)
+        content.pop("digest", None)
+        if canonical_digest(content) != supplied:
+            raise EdgeStoreError("recovery bundle digest does not match canonical content")
+
+    for revision in snapshot["run_revisions"]:
+        if not isinstance(revision, Mapping):
+            raise EdgeStoreError("recovery archive contains an invalid run revision")
+        if canonical_digest(revision.get("effective_state")) != revision.get("effective_state_digest"):
+            raise EdgeStoreError("recovery run revision digest does not match canonical state")
+
+    for telemetry in snapshot["telemetry"]:
+        if not isinstance(telemetry, Mapping):
+            raise EdgeStoreError("recovery archive contains invalid telemetry")
+        content = dict(telemetry)
+        supplied = content.pop("digest", None)
+        if not supplied or canonical_digest(content) != supplied:
+            raise EdgeStoreError("recovery telemetry digest does not match canonical record")
     return snapshot

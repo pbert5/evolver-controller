@@ -18,7 +18,9 @@ from datetime import UTC, datetime
 import fcntl
 import errno
 import glob
+import hashlib
 import re
+import threading
 import time
 from pathlib import Path
 from typing import Any, Iterator, Mapping, Protocol
@@ -28,6 +30,9 @@ from uuid import uuid4
 from uuid import NAMESPACE_URL, uuid5
 
 from .store import EdgeStore, EdgeStoreError, Json, LeaseValidationError
+
+
+_SESSION_MUTEX = threading.Lock()
 
 
 HANDSHAKE = "WHO_ARE_YOU_!"
@@ -347,6 +352,28 @@ def _reply(reply: str, expected: str) -> dict[str, str]:
     return dict(item.split("=", 1) for item in parts[4].split(",") if "=" in item) if len(parts) > 4 else {}
 
 
+def _temperature_ack(reply: str, correlation: str) -> dict[str, str]:
+    """Parse only the authoritative fenced TEMP v2 acknowledgement."""
+    parts = reply.strip().split("|")
+    if len(parts) < 4 or parts[0] != "TEMP" or parts[1] != "2" or parts[2] != "ACK":
+        raise ProbeError(ProbeOutcome.MALFORMED, "invalid TEMP setpoint acknowledgement",
+                         evidence={"operation": "set_temperature", "reply": reply})
+    if parts[3] != correlation:
+        raise ProbeError(ProbeOutcome.PROTOCOL, "TEMP acknowledgement correlation mismatch",
+                         evidence={"operation": "set_temperature", "correlation": parts[3]})
+    fields: dict[str, str] = {}
+    for field in parts[4:]:
+        if "=" not in field:
+            raise ProbeError(ProbeOutcome.MALFORMED, "TEMP acknowledgement field is malformed",
+                             evidence={"operation": "set_temperature"})
+        key, value = field.split("=", 1)
+        if not key or not value or key in fields:
+            raise ProbeError(ProbeOutcome.MALFORMED, "TEMP acknowledgement field is invalid",
+                             evidence={"operation": "set_temperature"})
+        fields[key] = value
+    return {"correlation": parts[3], **fields}
+
+
 def _identity_reply(reply: str) -> DeviceIdentity:
     return parse_identity(reply)
 
@@ -406,6 +433,30 @@ def _bounded(name: str, value: Any) -> int:
     return value
 
 
+def _temperature_authority_field(value: Any, name: str, *, numeric: bool = False) -> str:
+    """Validate one field of the firmware TEMP v2 authority envelope.
+
+    The firmware parser is intentionally stricter than the JSON/typed edge
+    command boundary: correlation and wire lease are uint32 values, while
+    owner is a bounded protocol token.  The durable lease token is encoded
+    separately at the wire boundary so it remains the fencing/journal identity.
+    """
+    if not isinstance(value, str) or not value or len(value) > 31:
+        raise ValueError(f"{name} must be a non-empty protocol field")
+    if any(char in "|!\r\n" or not char.isprintable() for char in value):
+        raise ValueError(f"{name} contains a protocol delimiter")
+    if numeric and (not value.isascii() or not value.isdecimal() or int(value) <= 0
+                    or int(value) > 0xFFFFFFFF):
+        raise ValueError(f"{name} must be a positive uint32")
+    return value
+
+
+def _temperature_wire_lease(lease_token: str) -> int:
+    """Map an opaque durable lease token to firmware's uint32 wire lease."""
+    value = int(hashlib.sha256(lease_token.encode("utf-8")).hexdigest()[:8], 16)
+    return value or 1
+
+
 class ReadOnlyHardwareService:
     """One-owner physical discovery/read service with a process-wide lock.
 
@@ -423,21 +474,22 @@ class ReadOnlyHardwareService:
 
     @contextmanager
     def _session(self) -> Iterator[None]:
-        self._lock_path.touch(mode=0o600, exist_ok=True)
-        with self._lock_path.open("r+") as lock:
-            try:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError as error:
-                raise ProbeError(ProbeOutcome.BUSY, "another eVOLVER hardware service owns serial",
-                                 evidence={"operation": "lock"}, cause=error)
-            try:
-                self.transport.open()
-                yield
-            finally:
+        with _SESSION_MUTEX:
+            self._lock_path.touch(mode=0o600, exist_ok=True)
+            with self._lock_path.open("r+") as lock:
                 try:
-                    self.transport.close()
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError as error:
+                    raise ProbeError(ProbeOutcome.BUSY, "another eVOLVER hardware service owns serial",
+                                     evidence={"operation": "lock"}, cause=error)
+                try:
+                    self.transport.open()
+                    yield
                 finally:
-                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+                    try:
+                        self.transport.close()
+                    finally:
+                        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
     def _identity_with_startup_retry(self) -> DeviceIdentity:
         """Read identity with a bounded, immediate retry for USB reset startup.
@@ -493,7 +545,7 @@ class ReadOnlyHardwareService:
         instrument_id = str(uuid5(NAMESPACE_URL, f"minievolver/{identity.device_id}"))
         sleeves = _nonnegative_int(status.get("sleeves"), default=2)
         observation.update({"id": instrument_id, "controller_id": self.store.identity()["id"],
-                            "instrument_type": "minievolver", "capabilities": _capabilities(),
+                            "instrument_type": "minievolver", "capabilities": _capabilities(identity.hw_protocol, sleeves),
                             "vial_positions": [{"id": str(uuid5(NAMESPACE_URL, f"{instrument_id}/vial/{index}")),
                                                 "instrument_id": instrument_id, "position_index": index}
                                                for index in range(sleeves)]})
@@ -561,7 +613,7 @@ class HardwareService(ReadOnlyHardwareService):
 
     def _execute(self, request: HardwareCommand, frame: str, expected: str, *, actuator: bool = False,
                  retryable: bool = True) -> HardwareResult:
-        if request.operation not in {"get_status", "read_sensor", "safe_stop", "set_output", "pulse_pump", "set_stir", "pulse_heater"}:
+        if request.operation not in {"get_status", "read_sensor", "safe_stop", "set_output", "pulse_pump", "set_stir", "pulse_heater", "set_temperature"}:
             raise ValueError(f"unsupported hardware operation {request.operation}")
         effective_operator = request.operator or self.operator
         if actuator and (not (self.allow_physical or self.daemon_capable) or not effective_operator):
@@ -569,7 +621,7 @@ class HardwareService(ReadOnlyHardwareService):
         # Direct mock/developer service calls retain the historical physical
         # gate when no lease has ever been installed; once a lease exists, or
         # for every daemon IPC request, lease fencing is mandatory.
-        if actuator and (request.require_lease or self.store.meta("control_lease") is not None):
+        if actuator and request.operation != "safe_stop" and (request.require_lease or self.store.meta("control_lease") is not None):
             self.store.validate_control_lease(lease_token=request.lease_token, owner=request.lease_owner or effective_operator,
                                               generation=request.controller_generation)
         if request.timeout <= 0:
@@ -580,8 +632,11 @@ class HardwareService(ReadOnlyHardwareService):
                     identity = _identity_reply(self.transport.exchange(HANDSHAKE))
                     if not identity.provisioned or identity.device_id != request.target_identity:
                         raise HardwareUnavailableError("attached device identity does not match command target")
+                    if request.operation == "set_temperature" and identity.hw_protocol < 2:
+                        raise HardwareUnavailableError("temperature setpoint requires firmware hardware protocol v2")
                     raw = self.transport.exchange(frame)
-                fields = _reply(raw, expected)
+                fields = (_temperature_ack(raw, request.command_id)
+                          if request.operation == "set_temperature" else _reply(raw, expected))
                 return HardwareResult(request.command_id, True, raw, {**fields, "operator": effective_operator} if actuator else fields,
                                       "protocol_verified", retryable).as_json()
             except (HardwareUnavailableError, ValueError) as error:
@@ -630,6 +685,56 @@ class HardwareService(ReadOnlyHardwareService):
         if request.operation == "pulse_heater":
             duration, level = _bounded("heater_duration_ms", p.get("duration_ms")), _bounded("heater_level", p.get("level"))
             return self._execute(request, f"HW_PULSE_HEATER,{channel},{duration},{level}_!", "PULSE_HEATER", actuator=True, retryable=False)
+        if request.operation == "set_temperature":
+            instrument = next((item for item in self.store.list_instruments()
+                               if item.get("device_identity") == request.target_identity), None)
+            if not isinstance(instrument, Mapping):
+                raise ValueError("temperature target device is not in durable inventory")
+            capabilities = instrument.get("capabilities")
+            temperature_capability = capabilities.get("temperature_setpoint") if isinstance(capabilities, Mapping) else None
+            if (not isinstance(temperature_capability, Mapping)
+                    or temperature_capability.get("supported") is not True
+                    or temperature_capability.get("protocol_version") != 2):
+                raise ValueError("temperature setpoint requires a supported firmware v2 capability")
+            supported_channels = temperature_capability.get("supported_channels")
+            if supported_channels is None:
+                count = temperature_capability.get("channels")
+                supported_channels = list(range(count)) if isinstance(count, int) and not isinstance(count, bool) and count >= 0 else None
+            if (not isinstance(supported_channels, (list, tuple, set))
+                    or any(isinstance(item, bool) or not isinstance(item, int) for item in supported_channels)
+                    or any(item < 0 or item > 1 for item in supported_channels)
+                    or channel not in supported_channels):
+                raise ValueError("temperature channel is not supported by firmware capability")
+            raw = p.get("raw_target_adc")
+            temperature = p.get("temperature_c")
+            calibration = p.get("calibration")
+            if (isinstance(raw, bool) or not isinstance(raw, int) or not 1 <= raw <= 65535
+                    or isinstance(temperature, bool) or not isinstance(temperature, (int, float))
+                    or not 0 <= float(temperature) <= 100 or not isinstance(calibration, Mapping)):
+                raise ValueError("temperature setpoint payload is invalid")
+            try:
+                if calibration["calibration_fingerprint"] != calibration["artifact_digest"]:
+                    raise ValueError("temperature calibration fingerprint mismatch")
+                for field in ("instrument_id", "vial_position_id", "calibration_type", "method", "method_version"):
+                    if not isinstance(calibration[field], str) or not calibration[field]:
+                        raise ValueError("temperature calibration identity is incomplete")
+                if not isinstance(calibration["hardware_fingerprint"], Mapping) or not calibration["hardware_fingerprint"]:
+                    raise ValueError("temperature hardware fingerprint is required")
+                if calibration["status"] != "valid":
+                    raise ValueError("temperature calibration is not valid")
+                reference_min, reference_max = float(calibration["reference_min"]), float(calibration["reference_max"])
+                raw_min, raw_max = int(calibration["raw_min"]), int(calibration["raw_max"])
+            except (KeyError, TypeError, ValueError) as error:
+                raise ValueError("temperature calibration bounds are invalid") from error
+            if not reference_min <= float(temperature) <= reference_max or not raw_min <= raw <= raw_max:
+                raise ValueError("temperature target is outside calibration bounds")
+            correlation = _temperature_authority_field(request.command_id, "correlation", numeric=True)
+            owner = _temperature_authority_field(request.lease_owner or effective_operator, "owner")
+            lease_token = _temperature_authority_field(request.lease_token, "lease")
+            lease = str(_temperature_wire_lease(lease_token))
+            generation = _temperature_authority_field(str(request.controller_generation), "generation", numeric=True)
+            frame = f"TEMP|2|SET|{correlation}|{channel}|{raw}|{owner}|{lease}|{generation}_!"
+            return self._execute(request, frame, "TEMP", actuator=True, retryable=True)
         raise ValueError(f"unsupported hardware operation {request.operation}")
 
     def command(self, operation: str, target_identity: str, parameters: Mapping[str, Any], **context: Any) -> HardwareResult:
@@ -639,7 +744,7 @@ class HardwareService(ReadOnlyHardwareService):
             # carry its current generation so the store can fence them. An
             # explicit generation is left untouched for normal stale checks.
             context["controller_generation"] = binding.get("generation", 0) if isinstance(binding, dict) else 0
-            if operation in {"safe_stop", "set_output", "pulse_pump", "set_stir", "pulse_heater"}:
+            if operation in {"safe_stop", "set_output", "pulse_pump", "set_stir", "pulse_heater", "set_temperature"}:
                 if (self.allow_physical or self.daemon_capable) and self.operator and (
                         not isinstance(binding, dict) or not isinstance(binding.get("generation"), int) or binding["generation"] <= 0):
                     raise EdgeStoreError("physical actuation requires an active positive controller generation")
@@ -730,7 +835,7 @@ def _nonnegative_int(value: str | None, *, default: int) -> int:
         return default
 
 
-def _capabilities() -> Json:
+def _capabilities(hw_protocol: int = 2, temperature_channels: int = 0) -> Json:
     # The firmware protocol supports these operations, but no physical
     # actuation was performed during repository validation.  ``enabled``
     # therefore remains false until an operator supplies physical evidence.
@@ -746,21 +851,25 @@ def _capabilities() -> Json:
                              "duration_ms": {"minimum": 1, "maximum": 1000}},
             "heater_control": {"verification": "not_tested", "enabled": False, "supported": True,
                                "mode": "output_pulse", "temperature_setpoint": {"supported": False, "reason": "firmware commissioning protocol exposes heater output, not a target"}},
-            "temperature_setpoint": {"supported": False, "reason": "firmware does not expose a temperature-setpoint operation"},
+            "temperature_setpoint": {"supported": hw_protocol >= 2, "protocol_version": hw_protocol,
+                                      "supported_channels": list(range(max(0, temperature_channels))),
+                                      "raw_target_adc": {"minimum": 1, "maximum": 65535},
+                                      "firmware_pid_ceiling": 64,
+                                      "calibration": "per_vial_immutable"},
             "safe_stop": {"supported": True, "enabled": False, "scope": "all_outputs"}}
 
 
 def validate_device_operation(operation: str, parameters: Mapping[str, Any]) -> None:
     """Reject unsupported actuator semantics before identity/serial I/O."""
-    if operation not in {"get_status", "read_sensor", "safe_stop", "set_output", "pulse_pump", "set_stir", "pulse_heater"}:
+    if operation not in {"get_status", "read_sensor", "safe_stop", "set_output", "pulse_pump", "set_stir", "pulse_heater", "set_temperature"}:
         raise ValueError(f"unsupported device operation {operation}")
     if operation == "pulse_pump" and parameters.get("direction", "forward") != "forward":
         raise ValueError("reverse pumping is unsupported by verified firmware")
-    if operation in {"read_sensor", "set_output", "pulse_pump", "pulse_heater"}:
+    if operation in {"read_sensor", "set_output", "pulse_pump", "pulse_heater", "set_temperature"}:
         channel = parameters.get("channel")
         if isinstance(channel, bool) or not isinstance(channel, int):
             raise ValueError("channel must be an integer")
-        high = 5 if operation == "pulse_pump" else 1
+        high = 5 if operation in {"pulse_pump", "set_temperature"} else 1
         if not 0 <= channel <= high:
             raise ValueError(f"channel must be between 0 and {high}")
     if operation == "set_stir":
