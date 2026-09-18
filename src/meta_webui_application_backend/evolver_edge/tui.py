@@ -102,7 +102,7 @@ def create_app(*, source: TuiSource, workflow_host: Any | None = None,
     _require_view(initial_view)
     try:
         from textual.app import App, ComposeResult
-        from textual.widgets import Footer, Header, Static
+        from textual.widgets import Footer, Header, Input, Static, TabbedContent, TabPane
     except (ImportError, ModuleNotFoundError) as error:
         raise TUIUnavailableError("the controller TUI is unavailable; install evoctl[tui]") from error
 
@@ -115,6 +115,7 @@ def create_app(*, source: TuiSource, workflow_host: Any | None = None,
             ("ctrl+]", "next_view", "Next view"),
             ("r", "refresh_view", "Refresh"),
             ("?", "show_help", "Help"),
+            ("ctrl+n", "new_workflow", "New workflow"),
         ]
         CSS = """
         #navigation { height: 3; padding: 1; border: solid $surface; }
@@ -131,22 +132,35 @@ def create_app(*, source: TuiSource, workflow_host: Any | None = None,
             self.view_names = VIEW_NAMES
             self.last_good: dict[str, Mapping[str, Any]] = {}
             self.section_errors: dict[str, str] = {}
+            self.last_error: str | None = None
             self._refresh_requested = 0
             self._refresh_completed = 0
             self._refresh_running = False
             self._workflow_workspace = None
+            self.workspace = None
 
         def compose(self) -> ComposeResult:
             yield Header(show_clock=False)
             yield Static("", id="navigation")
             yield Static("", id="status")
             yield Static("", id="content")
+            if workflow_host is not None:
+                yield Input(placeholder="Search workflows", id="workflow-search")
+                with TabbedContent(id="representations"):
+                    for mode in ("Step", "Action", "API", "CLI", "Raw"):
+                        with TabPane(mode, id=f"representation-{mode.lower()}"):
+                            yield Static("", id=f"representation-value-{mode.lower()}")
+                with TabbedContent(id="drawer-tabs"):
+                    for view in ("Info", "Inputs", "Safety", "Evidence", "Outputs", "Events"):
+                        with TabPane(view, id=f"drawer-{view.lower()}"):
+                            yield Static("", id=f"drawer-value-{view.lower()}")
             yield Footer()
 
         def on_mount(self) -> None:
             if self.workflow_host is not None:
                 from .workflow_tui import WorkflowWorkspace
                 self._workflow_workspace = WorkflowWorkspace(self.workflow_host)
+                self.workspace = self._workflow_workspace
             self.run_worker(self.refresh_view())
 
         def _render_navigation(self) -> None:
@@ -171,6 +185,12 @@ def create_app(*, source: TuiSource, workflow_host: Any | None = None,
                         "procedures": snapshot.procedures,
                         "representations": snapshot.representations,
                         "drawer": snapshot.drawer}
+                for mode in ("Step", "Action", "API", "CLI", "Raw"):
+                    self.query_one(f"#representation-value-{mode.lower()}", Static).update(
+                        _format(snapshot.representations.get(mode, "Not available")))
+                for view in ("Info", "Inputs", "Safety", "Evidence", "Outputs", "Events"):
+                    self.query_one(f"#drawer-value-{view.lower()}", Static).update(
+                        _format(snapshot.drawer.get(view, "Not available")))
             self.query_one("#content", Static).update(_format(data))
 
         async def refresh_view(self) -> None:
@@ -182,11 +202,13 @@ def create_app(*, source: TuiSource, workflow_host: Any | None = None,
                 while self._refresh_completed < self._refresh_requested:
                     requested = self._refresh_requested
                     try:
-                        data = await asyncio.to_thread(self.source.read, self.current_view)
+                        data = await asyncio.to_thread(self._read_source, self.current_view)
                         self.last_good[self.current_view] = data
                         self.section_errors.pop(self.current_view, None)
+                        self.last_error = None
                     except Exception as error:
                         self.section_errors[self.current_view] = str(error)
+                        self.last_error = str(error)
                         data = self.last_good.get(self.current_view, {"unavailable": str(error)})
                     self._refresh_completed = requested
                     self._render(data)
@@ -205,11 +227,33 @@ def create_app(*, source: TuiSource, workflow_host: Any | None = None,
             self._move(-1)
 
         def action_next_view(self) -> None:
-            if self.current_view == "workflows" and self._workflow_workspace is not None:
-                self._workflow_workspace.cycle_tab(1)
-                self.run_worker(self.refresh_view())
-                return
             self._move(1)
+
+        def _read_source(self, view: str) -> Mapping[str, Any]:
+            """Accept the typed read seam and the reviewed request-level fixture seam."""
+            read = getattr(self.source, "read", None)
+            if callable(read):
+                return read(view)
+            request = getattr(self.source, "request", None)
+            if not callable(request):
+                raise TypeError("TUI source must provide read(view) or request(operation)")
+            operation = {
+                "overview": "status", "controllers": "controllers", "instruments": "instruments",
+                "runs": "runs", "recovery": "recovery", "maintenance": "maintenance",
+                "workflows": "status",
+            }[view]
+            return {view: request(operation)}
+
+        def action_new_workflow(self) -> None:
+            if self.workspace is None:
+                return
+            workflows = self.workspace.workflows()
+            if workflows:
+                workflow_id = getattr(workflows[0], "id", None)
+                if workflow_id is None and isinstance(workflows[0], Mapping):
+                    workflow_id = workflows[0].get("id", "")
+                self.workspace.open_workflow(str(workflow_id or ""))
+                self.run_worker(self.refresh_view())
 
         def action_refresh_view(self) -> None:
             self.run_worker(self.refresh_view())
