@@ -200,16 +200,16 @@ def test_physical_sink_fake_integration_emits_exact_temp_v2_payload_without_real
             "instrument": INSTRUMENT,
         }, command_id="123", run_id="run-a", run_revision=0, bundle_id="bundle-a",
            state="running", instrument_id="instrument-1", controller_generation=7,
-           lease_token="17", lease_owner="operator")
+           lease_token="lease-17", lease_owner="operator")
         # The fake store only needs the same durable lease contract as the real edge.
-        store.set_control_lease(lease_token="17", owner="operator", generation=7,
+        store.set_control_lease(lease_token="lease-17", owner="operator", generation=7,
                                 expires_at="2099-01-01T00:00:00+00:00")
         result = HardwareDeviceCommandSink(store, service).send(command)
         assert result["request_accepted"] is True
-        assert "TEMP|2|SET|123|2|20|operator|17|7_!" in transport.commands
+        assert "TEMP|2|SET|123|2|20|operator|3867484488|7_!" in transport.commands
         replay = HardwareDeviceCommandSink(store, service).send(command)
         assert replay["request_accepted"] is True
-        assert transport.commands.count("TEMP|2|SET|123|2|20|operator|17|7_!") == 1
+        assert transport.commands.count("TEMP|2|SET|123|2|20|operator|3867484488|7_!") == 1
 
 
 def test_physical_sink_rejects_stale_generation_before_fake_io(tmp_path):
@@ -233,7 +233,7 @@ def test_physical_sink_rejects_stale_generation_before_fake_io(tmp_path):
 
 @pytest.mark.parametrize("field, value", [
     ("command_id", "temp-wire"),
-    ("lease_token", "lease"),
+    ("lease_token", "bad|lease"),
     ("lease_owner", "different-owner"),
 ])
 def test_physical_sink_rejects_non_firmware_authority_fields_before_fake_io(tmp_path, field, value):

@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 import fcntl
 import errno
 import glob
+import hashlib
 import re
 import threading
 import time
@@ -414,10 +415,9 @@ def _temperature_authority_field(value: Any, name: str, *, numeric: bool = False
     """Validate one field of the firmware TEMP v2 authority envelope.
 
     The firmware parser is intentionally stricter than the JSON/typed edge
-    command boundary: correlation and lease are uint32 values, while owner is
-    a bounded protocol token.  Do not stringify or hash values here; changing
-    an authority value would turn a stale/replayed command into a different
-    command at the physical boundary.
+    command boundary: correlation and wire lease are uint32 values, while
+    owner is a bounded protocol token.  The durable lease token is encoded
+    separately at the wire boundary so it remains the fencing/journal identity.
     """
     if not isinstance(value, str) or not value or len(value) > 31:
         raise ValueError(f"{name} must be a non-empty protocol field")
@@ -427,6 +427,12 @@ def _temperature_authority_field(value: Any, name: str, *, numeric: bool = False
                     or int(value) > 0xFFFFFFFF):
         raise ValueError(f"{name} must be a positive uint32")
     return value
+
+
+def _temperature_wire_lease(lease_token: str) -> int:
+    """Map an opaque durable lease token to firmware's uint32 wire lease."""
+    value = int(hashlib.sha256(lease_token.encode("utf-8")).hexdigest()[:8], 16)
+    return value or 1
 
 
 class ReadOnlyHardwareService:
@@ -671,7 +677,8 @@ class HardwareService(ReadOnlyHardwareService):
                 raise ValueError("temperature target is outside calibration bounds")
             correlation = _temperature_authority_field(request.command_id, "correlation", numeric=True)
             owner = _temperature_authority_field(request.lease_owner or effective_operator, "owner")
-            lease = _temperature_authority_field(request.lease_token, "lease", numeric=True)
+            lease_token = _temperature_authority_field(request.lease_token, "lease")
+            lease = str(_temperature_wire_lease(lease_token))
             generation = _temperature_authority_field(str(request.controller_generation), "generation", numeric=True)
             frame = f"TEMP|2|SET|{correlation}|{channel}|{raw}|{owner}|{lease}|{generation}_!"
             return self._execute(request, frame, "TEMP", actuator=True, retryable=True)
