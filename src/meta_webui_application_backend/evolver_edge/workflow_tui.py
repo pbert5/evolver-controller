@@ -52,6 +52,17 @@ def semantic_status(status: str, *, attention: tuple[str, ...] = (), domain: str
     return " ".join(parts)
 
 
+def semantic_copy(value: Any) -> str:
+    """Return stable plain text for Ctrl+Shift+C and SSH/headless use."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, Mapping):
+        return "\n".join(f"{key}: {semantic_copy(item)}" for key, item in value.items())
+    if isinstance(value, (list, tuple)):
+        return "\n".join(semantic_copy(item) for item in value)
+    return str(value)
+
+
 @dataclass(frozen=True)
 class WorkflowSnapshot:
     workflow_id: str
@@ -240,6 +251,13 @@ class WorkflowWorkspace:
     def inspector(self, mode: str | None = None) -> Any:
         return self.current.snapshot.representations.get(mode or self.representation, "Not available")
 
+    def toggle_drawer(self) -> bool:
+        self.drawer_open = not self.drawer_open
+        return self.drawer_open
+
+    def copy_focused(self, value: Any | None = None) -> str:
+        return semantic_copy(self.inspector() if value is None else value)
+
     def _tab(self, tab_id: str) -> WorkflowTab:
         return next(tab for tab in self.tabs if tab.tab_id == tab_id)
 
@@ -294,9 +312,10 @@ def run_textual(host: WorkflowHostLike) -> int:
                 yield ListView(id="procedure", classes="pane")
                 with Vertical(classes="pane"):
                     yield Static("", id="session")
-                    with TabbedContent("Step", "Action", "API", "CLI", "Raw", id="representations"):
+                    with TabbedContent(id="representations"):
                         for mode in ("Step", "Action", "API", "CLI", "Raw"):
-                            yield TabPane(Static(""), title=mode, id=f"representation-{mode.lower()}")
+                            with TabPane(mode, id=f"representation-{mode.lower()}"):
+                                yield Static("", id=f"representation-value-{mode.lower()}")
             yield Static("", id="drawer")
             yield Footer()
 
@@ -307,8 +326,27 @@ def run_textual(host: WorkflowHostLike) -> int:
             tabs = "  ".join(f"[{tab.snapshot.status_glyph} {tab.snapshot.title}]" for tab in self.workspace.tabs)
             self.query_one("#top-tabs", Static).update(tabs)
             tab = self.workspace.current
+            library = self.query_one("#library", ListView)
+            library.clear()
+            if tab.tab_id == "library":
+                for item in self.workspace.workflows():
+                    workflow_id = _field(item, "id", "")
+                    library.append(ListItem(Label(f"○ {_field(item, 'title', workflow_id)}"), id=f"workflow-{workflow_id}"))
+            else:
+                library.append(ListItem(Label(f"{tab.snapshot.status_glyph} {tab.snapshot.title}")))
+            procedure = self.query_one("#procedure", ListView)
+            procedure.clear()
+            if tab.tab_id == "library":
+                procedure.append(ListItem(Label("Select a workflow")))
+            else:
+                procedure.append(ListItem(Label("○ Initial Parameters")))
+                for procedure_data in tab.snapshot.procedures:
+                    procedure.append(ListItem(Label(f"{procedure_data.get('status', '○')} {procedure_data.get('title', procedure_data.get('id', 'Procedure'))}")))
             self.query_one("#session", Static).update(f"{tab.snapshot.status_glyph} {tab.snapshot.title}\n{tab.snapshot.progress}  lease={tab.snapshot.lease}")
-            self.query_one("#drawer", Static).update("Drawer: " + ("open" if self.workspace.drawer_open else "collapsed"))
+            for mode in ("Step", "Action", "API", "CLI", "Raw"):
+                self.query_one(f"#representation-value-{mode.lower()}", Static).update(semantic_copy(tab.snapshot.representations.get(mode, "Not available")))
+            drawer = tab.snapshot.drawer if self.workspace.drawer_open else {}
+            self.query_one("#drawer", Static).update(("Drawer: open\n" + semantic_copy(drawer)) if drawer else "Drawer: collapsed")
 
         def action_previous_tab(self) -> None:
             self.workspace.cycle_tab(-1); self.refresh_view()
@@ -320,7 +358,13 @@ def run_textual(host: WorkflowHostLike) -> int:
             values = self.workspace.workflows()
             if values:
                 item = values[0]
-                self.workspace.open_workflow(getattr(item, "id", None) or item["id"])
+                self.workspace.open_workflow(_field(item, "id"))
+                self.refresh_view()
+
+        def on_list_view_selected(self, event: Any) -> None:
+            item_id = getattr(event.item, "id", "") or ""
+            if item_id.startswith("workflow-"):
+                self.workspace.open_workflow(item_id.removeprefix("workflow-"))
                 self.refresh_view()
 
         def action_close_workflow(self) -> None:
