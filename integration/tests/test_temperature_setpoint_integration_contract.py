@@ -11,7 +11,7 @@ def test_reviewed_component_heads_are_pinned_exactly() -> None:
     contract = (ROOT / "docs/temperature-setpoint-integration.md").read_text()
     assert "83483cda621a2e913ad778ae62294872084a507a" in contract
     assert "78a17ebf90b64fea394a05a670ce6b58820fa377" in contract
-    assert "a28fa191190bb0ae05c6556adab18afe90e248d7" in contract
+    assert "c9b1eb24e35a52f4f328793b3b4891a314b6ba25" in contract
     try:
         controller = subprocess.check_output(
             ["git", "rev-parse", "HEAD:evolver/evolver-controller"],
@@ -23,7 +23,7 @@ def test_reviewed_component_heads_are_pinned_exactly() -> None:
         ).strip()
     except subprocess.CalledProcessError:
         pytest.skip("container mount does not expose the worktree git metadata")
-    assert controller == "a28fa191190bb0ae05c6556adab18afe90e248d7"
+    assert controller == "c9b1eb24e35a52f4f328793b3b4891a314b6ba25"
     assert hardware == "78a17ebf90b64fea394a05a670ce6b58820fa377"
 
 
