@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from datetime import UTC, datetime
 from typing import Any, Callable, Mapping
 from uuid import uuid4
 
@@ -73,6 +74,78 @@ class HardwareBroker:
         if target_identity is not None and result.get("device_identity") not in {None, target_identity}:
             raise HardwareBrokerProtocolError("protocol test target identity mismatch")
         return result
+
+    def _instrument_for_target(self, target_identity: str) -> dict[str, Any]:
+        if self.store is None:
+            raise ValueError("controller inventory is required for instrument reads")
+        self._require_target(target_identity)
+        instrument = next(item for item in self.store.list_instruments()
+                          if item.get("device_identity") == target_identity)
+        return instrument
+
+    @staticmethod
+    def _calibration(response: Mapping[str, Any]) -> dict[str, Any]:
+        calibration = response.get("calibration")
+        if isinstance(calibration, Mapping):
+            result = dict(calibration)
+        else:
+            result = {}
+        state = result.get("state") or response.get("calibration_state") or "not_calibrated"
+        result["state"] = state
+        result.setdefault("artifact_id", response.get("calibration_artifact_id"))
+        result.setdefault("artifact_digest", response.get("calibration_artifact_digest"))
+        return result
+
+    @staticmethod
+    def _numeric(value: Any) -> Any:
+        if isinstance(value, str):
+            try:
+                return float(value) if "." in value else int(value)
+            except ValueError:
+                return value
+        return value
+
+    def status(self, *, operator: str, target_identity: str) -> dict[str, Any]:
+        """Read current device status through the private hardware IPC."""
+        self._require_operator(operator)
+        instrument = self._instrument_for_target(target_identity)
+        response = self._call({"operation": "get_status", "target_identity": target_identity,
+                               "operator": operator})
+        observed_at = response.get("observed_at") or datetime.now(UTC).isoformat()
+        return {"instrument_id": instrument.get("id"), "controller_id": instrument.get("controller_id"),
+                "device_identity": target_identity, "status": dict(response),
+                "observed_at": observed_at, "freshness": "fresh", "source": "hardware_ipc",
+                "evidence_level": response.get("verification", "protocol_verified"),
+                "calibration": self._calibration(response)}
+
+    def read_sensor(self, *, operator: str, target_identity: str, sensor: str, channel: int) -> dict[str, Any]:
+        """Acquire one raw temperature/OD observation without actuating."""
+        self._require_operator(operator)
+        instrument = self._instrument_for_target(target_identity)
+        if sensor not in {"temperature", "od"}:
+            raise ValueError("sensor must be temperature or od")
+        if isinstance(channel, bool) or not isinstance(channel, int) or channel < 0:
+            raise ValueError("channel must be a non-negative integer")
+        positions = instrument.get("vial_positions", [])
+        if channel >= len(positions):
+            raise ValueError("channel is not registered for target instrument")
+        response = self._call({"operation": "read_sensor", "target_identity": target_identity,
+                               "parameters": {"sensor": sensor, "channel": channel},
+                               "operator": operator})
+        calibration = self._calibration(response)
+        calibrated = calibration.get("state") in {"calibrated", "valid", "verified"} and bool(
+            calibration.get("artifact_id") or calibration.get("artifact_digest"))
+        raw_value = self._numeric(response.get("value", response.get("raw_value")))
+        derived = response.get("derived_value") if calibrated else None
+        vial = positions[channel] if isinstance(positions[channel], Mapping) else {}
+        return {"instrument_id": instrument.get("id"), "device_identity": target_identity,
+                "controller_id": instrument.get("controller_id"),
+                "vial_position_id": vial.get("id"), "sensor": sensor, "channel": channel,
+                "raw_metric": response.get("metric") or f"{sensor}_raw", "raw_value": raw_value,
+                "derived_value": derived, "unit": response.get("unit", "ADC"),
+                "observed_at": response.get("observed_at") or datetime.now(UTC).isoformat(),
+                "freshness": "fresh", "source": "hardware_ipc", "calibration": calibration,
+                "evidence_level": response.get("verification", "protocol_verified")}
 
     def command(self, operation: str, *, operator: str, target_identity: str,
                 parameters: Mapping[str, Any], lease_token: str | None = None,
