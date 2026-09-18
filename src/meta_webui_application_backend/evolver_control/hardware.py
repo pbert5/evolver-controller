@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Any, Callable, Mapping
+from uuid import uuid4
 
 from ..evolver_edge.hardware import ACTUATOR_BOUNDS, validate_device_operation
 from ..evolver_edge.hardware_ipc import DEFAULT_SOCKET, request as ipc_request
@@ -117,10 +118,11 @@ class HardwareBroker:
         generation = binding.get("generation")
         if isinstance(generation, bool) or not isinstance(generation, int) or generation <= 0:
             raise PermissionError("active positive controller generation is required")
+        command_id = command_id or f"safe-stop-{uuid4()}"
         results = []
         for index, instrument in enumerate(self.store.list_instruments()):
             device_identity = instrument.get("device_identity")
-            item_id = f"{command_id or 'safe-stop'}:{index}"
+            item_id = f"{command_id}:{index}"
             if not isinstance(device_identity, str) or not device_identity:
                 results.append({"command_id": item_id, "request_accepted": False,
                                 "verification": "unverified",
@@ -134,5 +136,5 @@ class HardwareBroker:
                 results.append({"command_id": item_id, "request_accepted": False,
                                 "verification": "unverified", "error": str(error)})
         accepted = bool(results) and all(item.get("request_accepted", False) for item in results)
-        return {"command_id": command_id or "safe-stop", "request_accepted": accepted,
+        return {"command_id": command_id, "request_accepted": accepted,
                 "verification": "protocol_verified" if accepted else "unverified", "results": results}

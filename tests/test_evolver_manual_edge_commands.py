@@ -198,15 +198,18 @@ def test_ipc_safe_stop_attempts_every_registered_instrument_and_reports_partial_
                 "verification": "protocol_verified"}
 
     try:
-        sink = HardwareIPCDeviceCommandSink(store, "/run/test-hardware.sock", request=ipc_request)
-        result = sink.send({"schema_version": "evolver.device.v2", "command_id": "safe-stop",
-                            "operation": "safe_stop", "parameters": {},
-                            "context": {"controller_generation": 4, "operator": "alice"}})
+        executor = ManualCommandExecutor(store, HardwareIPCDeviceCommandSink(
+            store, "/run/test-hardware.sock", request=ipc_request), _clock)
+        result = executor.execute({"schema_version": "evolver.device.v2", "command_id": "safe-stop",
+                                   "operation": "safe_stop", "requested_by": "alice",
+                                   "controller_generation": 4, "expires_at": "2030-01-01T00:00:30+00:00",
+                                   "parameters": {}})
         assert {item["target_identity"] for item in requests} == {"device", "device-2"}
-        assert result["request_accepted"] is False
-        assert result["verification"] == "unverified"
-        assert len(result["results"]) == 2
-        assert any(item.get("error") for item in result["results"])
+        assert result["disposition"] == "partial"
+        assert result["result"]["request_accepted"] is False
+        assert result["result"]["verification"] == "unverified"
+        assert len(result["result"]["results"]) == 2
+        assert any(item.get("error") for item in result["result"]["results"])
     finally:
         store.close()
 

@@ -137,7 +137,9 @@ class ManualCommandExecutor:
             result = dict(self.sink.send(typed))
         except Exception as error:
             return {"command_id": command_id, "disposition": "failed", "reason": str(error)}
-        return {"command_id": command_id, "disposition": "completed", "result": result}
+        accepted = result.get("request_accepted", True)
+        disposition = "completed" if accepted else ("partial" if operation == "safe_stop" else "failed")
+        return {"command_id": command_id, "disposition": disposition, "result": result}
 
 
 def _int(value: Any, name: str, low: int, high: int) -> int:
