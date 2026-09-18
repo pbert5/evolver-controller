@@ -7,6 +7,8 @@ injected by the host application.
 """
 from __future__ import annotations
 
+import json
+import shlex
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Mapping, Protocol
@@ -577,8 +579,11 @@ class WorkflowHost:
         raw = {"id": action_id, "version": version, "parameters": params}
         api = {"route": availability.route, "action_id": action_id, "version": version,
                "target": self.target.identity, "parameters": params}
-        cli = ("Not applicable: evoctl has no canonical action subcommand"
-               if availability.route else None)
+        cli = None
+        if availability.route:
+            cli = f"evoctl action run {action_id} --target {shlex.quote(self.target.identity)}"
+            if params:
+                cli += f" --parameters {shlex.quote(json.dumps(params, sort_keys=True, separators=(',', ':')))}"
         return ActionProjection(dict(step), {"id": action_id, "version": version}, api, cli, raw, availability)
 
     def project_stage_instances(self, session: WorkflowSession, stage_id: str) -> StageInstanceProjection:
