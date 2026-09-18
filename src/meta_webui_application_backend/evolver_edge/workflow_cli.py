@@ -13,7 +13,8 @@ from typing import Any, Callable, Mapping
 
 from evolver_procedure_runtime import WorkflowDefinition, WorkflowLibrary, WorkflowState, compile_procedure
 
-from .workflow_host import HostContext, TargetKind, TargetProjection, WorkflowHost, operator_safe_stop_authority
+from .workflow_host import (HostContext, TargetKind, TargetProjection, WorkflowHost,
+                             coerce_input, operator_safe_stop_authority)
 
 _SENSITIVE = ("token", "secret", "password", "credential", "authorization", "private_key", "api_key")
 _MAX_STRING = 512
@@ -327,22 +328,7 @@ class WorkflowCLI:
 
     @staticmethod
     def _coerce_input(raw: str, schema: Mapping[str, Any]) -> Any:
-        expected = schema.get("type")
-        try:
-            if expected == "integer":
-                return int(raw)
-            if expected == "number":
-                return float(raw)
-            if expected == "boolean":
-                lowered = raw.strip().casefold()
-                if lowered in {"true", "yes", "y", "1"}:
-                    return True
-                if lowered in {"false", "no", "n", "0"}:
-                    return False
-                raise ValueError("boolean value must be true or false")
-        except (TypeError, ValueError) as error:
-            raise ValueError(f"invalid {expected} value: {raw}") from error
-        return raw
+        return coerce_input(raw, schema)
 
     @staticmethod
     def _session_id(session: Any) -> str:

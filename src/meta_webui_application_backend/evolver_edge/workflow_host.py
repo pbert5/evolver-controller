@@ -26,6 +26,7 @@ from evolver_procedure_runtime import (
     WorkflowSession,
     WorkflowState,
     WorkflowError,
+    SessionState,
 )
 
 from .operator import OperatorClient, OperatorError
@@ -129,6 +130,40 @@ class CheckpointWriter(Protocol):
 
 class SafeStopAuthority(Protocol):
     def __call__(self, *, target: TargetProjection, context: HostContext, command_id: str) -> Mapping[str, Any]: ...
+
+
+def coerce_input(raw: Any, schema: Mapping[str, Any]) -> Any:
+    """Canonical bounded conversion for CLI and rendered operator inputs."""
+    expected = schema.get("type")
+    if not isinstance(raw, str):
+        value = raw
+    elif expected == "integer":
+        try:
+            value = int(raw.strip())
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"invalid integer value: {raw}") from error
+    elif expected == "number":
+        try:
+            value = float(raw.strip())
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"invalid number value: {raw}") from error
+    elif expected == "boolean":
+        lowered = raw.strip().casefold()
+        if lowered in {"true", "yes", "y", "1"}:
+            value = True
+        elif lowered in {"false", "no", "n", "0"}:
+            value = False
+        else:
+            raise ValueError(f"boolean value must be true or false: {raw}")
+    else:
+        value = raw
+    if "values" in schema and value not in schema["values"]:
+        raise ValueError(f"invalid value: {value}")
+    if "minimum" in schema and value < schema["minimum"]:
+        raise ValueError(f"value is below minimum: {value}")
+    if "maximum" in schema and value > schema["maximum"]:
+        raise ValueError(f"value is above maximum: {value}")
+    return value
 
 
 def operator_safe_stop_authority(client: OperatorClient) -> SafeStopAuthority:
@@ -338,6 +373,125 @@ class WorkflowHost:
 
     def new_session(self, definition: WorkflowDefinition) -> WorkflowSession:
         return WorkflowSession(definition, ProcedureEngine(self.invoker), self.procedures)
+
+    @staticmethod
+    def coerce_input(raw: Any, schema: Mapping[str, Any]) -> Any:
+        """Use the CLI's bounded textual input contract for rendered forms."""
+        return coerce_input(raw, schema)
+
+    def coerce_session_input(self, session: WorkflowSession, name: str, raw: Any) -> Any:
+        """Coerce a UI value using the active procedure parameter schema."""
+        if session.active_stage_id and session.active_instance_id:
+            instance = next(item for item in session.instances[session.active_stage_id]
+                            if item.id == session.active_instance_id)
+            schema = instance.procedure_session.procedure.parameters.get(name, {})
+            if isinstance(schema, Mapping):
+                return self.coerce_input(raw, schema)
+        schema = session.definition.parameters.get(name, {})
+        return self.coerce_input(raw, schema if isinstance(schema, Mapping) else {})
+
+    def can_abort(self, session: WorkflowSession) -> bool:
+        """Report whether the active runtime has an authorized safe abort path."""
+        if session.state in {WorkflowState.CREATED, WorkflowState.SUCCEEDED,
+                             WorkflowState.FAILED, WorkflowState.ABORTED}:
+            return True
+        if not session.active_stage_id or not session.active_instance_id:
+            return False
+        instance = next(item for item in session.instances[session.active_stage_id]
+                        if item.id == session.active_instance_id)
+        return all(self.invoker.availability(action).classification not in {
+            Availability.UNSUPPORTED, Availability.BLOCKED_DEPENDENCY,
+        } for action in instance.procedure_session.procedure.abort_actions)
+
+    def project_session_for_ui(self, session: WorkflowSession) -> Mapping[str, Any]:
+        """Build the authoritative rich session projection consumed by renderers."""
+        active_stage = session.active_stage_id
+        active_instance = session.active_instance_id
+        stages: list[dict[str, Any]] = []
+        selected_step = None
+        representations: Mapping[str, Any] = {}
+        correction: dict[str, Any] = {}
+        history: list[Mapping[str, Any]] = []
+        for stage in session.definition.stages:
+            stage_projection = self.project_stage_instances(session, stage.id)
+            stage_data: dict[str, Any] = {
+                "id": stage.id, "title": stage_projection.title,
+                "cardinality": stage_projection.cardinality, "can_add": stage_projection.can_add,
+                "status": "CURRENT" if stage.id == active_stage else "READY",
+                "parameters": [{"name": item.name, "type": item.schema.get("type"),
+                                "required": item.required, **dict(item.schema)}
+                               for item in stage_projection.parameters],
+                "instances": [], "steps": [],
+            }
+            for item in session.instances[stage.id]:
+                procedure_session = item.procedure_session
+                current = procedure_session.current_step_id
+                attempts = procedure_session.attempt_history
+                attempt_by_step = {attempt.step_id: attempt for attempt in attempts}
+                steps: list[dict[str, Any]] = []
+                for step in procedure_session.procedure.steps:
+                    attempt = attempt_by_step.get(step.id)
+                    status = "CURRENT" if item.id == active_instance and step.id == current else "READY"
+                    if attempt and attempt.status in {"stale", "superseded"}:
+                        status = attempt.status.upper()
+                    elif attempt and attempt.status == "completed":
+                        status = "COMPLETED"
+                    if item.id == active_instance and step.id == current and session.attention:
+                        status = "ATTENTION"
+                    step_data: dict[str, Any] = {"id": step.id, "title": step.prompt or step.id,
+                                                 "kind": step.kind.value, "status": status}
+                    if step.input_ref:
+                        spec = procedure_session.procedure.parameters.get(step.input_ref.id, {})
+                        step_data["input"] = {"name": step.input_ref.id, **dict(spec)}
+                    if step.action_ref:
+                        action = self.project_action(step=step_data, action=step.action_ref,
+                                                     parameters=step.parameters)
+                        step_data["representation"] = {
+                            "Step": step_data["title"], "Action": action.action,
+                            "API": action.api, "CLI": action.cli or "Not available", "Raw": action.raw,
+                        }
+                        if item.id == active_instance and step.id == current:
+                            representations = step_data["representation"]
+                    steps.append(step_data)
+                    if step.id == current and item.id == active_instance:
+                        selected_step = step.id
+                        correction = {"legal": step.correction.replaceable,
+                                      "kind": step.correction.kind,
+                                      "actions": (["Correct/redo value"] if step.correction.replaceable else [])}
+                history.extend({"step_id": attempt.step_id, "attempt": attempt.number,
+                                "status": attempt.status, "result": attempt.result}
+                               for attempt in attempts)
+                stage_data["instances"].append({"id": item.id,
+                    "title": f"{stage_projection.title} {item.id.rsplit('-', 1)[-1]}",
+                    "status": "COMPLETED" if item.completed else "CURRENT" if item.id == active_instance else "READY",
+                    "parameters": dict(item.parameters), "steps": steps})
+            if stage_data["instances"]:
+                stage_data["steps"] = stage_data["instances"][0]["steps"]
+            stages.append(stage_data)
+        current_schema = ()
+        if active_stage and active_instance:
+            instance = next(item for item in session.instances[active_stage] if item.id == active_instance)
+            step = next((item for item in instance.procedure_session.procedure.steps
+                         if item.id == instance.procedure_session.current_step_id), None)
+            if step and step.input_ref:
+                spec = instance.procedure_session.procedure.parameters.get(step.input_ref.id, {})
+                current_schema = ({"name": step.input_ref.id, "label": step.prompt or step.input_ref.id,
+                                  **dict(spec)},)
+        state = session.state.value.upper()
+        attention = {"WAITING_INPUT": ("input",), "WAITING_CONDITION": ("choice",)}.get(state, ())
+        return {"workflow_id": session.definition.id, "title": session.definition.name,
+                "status": state, "attention": attention, "progress":
+                f"{sum(1 for stage in session.instances.values() for item in stage if item.completed)} / {len(session.definition.stages)}",
+                "lease": "ACTIVE" if self.context.lease_token else "UNBOUND",
+                "procedures": tuple(stages), "selected_step": selected_step,
+                "representations": representations, "drawer": {"Input schema": current_schema,
+                    "Info": {"workflow": session.definition.name, "state": state},
+                    "Inputs": dict(session.parameters), "Safety": {"target": self.target.identity,
+                        "capabilities": dict(self.target.capabilities), "abort_supported": self.can_abort(session)},
+                    "Evidence": dict(self.target.telemetry), "Outputs": {}, "Events": history},
+                "metadata": {"target": self.target.identity, "connectivity": self.target.connection.get("state", "unknown"),
+                    "controller": dict(self.target.controller), "instrument": dict(self.target.instrument),
+                    "central": dict(self.target.telemetry), "history": history}, "correction": correction}
 
     def preflight(self, definition: WorkflowDefinition, parameters: Mapping[str, Any] | None = None) -> WorkflowSession:
         session = self.new_session(definition)

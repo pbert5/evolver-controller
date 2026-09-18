@@ -13,6 +13,7 @@ from meta_webui_application_backend.evolver_edge.workflow_tui import (
     create_textual_app,
     semantic_status,
 )
+from meta_webui_application_backend.evolver_edge.workflow_cli import ScenarioRegistry
 
 
 @dataclass
@@ -206,5 +207,57 @@ def test_rendered_pilot_repeatable_add_instance_delegates_to_host():
             app.query_one("#instance-point").value = "2"
             await pilot.click("#create-instance")
             assert session.created == [("points", {"point": "2"})]
+
+    asyncio.run(exercise())
+
+
+def test_production_adapter_projects_runtime_and_confirm_preflights_once():
+    host = ScenarioRegistry().host("waiting_for_input")
+    workspace = WorkflowWorkspace(host)
+    workspace.open_workflow("scenario.input")
+    session = workspace.current.session._session
+    assert workspace.current.snapshot.status == "CREATED"
+    workspace.save_inputs("scenario.input", {"value": "7"})
+    workspace.confirm_inputs("scenario.input")
+    assert session.state.value == "waiting_input"
+    assert workspace.current.snapshot.attention == ("input",)
+    assert workspace.current.snapshot.procedures[0]["instances"][0]["steps"][0]["status"] == "ATTENTION"
+    workspace.save_inputs("scenario.input", {"operator_value": "42"})
+    workspace.confirm_inputs("scenario.input")
+    assert session.state.value == "waiting_action"
+    assert session.instances["main"][0].procedure_session.inputs["operator_value"] == 42
+
+
+def test_production_projection_and_add_instance_coerce_typed_value_without_operator_call():
+    host = ScenarioRegistry().host("repeatable_calibration")
+    workspace = WorkflowWorkspace(host)
+    workspace.open_workflow("scenario.repeatable-calibration")
+    session = workspace.current.session._session
+    session.preflight()
+    session.advance()
+    session.continue_stage()
+    workspace.add_instance("scenario.repeatable-calibration", "points", {"reference_value": "12.5"})
+    snapshot = workspace.current.snapshot
+    points = next(item for item in snapshot.procedures if item["id"] == "points")
+    assert points["instances"][0]["parameters"] == {"reference_value": 12.5}
+    assert snapshot.metadata["connectivity"] == "simulated"
+    assert host.operator.requests == []
+
+
+def test_production_host_pilot_renders_runtime_attention_and_rich_drawer():
+    host = ScenarioRegistry().host("waiting_for_input")
+    app = create_textual_app(host)
+
+    async def exercise():
+        async with app.run_test() as pilot:
+            await pilot.press("ctrl+n")
+            await pilot.press("enter")
+            assert len(app.query("#procedure")) == 1
+            await pilot.press("i")
+            app.query_one("#input-value").value = "7"
+            await pilot.click("#confirm-continue")
+            assert app.workspace.current.snapshot.status == "WAITING_INPUT"
+            await pilot.press("d")
+            assert "abort_supported" in app.workspace.current.snapshot.drawer["Safety"]
 
     asyncio.run(exercise())
