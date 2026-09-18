@@ -12,7 +12,7 @@ from pathlib import Path
 from archive_contract import validate_archive_members
 
 SHA = re.compile(r"[0-9a-f]{64}\Z")
-AUTHORITATIVE_FIRMWARE_SOURCE = "952a6fd713c40caa072444a0e0e3fc4fc6ee4639"
+AUTHORITATIVE_FIRMWARE_SOURCE = "83483cda621a2e913ad778ae62294872084a507a"
 BOSSA_VERSION = "1.7.0-arduino3"
 BOSSA_ARCHIVE_SHA256 = "1ae54999c1f97234c5a603eb99ad39313b11746a4ca517269a9285afa05f9100"
 TARGETS = {"linux-x86_64-glibc", "linux-x86_64-nixos", "linux-aarch64-glibc"}

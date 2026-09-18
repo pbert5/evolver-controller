@@ -103,7 +103,7 @@ project does not use `.env.local`.
 
 The standalone `evolver-code-artifact` workflow packages the approved
 `pbert5/evolver-arduino` source at commit
-`952a6fd713c40caa072444a0e0e3fc4fc6ee4639` and uploads it with a matching
+`83483cda621a2e913ad778ae62294872084a507a` and uploads it with a matching
 SHA-256 `PROVENANCE.json`. It does not upload to physical hardware or fetch
 source at runtime.
 
