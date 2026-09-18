@@ -403,7 +403,35 @@ class WorkflowHost:
             Availability.UNSUPPORTED, Availability.BLOCKED_DEPENDENCY,
         } for action in instance.procedure_session.procedure.abort_actions)
 
-    def project_session_for_ui(self, session: WorkflowSession) -> Mapping[str, Any]:
+    def _project_template_step(self, stage_id: str, procedure: Procedure, step: Any,
+                               *, status: str = "READY") -> dict[str, Any]:
+        """Project a trusted procedure step without creating a runtime instance."""
+        kind = getattr(getattr(step, "kind", None), "value", getattr(step, "kind", "unknown"))
+        step_data: dict[str, Any] = {
+            "id": step.id, "step_id": step.id, "stage_id": stage_id,
+            "procedure_id": procedure.id, "title": step.prompt or step.id,
+            "kind": kind, "status": status,
+        }
+        if step.input_ref:
+            spec = procedure.parameters.get(step.input_ref.id, {})
+            step_data["input"] = {"name": step.input_ref.id, **dict(spec)}
+        if step.action_ref:
+            action = self.project_action(step=step_data, action=step.action_ref,
+                                         parameters=step.parameters)
+            step_data["representation"] = {
+                "Step": step_data["title"], "Action": action.action,
+                "API": action.api, "CLI": action.cli or "Not available", "Raw": action.raw,
+            }
+        else:
+            reason = f"Not applicable: {kind} steps do not declare an action"
+            step_data["representation"] = {
+                "Step": step_data["title"], "Action": reason, "API": reason,
+                "CLI": reason, "Raw": {"id": step.id, "kind": kind, "status": status},
+            }
+        return step_data
+
+    def project_session_for_ui(self, session: WorkflowSession,
+                               inspection: Mapping[str, Any] | None = None) -> Mapping[str, Any]:
         """Build the authoritative rich session projection consumed by renderers."""
         active_stage = session.active_stage_id
         active_instance = session.active_instance_id
@@ -412,7 +440,12 @@ class WorkflowHost:
         representations: Mapping[str, Any] = {}
         correction: dict[str, Any] = {}
         history: list[Mapping[str, Any]] = []
+        requested = dict(inspection or {})
+        first_inspection: dict[str, Any] = {}
         for stage in session.definition.stages:
+            procedure = self.procedures.get((stage.procedure_id, stage.procedure_version))
+            if procedure is None:
+                raise WorkflowError(f"unable to resolve trusted procedure {stage.procedure_id}@{stage.procedure_version} for stage {stage.id}")
             stage_projection = self.project_stage_instances(session, stage.id)
             stage_data: dict[str, Any] = {
                 "id": stage.id, "title": stage_projection.title,
@@ -438,20 +471,10 @@ class WorkflowHost:
                         status = "COMPLETED"
                     if item.id == active_instance and step.id == current and session.attention:
                         status = "ATTENTION"
-                    step_data: dict[str, Any] = {"id": step.id, "title": step.prompt or step.id,
-                                                 "kind": step.kind.value, "status": status}
-                    if step.input_ref:
-                        spec = procedure_session.procedure.parameters.get(step.input_ref.id, {})
-                        step_data["input"] = {"name": step.input_ref.id, **dict(spec)}
-                    if step.action_ref:
-                        action = self.project_action(step=step_data, action=step.action_ref,
-                                                     parameters=step.parameters)
-                        step_data["representation"] = {
-                            "Step": step_data["title"], "Action": action.action,
-                            "API": action.api, "CLI": action.cli or "Not available", "Raw": action.raw,
-                        }
-                        if item.id == active_instance and step.id == current:
-                            representations = step_data["representation"]
+                    step_data = self._project_template_step(stage.id, procedure_session.procedure, step, status=status)
+                    step_data["instance_id"] = item.id
+                    if item.id == active_instance and step.id == current:
+                        representations = step_data["representation"]
                     steps.append(step_data)
                     if step.id == current and item.id == active_instance:
                         selected_step = step.id
@@ -467,7 +490,42 @@ class WorkflowHost:
                     "parameters": dict(item.parameters), "steps": steps})
             if stage_data["instances"]:
                 stage_data["steps"] = stage_data["instances"][0]["steps"]
+            else:
+                stage_data["steps"] = [self._project_template_step(stage.id, procedure, step)
+                                        for step in procedure.steps]
+            if stage_data["steps"] and not first_inspection:
+                first = stage_data["steps"][0]
+                first_inspection = {"stage_id": stage.id, "procedure_id": procedure.id,
+                                    "step_id": first["step_id"]}
             stages.append(stage_data)
+        selected_stage = requested.get("stage_id")
+        selected_step_id = requested.get("step_id")
+        selected_data = None
+        if selected_stage and selected_step_id:
+            for stage in stages:
+                if stage["id"] != selected_stage:
+                    continue
+                requested_instance = requested.get("instance_id")
+                candidates = ([] if requested_instance else list(stage.get("steps", ())))
+                for instance in stage.get("instances", ()):
+                    if requested_instance is None or instance.get("id") == requested_instance:
+                        candidates.extend(instance.get("steps", ()))
+                selected_data = next((item for item in candidates if item.get("step_id") == selected_step_id), None)
+                if selected_data:
+                    break
+        if selected_data is None:
+            selected_data = next((item for stage in stages for item in stage.get("steps", ())
+                                  if item.get("step_id") == selected_step), None)
+        if selected_data is None:
+            selected_data = next((item for stage in stages for item in stage.get("steps", ())), None)
+        if selected_data is not None:
+            selected_step = selected_data["step_id"]
+            representations = selected_data.get("representation", {})
+            first_inspection = {"stage_id": selected_data.get("stage_id"),
+                                "procedure_id": selected_data.get("procedure_id"),
+                                "step_id": selected_data.get("step_id")}
+            if selected_data.get("instance_id"):
+                first_inspection["instance_id"] = selected_data["instance_id"]
         current_schema = ()
         if active_stage and active_instance:
             instance = next(item for item in session.instances[active_stage] if item.id == active_instance)
@@ -484,6 +542,7 @@ class WorkflowHost:
                 f"{sum(1 for stage in session.instances.values() for item in stage if item.completed)} / {len(session.definition.stages)}",
                 "lease": "ACTIVE" if self.context.lease_token else "UNBOUND",
                 "procedures": tuple(stages), "selected_step": selected_step,
+                "inspection": first_inspection,
                 "representations": representations, "drawer": {"Input schema": current_schema,
                     "Info": {"workflow": session.definition.name, "state": state},
                     "Inputs": dict(session.parameters), "Safety": {"target": self.target.identity,
