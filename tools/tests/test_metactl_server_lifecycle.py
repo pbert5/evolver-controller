@@ -17,7 +17,7 @@ def _sandbox(tmp_path: Path) -> tuple[Path, Path]:
     shutil.copy2(LAUNCHER, launcher)
     launcher.chmod(0o755)
     adapter = tools / "evolver-edge"
-    adapter.write_text("#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > \"$CAPTURE\"\n", encoding="utf-8")
+    adapter.write_text("#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" >> \"$CAPTURE\"\n", encoding="utf-8")
     adapter.chmod(0o755)
     return launcher, adapter
 
@@ -36,6 +36,18 @@ def test_server_lifecycle_routes_only_allowlisted_commands_to_canonical_adapter(
 
     assert result.returncode == 0
     assert capture.read_text(encoding="utf-8").splitlines() == ["restart", "controller"]
+
+
+def test_server_restart_without_service_restarts_each_allowlisted_service(tmp_path: Path) -> None:
+    launcher, _ = _sandbox(tmp_path)
+    capture = tmp_path / "capture"
+
+    result = _run(launcher, capture, "server", "restart")
+
+    assert result.returncode == 0
+    assert capture.read_text(encoding="utf-8").splitlines() == [
+        "restart", "controller", "restart", "hardware"
+    ]
 
 
 def test_server_lifecycle_rejects_arbitrary_arguments_before_adapter(tmp_path: Path) -> None:

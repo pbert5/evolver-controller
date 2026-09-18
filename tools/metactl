@@ -4,7 +4,7 @@ set -Eeuo pipefail
 ROOT=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 
 usage() {
-  echo 'usage: tools/metactl [server {status|up [--build]|stop [controller|hardware]|down|restart controller|restart hardware|logs controller|logs hardware|upgrade}] [metactl args...]' >&2
+  echo 'usage: tools/metactl [server {status|up [--build]|stop [controller|hardware]|down|restart [controller|hardware]|logs controller|logs hardware|upgrade}] [metactl args...]' >&2
 }
 
 server_lifecycle() {
@@ -23,8 +23,8 @@ server_lifecycle() {
     down)
       [[ $# -eq 0 ]] || { usage; return 2; }
       ;;
-    restart|logs)
-      [[ $# -eq 1 && ( $1 == controller || $1 == hardware ) ]] || { usage; return 2; }
+    restart)
+      [[ $# -eq 0 || ( $# -eq 1 && ( $1 == controller || $1 == hardware ) ) ]] || { usage; return 2; }
       ;;
     upgrade)
       [[ $# -eq 0 ]] || { usage; return 2; }
@@ -36,6 +36,10 @@ server_lifecycle() {
       return 2
       ;;
   esac
+  if [[ "$operation" == restart && $# -eq 0 ]]; then
+    "$ROOT/tools/evolver-edge" restart controller
+    exec "$ROOT/tools/evolver-edge" restart hardware
+  fi
   exec "$ROOT/tools/evolver-edge" "$operation" "$@"
 }
 
