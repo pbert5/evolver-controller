@@ -70,6 +70,47 @@ def test_operator_live_inventory_and_calibration_operations_are_typed(tmp_path: 
         assert invalid["error"]["kind"] == "invalid_request"
 
 
+def test_operator_instrument_reads_preserve_fresh_vs_cached_evidence(tmp_path: Path) -> None:
+    path = tmp_path / "operator.sock"
+    calls = []
+
+    def hardware_request(_path, payload, _timeout):
+        calls.append(payload)
+        if payload["operation"] == "get_status":
+            return {"device_identity": "MEV-1", "temperature_state": "idle"}
+        return {"device_identity": "MEV-1", "value": "77", "metric": "photodiode_raw"}
+
+    operator = OperatorIdentity("alice", "local_operator", frozenset({"hardware_maintenance"}))
+    with EdgeStore(tmp_path / "state") as store:
+        store.register_instruments([{"id": "instrument-1", "instrument_type": "minievolver",
+                                     "device_identity": "MEV-1", "vial_positions": [{"id": "vial-1"}],
+                                     "capabilities": {}}])
+        store.spool_telemetry(stream_id="instrument:instrument-1:read_only_sensors", sequence=1,
+                              payload={"instrument_id": "instrument-1", "vial_position_ids": ["vial-1"],
+                                       "photodiode_adc_0": 66,
+                                       "calibration": {"temperature": "not_calibrated", "od": "not_calibrated"}},
+                              captured_at="2026-01-01T00:00:00+00:00")
+        broker = HardwareBroker(store, request=hardware_request)
+        with OperatorServer(store, path, operator=operator, hardware_broker=broker):
+            status = request("instrument", path, params={"action": "status", "instrument_id": "instrument-1"})
+            fresh = request("instrument", path, params={"action": "sensor_read", "instrument_id": "instrument-1",
+                                                         "sensor": "od", "channel": 0})
+            cached = request("instrument", path, params={"action": "telemetry_latest", "instrument_id": "instrument-1"})
+            cached_list = request("instrument", path, params={"action": "telemetry_list", "instrument_id": "instrument-1"})
+
+    assert status["freshness"] == "fresh"
+    assert fresh["freshness"] == "fresh"
+    assert fresh["raw_value"] == 77
+    assert fresh["derived_value"] is None
+    assert cached["freshness"] == "cached"
+    assert cached["source"] == "telemetry_store"
+    assert cached["observations"][0]["raw_value"] == 66
+    assert cached["observations"][0]["derived_value"] is None
+    assert len(cached_list) == 1
+    assert cached_list[0]["sequence"] == cached["sequence"]
+    assert [call["operation"] for call in calls] == ["get_status", "read_sensor"]
+
+
 def test_operator_safe_stop_is_authenticated_physical_and_lease_free(tmp_path: Path) -> None:
     path = tmp_path / "operator.sock"
     operator = OperatorIdentity("alice", "local_operator", frozenset({"hardware_maintenance"}))
