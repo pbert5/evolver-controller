@@ -14,6 +14,7 @@ from meta_webui_application_backend.evolver_edge.workflow_host import (
     operator_safe_stop_authority,
     resolve_target,
 )
+from meta_webui_application_backend.evolver_edge.cli import build_parser
 from meta_webui_application_backend.evolver_edge.workflow_cli import ScenarioRegistry, production_host
 
 
@@ -195,7 +196,13 @@ def test_projection_is_shared_for_renderers():
                                     parameters={"channel": 1, "duration_ms": 20})
     assert projection.action["id"] == projection.raw["id"] == projection.api["action_id"]
     assert projection.availability.classification is Availability.AVAILABLE
-    assert projection.cli.startswith("evoctl workflow action pulse_pump")
+    assert projection.cli == "Not applicable: evoctl has no canonical action subcommand"
+
+
+def test_real_cli_parser_does_not_claim_a_nonexistent_action_command():
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["workflow", "action", "pulse_pump"])
 
 
 def test_target_resolution_uses_only_operator_read_models():
