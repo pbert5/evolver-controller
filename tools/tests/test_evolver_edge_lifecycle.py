@@ -142,7 +142,7 @@ def test_stop_does_not_accept_a_transitional_restarting_state(tmp_path: Path) ->
     )
 
     assert result.returncode == 1
-    assert "still running" in result.stderr
+    assert "not terminally stopped" in result.stderr
 
 
 def test_down_does_not_report_success_while_a_service_is_restarting(tmp_path: Path) -> None:
@@ -165,6 +165,17 @@ def test_down_does_not_report_success_with_lingering_exited_or_dead_rows(tmp_pat
 
         assert result.returncode == 1
         assert "still lists service containers" in result.stderr
+
+
+def test_stop_does_not_report_success_while_a_service_is_removing(tmp_path: Path) -> None:
+    result = run_adapter(
+        tmp_path,
+        "stop",
+        ps_output="evolver-controller\tremoving\tnone\n",
+    )
+
+    assert result.returncode == 1
+    assert "not terminally stopped" in result.stderr
 
 
 def test_restart_and_logs_use_only_the_canonical_service_name(tmp_path: Path) -> None:

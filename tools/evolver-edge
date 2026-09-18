@@ -50,7 +50,7 @@ compose_ps() {
 }
 
 require_running() {
-  local output=$1 service line
+  local output=$1 service line state
   shift
   local -a targets=("${SERVICES[@]}")
   [[ $# -gt 0 ]] && targets=("$@")
@@ -70,15 +70,16 @@ require_running() {
 }
 
 require_stopped() {
-  local output=$1 service line
+  local output=$1 service line state
   shift
   local -a targets=("${SERVICES[@]}")
   [[ $# -gt 0 ]] && targets=("$@")
   for service in "${targets[@]}"; do
     line=$(printf '%s\n' "$output" | awk -v service="$service" '$1 == service { print; exit }')
     [[ -z "$line" ]] && continue
-    if [[ "$(printf '%s\n' "$line" | awk '{print tolower($2)}')" =~ ^(up|running|restarting|created|paused)$ ]]; then
-      echo "final state for $service is still running: $line" >&2
+    state=$(printf '%s\n' "$line" | awk '{print tolower($2)}')
+    if [[ ! "$state" =~ ^(exited|dead|stopped)$ ]]; then
+      echo "final state for $service is not terminally stopped: $line" >&2
       return 1
     fi
   done
