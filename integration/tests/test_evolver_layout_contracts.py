@@ -13,7 +13,6 @@ def test_parent_submodule_urls_are_exact_relative_sibling_repositories():
         "evolver/evolver-hardware": "../evolver-hardware.git",
         "evolver/evolver-server": "../evolver-server.git",
         "metactl": "../metactl.git",
-        "refference/meta_webui_demo": "../meta_webui_demo.git",
     }
     actual = {}
     path = None
