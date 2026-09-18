@@ -7,7 +7,7 @@ contracts with an in-memory operator, so tests never need a socket or device.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -70,8 +70,12 @@ def production_host(client: Any, *, target: str, simulator: bool = False, contex
         procedure = compile_procedure(yaml.safe_load(path.read_text(encoding="utf-8")))
         procedures[(procedure.id, procedure.version)] = procedure
     target_projection = resolve_target(client, target, kind=TargetKind.SIMULATOR if simulator else TargetKind.PHYSICAL)
+    bound_context = context or HostContext(target_identity=target)
+    if bound_context.controller_generation is None:
+        bound_context = replace(bound_context, controller_generation=target_projection.generation)
     return WorkflowHost(client, target=target_projection, workflows=library, procedures=procedures,
-                        context=context or HostContext(target_identity=target))
+                         context=bound_context,
+                         safe_stop_authority=operator_safe_stop_authority(client))
 
 
 class _ScenarioOperator:

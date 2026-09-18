@@ -108,8 +108,10 @@ def _workflow_host(client: OperatorClient):
     instruments = client.request("instruments")
     identity = instruments[0].get("id", "controller") if instruments else "controller"
     target = resolve_target(client, identity)
+    context = HostContext(target_identity=identity, controller_generation=target.generation)
     return WorkflowHost(client, target=target, workflows=library, procedures=procedures,
-                        context=HostContext(target_identity=identity))
+                         context=context,
+                         safe_stop_authority=operator_safe_stop_authority(client))
 
 
 def run_offline(store, *, page: str = "overview") -> int:
