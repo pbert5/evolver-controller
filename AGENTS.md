@@ -5,33 +5,41 @@
 The repository `.codex/config.toml` is the source of truth for workspace agent
 spawning. Keep `agents.enabled = true`, `agents.max_depth = 2`,
 `features.multi_agent = true`, and `agents.max_concurrent_threads_per_session =
-8`; preserve every named role in `.codex/agents/`. The normal hierarchy is one
+16` when accepted by the live runtime; if fresh-runtime evidence proves a lower
+stable ceiling, record and use that ceiling instead. Preserve every named role
+in `.codex/agents/`. The normal hierarchy is one
 bookkeeping-only `primary-executor`, isolated first-order `workstream-owner`
 agents, and optional depth-2 specialists. A workstream owner may implement
 directly and becomes a local dispatcher only when decomposition is useful.
-`prompt-loader` keeps issue archaeology out of the executor context, while an
-independent completion checker treats owner output as a claim rather than proof.
+`prompt-loader` keeps issue archaeology out of the executor context. Completion
+checkers are owner-local depth-2 specialists, not mandatory root gates; the
+owner's accepted terminal state is authoritative for DAG scheduling.
 Use `features.hooks` for lifecycle hooks. `features.codex_hooks` is deprecated
 and must not be reintroduced. The `test-architect` role is read-only and may
 use shell tools for harmless repository reconnaissance; it must not edit,
 commit, push, or mutate runtime state.
 
-The primary executor must reserve capacity for each active owner's depth-2
-specialist and any required checker/auditor; never fill all eight session slots
-with owners that are waiting for children. Supervision is passive and
-infrequent: inspect lifecycle/output and wait with backoff, but do not send
-routine status-ping messages. Send input only for a changed constraint,
-owner-requested clarification, safety/resource conflict, or explicit unblock.
+The primary executor must not allocate per-stream quotas, central stream locks,
+or root-owned verifier/reviewer/repair lifecycles. The runtime-wide ceiling is
+the constraint; owners manage and clean up their own depth-2 children.
+Supervision is passive and infrequent: inspect lifecycle/output and wait with
+backoff, but do not send routine status-ping messages. Send input only for a
+changed constraint, owner-requested clarification, safety/resource conflict, or
+explicit unblock.
 
 Every owner exit posts a durable GitHub Session handoff and returns a compact
 terminal packet containing status, issue/branch/worktree/HEAD/PR, completed
 contract, claimed validation, handoff reference, blockers/follow-ups, and a
 Trust audit (confidence band, least-trusted claims, untested behavior,
 possible conflicts, and the next evidence that would reduce uncertainty).
-Independent verification is authoritative; confidence is not an acceptance
-criterion. PROMPT_READY reversible work does not require another design
-approval ceremony. Runtime/tooling defects are recorded as GitHub issues with
-the repository's canonical bug label when one is needed.
+The owner completes local independent verification/review, persists every
+`CHANGES_REQUIRED` finding before repair, repairs or delegates bounded repair,
+and re-runs verification/review before returning an accepted packet. For
+scheduling, `PASS` or `PASS_WITH_FOLLOWUPS` in that packet is authoritative;
+the executor does not run a second acceptance ceremony. PROMPT_READY reversible
+work does not require another design approval ceremony. Runtime/tooling defects
+are recorded as GitHub issues with the repository's canonical bug label when
+one is needed.
 
 # Repository agent guidance
 

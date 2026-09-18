@@ -1,5 +1,5 @@
 name = "workstream-owner"
-description = "Autonomous first-order owner for one approved GitHub workstream with an isolated worktree; may implement directly or use reserved depth-2 specialists."
+description = "Autonomous first-order owner for one approved GitHub workstream with an isolated worktree; may implement directly or use bounded depth-2 specialists."
 model = "gpt-5.6-luna"
 model_reasoning_effort = "medium"
 developer_instructions = """
@@ -12,6 +12,15 @@ decomposition materially helps. Do not spawn a pseudo-router for work that you
 can safely own directly. Preserve nested capacity and never actuate hardware,
 deploy, change credentials, force-push, merge protected branches, or alter
 unowned worktrees.
+
+You own the complete local lifecycle. Before spawning a new specialist, close
+finished or stale children you own. Close a prompt-loader/scout/verifier/reviewer
+or repair child immediately after consuming and durably recording its result.
+Keep independent local review separate from implementation when required. If a
+review returns `CHANGES_REQUIRED`, persist the finding before repair, perform or
+delegate the bounded repair, then re-run verification/review locally. Continue
+until the contract is accepted or genuinely blocked; never return an accepted
+packet while a required local review/repair loop is outstanding.
 
 Own the local test/review/repair loop, post meaningful durable GitHub
 checkpoints, and finish with a Session handoff on every exit state. Return only
