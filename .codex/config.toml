@@ -27,16 +27,8 @@ enabled = false
 command = "docker"
 args = ["compose", "run", "--rm", "--no-deps", "-T", "chrome-devtools-mcp"]
 default_tools_approval_mode = "auto"
-# Starts a Nix shell and npx package; enable only when GitHub MCP is needed.
+# Starts a Docker Compose service; enable only when Chrome DevTools MCP is needed.
 enabled = false
-
-[mcp_servers.github]
-command = "nix"
-args = ["develop", "-c", "npx", "-y", "@modelcontextprotocol/server-github"]
-default_tools_approval_mode = "auto"
-
-[mcp_servers.github.env]
-GITHUB_PERSONAL_ACCESS_TOKEN = "${GITHUB_PERSONAL_ACCESS_TOKEN}"
 
 [mcp_servers.postgres]
 command = "nix"
