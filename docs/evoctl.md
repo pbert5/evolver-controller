@@ -27,6 +27,32 @@ evoctl instruments
 evoctl doctor
 ```
 
+Edge lifecycle operations use the fixed host-runtime adapter boundary:
+
+```text
+evoctl runtime status|up|stop|down|restart|logs
+evoctl up|down|restart|logs
+```
+
+These commands report a bounded delegation intent for the host-owned edge
+services; they do not accept Compose projects, paths, container IDs, shell
+fragments, or Docker/socket options from the controller runtime.
+
+Governed release updates remain distinct:
+
+```text
+evoctl update check RELEASE
+evoctl update apply RELEASE
+evoctl runtime upgrade
+evoctl upgrade
+```
+
+`update apply RELEASE` applies an explicitly named governed release. `upgrade`
+uses only the authoritative configured recommended release and is unavailable
+with a clear diagnostic when none is selected; active runs defer it. The
+developer-only `tools/evolver-edge upgrade` checkout-refresh contract is a
+separate operation and is not invoked by `evoctl`.
+
 `--offline` reads the durable controller store without contacting the local
 operator socket. It does not prove central state or physical hardware was
 observed. Recovery/planning commands include `recovery`, `export-state`,
