@@ -24,6 +24,8 @@ from evolver_procedure_runtime import (
     WorkflowDefinition,
     WorkflowLibrary,
     WorkflowSession,
+    WorkflowState,
+    WorkflowError,
 )
 
 from .operator import OperatorClient, OperatorError
@@ -83,6 +85,28 @@ class ActionProjection:
     cli: str | None
     raw: Mapping[str, Any]
     availability: ActionAvailability
+
+
+@dataclass(frozen=True)
+class StageInstanceParameter:
+    """One operator-created parameter exposed by a repeatable stage."""
+
+    name: str
+    procedure_parameter: str
+    schema: Mapping[str, Any]
+    required: bool
+
+
+@dataclass(frozen=True)
+class StageInstanceProjection:
+    """Shared session projection for CLI and future TUI stage controls."""
+
+    stage_id: str
+    title: str
+    cardinality: str
+    can_add: bool
+    parameters: tuple[StageInstanceParameter, ...]
+    instances: tuple[Mapping[str, Any], ...]
 
 
 @dataclass(frozen=True)
@@ -330,6 +354,83 @@ class WorkflowHost:
                "target": self.target.identity, "parameters": params}
         cli = f"evoctl workflow action {action_id} --target {self.target.identity}" if availability.route else None
         return ActionProjection(dict(step), {"id": action_id, "version": version}, api, cli, raw, availability)
+
+    def project_stage_instances(self, session: WorkflowSession, stage_id: str) -> StageInstanceProjection:
+        """Project one stage without exposing runtime internals to renderers."""
+        stage = next((item for item in session.definition.stages if item.id == stage_id), None)
+        if stage is None:
+            raise WorkflowError(f"unknown workflow stage: {stage_id}")
+        procedure = self.procedures.get((stage.procedure_id, stage.procedure_version))
+        if procedure is None:
+            raise WorkflowError(f"unknown procedure reference: {stage.procedure_id}@{stage.procedure_version}")
+        parameters: list[StageInstanceParameter] = []
+        for procedure_parameter, binding in stage.bindings.items():
+            if set(binding) != {"instance_parameter"}:
+                continue
+            name = binding["instance_parameter"]
+            schema = procedure.parameters.get(procedure_parameter)
+            if not isinstance(name, str) or not isinstance(schema, Mapping):
+                raise WorkflowError(f"invalid instance parameter binding: {stage_id}.{procedure_parameter}")
+            parameters.append(StageInstanceParameter(
+                name=name, procedure_parameter=procedure_parameter, schema=dict(schema),
+                required=schema.get("required", True) is not False,
+            ))
+        instances = tuple(
+            {"id": instance.id,
+             "status": "completed" if instance.completed else "active" if (
+                 session.active_stage_id == stage_id and session.active_instance_id == instance.id
+             ) else "ready",
+             "parameters": dict(instance.parameters)}
+            for instance in session.instances[stage_id]
+        )
+        return StageInstanceProjection(
+            stage_id=stage.id,
+            title=str(stage.metadata.get("title", stage.id.replace("_", " ").title())),
+            cardinality=stage.cardinality.value,
+            can_add=stage.cardinality.value == "repeatable" and session.state not in {
+                WorkflowState.SUCCEEDED, WorkflowState.FAILED, WorkflowState.ABORTED,
+            },
+            parameters=tuple(parameters),
+            instances=instances,
+        )
+
+    def add_stage_instance(self, session: WorkflowSession, stage_id: str,
+                           parameters: Mapping[str, Any] | None = None) -> StageInstanceProjection:
+        """Create one instance through the runtime; creation invokes no action."""
+        projection = self.project_stage_instances(session, stage_id)
+        if not projection.can_add:
+            raise WorkflowError(f"stage is not accepting instances: {stage_id}")
+        expected = {item.name for item in projection.parameters}
+        supplied = dict(parameters or {})
+        missing = {item.name for item in projection.parameters if item.required and item.name not in supplied}
+        unknown = set(supplied) - expected
+        if missing:
+            raise WorkflowError(f"required instance parameters are unset: {', '.join(sorted(missing))}")
+        if unknown:
+            raise WorkflowError(f"unknown stage instance parameters: {', '.join(sorted(unknown))}")
+        for parameter in projection.parameters:
+            if parameter.name in supplied:
+                self._validate_instance_value(parameter.name, supplied[parameter.name], parameter.schema)
+        session.add_instance(stage_id, supplied)
+        return self.project_stage_instances(session, stage_id)
+
+    @staticmethod
+    def _validate_instance_value(name: str, value: Any, schema: Mapping[str, Any]) -> None:
+        expected = schema.get("type")
+        valid = {
+            "integer": type(value) is int,
+            "number": type(value) in {int, float},
+            "string": isinstance(value, str),
+            "boolean": type(value) is bool,
+        }.get(expected, True)
+        if not valid:
+            raise WorkflowError(f"invalid instance parameter type: {name}")
+        if "values" in schema and value not in schema["values"]:
+            raise WorkflowError(f"invalid instance parameter value: {name}")
+        if "minimum" in schema and value < schema["minimum"]:
+            raise WorkflowError(f"instance parameter is below minimum: {name}")
+        if "maximum" in schema and value > schema["maximum"]:
+            raise WorkflowError(f"instance parameter is above maximum: {name}")
 
     def edge_observation_sink(self) -> Callable[[SinkRequest], MutationOutcome]:
         def write(request: SinkRequest) -> MutationOutcome:

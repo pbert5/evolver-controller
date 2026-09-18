@@ -76,3 +76,62 @@ def test_scenario_registry_is_stable_and_has_no_io_scenarios():
     assert tuple(SCENARIO_NAMES) == tuple(sorted(SCENARIO_NAMES))
     registry = ScenarioRegistry()
     assert set(SCENARIO_NAMES) <= set(registry.names())
+
+
+def test_interactive_repeatable_calibration_reaches_three_points_then_review():
+    host = ScenarioRegistry().host("repeatable_calibration")
+    output = io.StringIO()
+    answers = iter(["a", "10", "a", "20", "a", "30", "c"])
+    cli = WorkflowCLI(host, output=output, input_reader=lambda _prompt: next(answers))
+
+    assert cli.run("scenario.repeatable-calibration") == 0
+    rendered = output.getvalue()
+    assert "Calibration Points" in rendered
+    assert "points-1" in rendered and "points-2" in rendered and "points-3" in rendered
+    assert "Review" in rendered
+    assert host.operator.requests == []
+
+
+def test_repeatable_instance_jsonl_is_stable_and_reports_zero_actions():
+    host = ScenarioRegistry().host("repeatable_calibration")
+    output = io.StringIO()
+    answers = iter(["a", "12.5", "c"])
+    cli = WorkflowCLI(host, output=output, jsonl=True, input_reader=lambda _prompt: next(answers))
+
+    assert cli.run("scenario.repeatable-calibration") == 0
+    records = [json.loads(item) for item in output.getvalue().splitlines()]
+    created = [item for item in records if item["event"] == "stage_instance_created"]
+    assert created == [{
+        "event": "stage_instance_created", "payload": {
+            "actions_invoked": 0, "instance_count": 1, "instance_id": "points-1", "stage_id": "points",
+        }, "schema_version": 1, "sequence": created[0]["sequence"],
+    }]
+    assert records[-1]["event"] == "outcome"
+    assert records[-1]["payload"]["state"] == "succeeded"
+
+
+def test_repeatable_stage_abort_uses_normal_cleanup_path():
+    host = ScenarioRegistry().host("repeatable_calibration")
+    output = io.StringIO()
+    cli = WorkflowCLI(host, output=output, jsonl=True, input_reader=lambda _prompt: "q")
+
+    assert cli.run("scenario.repeatable-calibration") == 130
+    record = json.loads(output.getvalue().splitlines()[-1])
+    assert record["event"] == "outcome"
+    assert record["payload"]["state"] == "aborted"
+    assert host.abort_count == 1
+
+
+def test_repeatable_prompt_retries_invalid_choice_and_eof_aborts():
+    host = ScenarioRegistry().host("repeatable_calibration")
+    answers = iter(["invalid", "a"])
+
+    def read(_prompt):
+        try:
+            return next(answers)
+        except StopIteration as error:
+            raise EOFError from error
+
+    cli = WorkflowCLI(host, output=io.StringIO(), input_reader=read)
+    assert cli.run("scenario.repeatable-calibration") == 130
+    assert host.abort_count == 1

@@ -14,6 +14,7 @@ from meta_webui_application_backend.evolver_edge.workflow_host import (
     operator_safe_stop_authority,
     resolve_target,
 )
+from meta_webui_application_backend.evolver_edge.workflow_cli import ScenarioRegistry
 
 
 class FakeOperator:
@@ -207,3 +208,36 @@ def test_target_resolution_uses_only_operator_read_models():
     assert resolved.generation == 3
     assert resolved.capabilities["temperature_setpoint"]["supported"] is False
     assert [item[0] for item in client.requests] == ["status", "binding", "instrument"]
+
+
+def test_repeatable_stage_projection_and_add_are_shared_and_non_actuating():
+    host = ScenarioRegistry().host("repeatable_calibration")
+    session = host.new_session(host.show_workflow("scenario.repeatable-calibration"))
+    session.preflight()
+    session.advance()
+    session.continue_stage()
+
+    projection = host.project_stage_instances(session, "points")
+    assert (projection.title, projection.cardinality, projection.can_add) == ("Calibration Points", "repeatable", True)
+    assert [(item.name, item.schema["type"], item.required) for item in projection.parameters] == [
+        ("reference_value", "number", True),
+    ]
+    created = host.add_stage_instance(session, "points", {"reference_value": 12.5})
+    assert created.instances[-1]["id"] == "points-1"
+    assert created.instances[-1]["parameters"] == {"reference_value": 12.5}
+    assert host.operator.requests == []
+
+
+def test_repeatable_stage_rejects_once_and_invalid_parameters_without_creation():
+    host = ScenarioRegistry().host("repeatable_calibration")
+    session = host.new_session(host.show_workflow("scenario.repeatable-calibration"))
+    session.preflight()
+    with pytest.raises(ValueError, match="not accepting"):
+        host.add_stage_instance(session, "setup", {})
+    session.advance()
+    session.continue_stage()
+    with pytest.raises(ValueError, match="required instance parameters"):
+        host.add_stage_instance(session, "points", {})
+    with pytest.raises(ValueError, match="invalid instance parameter type"):
+        host.add_stage_instance(session, "points", {"reference_value": "not-a-number"})
+    assert host.project_stage_instances(session, "points").instances == ()
