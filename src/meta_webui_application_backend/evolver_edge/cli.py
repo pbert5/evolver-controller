@@ -393,6 +393,9 @@ def main(argv: list[str] | None = None) -> int:
                 result = [{**result["controller"], "binding": result["binding"],
                            "inventory": operator_request("instruments", args.operator_socket, params={})}]
             _emit(result)
+            if (args.command == "hardware" and args.hardware_command == "safe-stop"
+                    and isinstance(result, dict) and result.get("request_accepted") is False):
+                return 2
             return 0
         except (OperatorUnavailable, OperatorProtocolError, EdgeStoreError, ValueError, TypeError, json.JSONDecodeError) as error:
             print(f"{getattr(error, 'kind', 'operator_error')}: {error}", file=sys.stderr)

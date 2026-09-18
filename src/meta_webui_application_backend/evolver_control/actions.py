@@ -63,7 +63,7 @@ def dispatch(action: str, parameters: Mapping[str, Any] | None = None, *,
     params = parameters if isinstance(parameters, Mapping) else {}
     body = _body(params)
 
-    if action in {"hardware_discover", "hardware_protocol_test", "hardware_command", "hardware_safe_stop"}:
+    if action in {"hardware_discover", "hardware_protocol_test", "hardware_command"}:
         denied = _operator_required(operator, "hardware_maintenance")
         if denied:
             return denied
@@ -77,10 +77,6 @@ def dispatch(action: str, parameters: Mapping[str, Any] | None = None, *,
                 if action == "hardware_protocol_test":
                     return HTTPStatus.OK, hardware_broker.protocol_test(
                         operator=operator.subject, target_identity=body.get("target_identity"))
-                if action == "hardware_safe_stop":
-                    return HTTPStatus.OK, hardware_broker.safe_stop(
-                        operator=operator.subject, physical=body.get("physical", False),
-                        command_id=body.get("command_id"))
                 return HTTPStatus.OK, hardware_broker.command(
                     str(body.get("operation")), operator=operator.subject,
                     target_identity=body.get("target_identity"), parameters=body.get("parameters"),
@@ -90,10 +86,6 @@ def dispatch(action: str, parameters: Mapping[str, Any] | None = None, *,
                 return HTTPStatus.OK, hardware_broker.discover(operator=operator.subject)
             if action == "hardware_protocol_test":
                 return HTTPStatus.OK, hardware_broker.protocol_test(operator=operator.subject)
-            if action == "hardware_safe_stop":
-                return HTTPStatus.OK, hardware_broker.safe_stop(
-                    operator=operator.subject, physical=body.get("physical", False),
-                    command_id=body.get("command_id"))
             return HTTPStatus.OK, hardware_broker.command(body, operator=operator.subject)
         except Exception as error:
             kind = getattr(error, "kind", "HardwareError")

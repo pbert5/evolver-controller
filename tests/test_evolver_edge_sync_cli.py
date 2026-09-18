@@ -163,6 +163,17 @@ def test_cli_live_hardware_actuation_sends_typed_fenced_request(tmp_path, monkey
     assert json.loads(capsys.readouterr().out)["request_accepted"] is True
 
 
+def test_cli_safe_stop_returns_nonzero_for_partial_unverified_result(monkeypatch, capsys):
+    import meta_webui_application_backend.evolver_edge.cli as cli_module
+    monkeypatch.setattr(cli_module, "operator_request", lambda *_args, **_kwargs: {
+        "request_accepted": False, "verification": "unverified", "results": [{"error": "offline"}]})
+    monkeypatch.setattr(sys, "argv", ["evoctl", "hardware", "safe-stop",
+                                        "--physical", "--operator", "alice"])
+
+    assert cli_module.main() == 2
+    assert json.loads(capsys.readouterr().out)["verification"] == "unverified"
+
+
 def test_cli_live_unavailable_is_explicit_and_offline_missing_state_is_actionable(tmp_path, monkeypatch, capsys):
     import meta_webui_application_backend.evolver_edge.cli as cli_module
     monkeypatch.setattr(cli_module, "operator_request", lambda *_args, **_kwargs: (_ for _ in ()).throw(

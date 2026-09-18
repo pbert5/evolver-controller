@@ -110,12 +110,16 @@ def _dispatch(store: EdgeStore, operation: str, params: dict[str, Any], *,
             raise OperatorProtocolError("authenticated operator attribution is required", kind="unauthorized")
         body = _hardware_request(params, operator.subject)
         if hardware_operation == "safe_stop":
-            status, result = central_dispatch("hardware_safe_stop", body, operator=operator,
-                                               hardware_broker=hardware_broker, state_root=store.root)
-            if status is not HTTPStatus.OK:
-                raise OperatorProtocolError(result.get("error", "hardware operation failed"),
-                                            kind=result.get("kind", "hardware_error"))
-            return result
+            if hardware_broker is None:
+                raise OperatorProtocolError("safe-stop must be delegated to the hardware service",
+                                            kind="maintenance_delegated")
+            try:
+                return hardware_broker.safe_stop(operator=operator.subject,
+                                                 physical=body.get("physical", False),
+                                                 command_id=body.get("command_id"))
+            except Exception as error:
+                raise OperatorProtocolError(str(error),
+                                            kind=getattr(error, "kind", "hardware_error")) from error
         if hardware_operation == "hardware_command":
             body["operation"] = params["operation_name"]
         status, result = central_dispatch(
