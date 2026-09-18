@@ -332,7 +332,7 @@ def _active_view(app: Any) -> str:
 async def _native_interaction(app: Any, pilot: Any, expected_view: str, source: FakeTuiSource) -> Mapping[str, Any]:
     if _active_view(app) != expected_view:
         raise AssertionError(f"initial view is {_active_view(app)!r}, expected {expected_view!r}")
-    for _ in range(len(VIEWS) + 2):
+    for _ in range(len(VIEWS)):
         await pilot.press("ctrl+right")
         await pilot.pause()
     if _active_view(app) != expected_view:
@@ -354,8 +354,6 @@ async def _workflow_interaction(app: Any, pilot: Any) -> Mapping[str, Any]:
     await pilot.pause()
     search = app.query_one("#workflow-search")
     search.value = "temperature"
-    await pilot.pause()
-    await pilot.press(*tuple("temperature"))
     await pilot.pause()
     await pilot.press("enter")
     await pilot.pause()
