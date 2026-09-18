@@ -6,8 +6,10 @@ device acknowledged a physical action.
 """
 from __future__ import annotations
 
+import math
 from typing import Any, Mapping
 
+from .bundle import calibration_artifact_digest
 from .store import EdgeStoreError
 
 
@@ -77,6 +79,89 @@ def plan_calibrated_dispense(*, artifact: Mapping[str, Any], volume_ul: float,
             "duration_ms": rounded}, "calibration": {"artifact_id": artifact.get("id"),
             "artifact_digest": artifact.get("artifact_digest"), "volume_ul": float(volume_ul),
             "flow_model": "volume_ul=slope*duration_ms+intercept", "duration_ms": rounded}}
+
+
+def plan_calibrated_temperature(*, artifact: Mapping[str, Any], target_temperature_c: float,
+                                instrument: Mapping[str, Any], vial_position_id: str | None = None,
+                                channel: Any = None) -> dict[str, Any]:
+    """Plan a bounded Celsius setpoint using one immutable vial calibration.
+
+    The returned command is typed controller intent.  It contains the raw ADC
+    target expected by the firmware-facing boundary, but this function never
+    opens a transport or performs actuation.
+    """
+    if not isinstance(artifact, Mapping):
+        raise EdgeStoreError("temperature calibration artifact is required")
+    if artifact.get("calibration_type") != "temperature":
+        raise EdgeStoreError("temperature setpoint requires a temperature calibration artifact")
+    assessment = artifact.get("assessment")
+    if not isinstance(assessment, Mapping) or assessment.get("status") != "valid":
+        raise EdgeStoreError("temperature calibration artifact is not valid")
+    required = ("id", "artifact_digest", "instrument_id", "vial_position_id", "method", "method_version")
+    if any(not isinstance(artifact.get(field), str) or not artifact[field] for field in required):
+        raise EdgeStoreError("temperature calibration artifact lacks immutable identity")
+    try:
+        if artifact["artifact_digest"] != calibration_artifact_digest(artifact):
+            raise EdgeStoreError("temperature calibration artifact digest mismatch")
+    except (TypeError, ValueError) as error:
+        raise EdgeStoreError("temperature calibration artifact is not canonical JSON") from error
+    if artifact["method"] != "temperature_linear_v1":
+        raise EdgeStoreError("unsupported temperature calibration method")
+    if not isinstance(target_temperature_c, (int, float)) or isinstance(target_temperature_c, bool) \
+            or not math.isfinite(float(target_temperature_c)):
+        raise EdgeStoreError("temperature target must be finite")
+    target = float(target_temperature_c)
+    if not 0.0 <= target <= 100.0:
+        raise EdgeStoreError("temperature target must be in 0..100 °C")
+    if not isinstance(instrument, Mapping) or instrument.get("id") != artifact["instrument_id"]:
+        raise EdgeStoreError("temperature calibration instrument does not match target")
+    vial = artifact["vial_position_id"] if vial_position_id is None else vial_position_id
+    if vial != artifact["vial_position_id"]:
+        raise EdgeStoreError("temperature calibration vial does not match target")
+    if channel is not None:
+        raise EdgeStoreError("temperature channel must be resolved from vial position")
+    positions = instrument.get("vial_positions")
+    if not isinstance(positions, (list, tuple)):
+        raise EdgeStoreError("instrument vial positions are unavailable")
+    matches = [item for item in positions if isinstance(item, Mapping) and item.get("id") == vial]
+    if len(matches) != 1:
+        raise EdgeStoreError("temperature vial position is missing or ambiguous")
+    position = matches[0].get("position_index")
+    if isinstance(position, bool) or not isinstance(position, int) or not 0 <= position <= 5:
+        raise EdgeStoreError("temperature vial position has no bounded channel")
+    coefficients = artifact.get("coefficients")
+    calibration_range = artifact.get("calibration_range")
+    if not isinstance(coefficients, Mapping) or not isinstance(calibration_range, Mapping):
+        raise EdgeStoreError("temperature calibration coefficients and range are required")
+    try:
+        slope = float(coefficients["slope"])
+        intercept = float(coefficients["intercept"])
+        reference_min = float(calibration_range["reference_min"])
+        reference_max = float(calibration_range["reference_max"])
+        raw_min_value = calibration_range["raw_min"]
+        raw_max_value = calibration_range["raw_max"]
+    except (KeyError, TypeError, ValueError) as error:
+        raise EdgeStoreError("temperature calibration coefficients and range are invalid") from error
+    if isinstance(raw_min_value, bool) or not isinstance(raw_min_value, int) \
+            or isinstance(raw_max_value, bool) or not isinstance(raw_max_value, int):
+        raise EdgeStoreError("temperature calibration raw bounds are invalid")
+    raw_min, raw_max = raw_min_value, raw_max_value
+    if not all(math.isfinite(value) for value in (slope, intercept, reference_min, reference_max)) \
+            or slope == 0 or reference_min > reference_max or raw_min > raw_max:
+        raise EdgeStoreError("temperature calibration coefficients and range are invalid")
+    if not reference_min <= target <= reference_max:
+        raise EdgeStoreError("temperature target is outside calibration range")
+    raw_float = (target - intercept) / slope
+    raw_target = int(math.floor(raw_float + 0.5))
+    if not 1 <= raw_target <= 65535 or not raw_min <= raw_target <= raw_max:
+        raise EdgeStoreError("temperature raw target is outside calibration bounds")
+    predicted = slope * raw_target + intercept
+    return {"operation": "set_temperature", "parameters": {"channel": position,
+            "raw_target_adc": raw_target}, "calibration": {
+                "artifact_id": artifact["id"], "artifact_digest": artifact["artifact_digest"],
+                "method": artifact["method"], "method_version": artifact["method_version"],
+                "requested_temperature_c": target, "predicted_temperature_c": predicted,
+                "quantization_error_c": predicted - target}}
 
 
 def reject_calibrated_dispense(*, reason: str, artifact: Mapping[str, Any] | None = None,

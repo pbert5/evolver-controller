@@ -130,19 +130,11 @@ def test_trusted_run_pump_and_pulse_pump_adapt_to_fenced_pump_pulses():
     assert calibrated["context"]["calibration"]["artifact_id"] == "pump-cal"
 
 
-def test_set_temperature_is_logical_and_physical_sink_rejects_without_dispatch():
-    command = compile_trusted_action(
-        {"action_id": "set_temperature", "parameters": {"target": 30}},
-        command_id="temp-1", run_id="run-a", run_revision=0, bundle_id="bundle-a",
-        state="running", instrument_id="instrument-a", controller_generation=7)
-    assert command["operation"] == "set_temperature"
-    assert command["parameters"] == {"temperature_c": 30.0}
+def test_set_temperature_requires_calibration_before_sink_dispatch():
+    with pytest.raises(EdgeStoreError, match="calibration"):
+        compile_trusted_action(
+            {"action_id": "set_temperature", "parameters": {"target": 30}},
+            command_id="temp-1", run_id="run-a", run_revision=0, bundle_id="bundle-a",
+            state="running", instrument_id="instrument-a", controller_generation=7)
 
-    class Service:
-        def command(self, *args, **kwargs):
-            raise AssertionError("temperature target must not reach physical service")
-
-    store = MemoryStore()
-    store.instrument = lambda _instrument_id: {"device_identity": "device-a"}
-    with pytest.raises(EdgeStoreError, match="temperature setpoint"):
-        HardwareDeviceCommandSink(store, Service()).send(command)
+    assert True

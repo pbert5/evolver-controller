@@ -15,7 +15,7 @@ from uuid import NAMESPACE_URL, uuid5
 from .hardware import DEVICE_PROTOCOL_VERSION, HardwareService, validate_device_operation
 from .hardware_ipc import DEFAULT_SOCKET, request as hardware_ipc_request
 from .store import EdgeStore, EdgeStoreError, StaleGenerationError
-from .domain import plan_calibrated_dispense
+from .domain import plan_calibrated_dispense, plan_calibrated_temperature
 
 
 class DeviceCommandSink(Protocol):
@@ -180,12 +180,17 @@ def compile_trusted_action(action: Mapping[str, Any], *, command_id: str,
                                "action_id": action_id, "controller_generation": controller_generation}
     if action_id == "set_temperature":
         value = parameters.get("target", parameters.get("target_temperature", parameters.get("temperature_c")))
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= float(value) <= 100:
-            raise EdgeStoreError("temperature target must be numeric in 0..100 °C")
+        artifact = action.get("calibration_artifact")
+        instrument = action.get("instrument")
+        vial_position_id = target.get("vial_position_id")
+        plan = plan_calibrated_temperature(artifact=artifact, target_temperature_c=value,
+                                            instrument=instrument, vial_position_id=vial_position_id,
+                                            channel=target.get("channel", parameters.get("channel")))
+        context["calibration"] = plan["calibration"]
         return {"schema_version": DEVICE_PROTOCOL_VERSION, "command_id": command_id,
-                "operation": "set_temperature", "target": {"device_id": instrument_id,
-                "instrument_id": instrument_id}, "parameters": {"temperature_c": float(value)},
-                "context": context}
+                "operation": plan["operation"], "target": {"device_id": instrument_id,
+                "instrument_id": instrument_id, "vial_position_id": vial_position_id},
+                "parameters": plan["parameters"], "context": context}
     if action_id in {"calibrated_dispense", "dispense"}:
         artifact = action.get("calibration_artifact")
         volume = parameters.get("volume_ul")
@@ -377,9 +382,12 @@ class SimulatorDeviceCommandSink:
                                  "command_id": command["command_id"], "duration_ms": p["duration_ms"],
                                  "active_until_ms": self.now_ms + p["duration_ms"], "evidence": "simulated"}
         elif operation == "set_temperature":
-            target = p.get("temperature_c")
+            calibration = command.get("context", {}).get("calibration", {})
+            target = p.get("temperature_c", calibration.get("requested_temperature_c"))
             if isinstance(target, bool) or not isinstance(target, (int, float)) or not 0 <= float(target) <= 100:
                 raise EdgeStoreError("temperature target must be numeric in 0..100 °C")
+            if not isinstance(p.get("raw_target_adc"), int) or not 1 <= p["raw_target_adc"] <= 65535:
+                raise EdgeStoreError("temperature raw target must be bounded")
             self.temperature_targets[instrument_id] = float(target)
         elif operation in {"stir_pulse", "set_stir"}:
             _int(p.get("channel"), "stir channel", 0, 1); _int(p.get("level"), "level", 1, 250); _int(p.get("duration_ms"), "duration_ms", 1, 1000)
@@ -397,6 +405,7 @@ class SimulatorDeviceCommandSink:
             self.outputs.pop((instrument_id, "pump", p["channel"]), None)
         elif operation == "safe_stop":
             self.outputs.clear()
+            self.temperature_targets.clear()
         else:
             raise EdgeStoreError(f"unsupported device operation: {operation}")
         self.commands.append(dict(command))
@@ -444,12 +453,10 @@ class HardwareDeviceCommandSink:
             raise EdgeStoreError("unsupported device protocol")
         if command.get("operation") == "pump_stop":
             raise EdgeStoreError("pump_stop is not supported by physical hardware; use safe_stop")
-        if command.get("operation") == "set_temperature":
-            raise EdgeStoreError("temperature setpoint is not supported by verified firmware")
         target = command.get("target", {})
         instrument_id = target.get("instrument_id")
         instruments = self.store.list_instruments() if command.get("operation") == "safe_stop" else [self.store.instrument(instrument_id)]
-        operation = {"pump_pulse": "pulse_pump", "stir_pulse": "set_stir",
+        operation = {"pump_pulse": "pulse_pump", "set_temperature": "set_temperature", "stir_pulse": "set_stir",
                      "heater_pulse": "pulse_heater", "safe_stop": "safe_stop"}[command["operation"]]
         parameters = dict(command.get("parameters", {}))
         context = command.get("context", {})
