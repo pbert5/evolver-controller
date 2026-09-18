@@ -9,6 +9,7 @@ dependencies = ["pyserial==3.5", "zstandard==0.25.0", "psycopg[binary]>=3.1", "P
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-xdist>=3.8", "pytest-cov>=6"]
 tui = ["textual>=0.89,<2", "jsonschema>=4.18,<5"]
+workflow = ["evolver-procedure-runtime==0.1.0"]
 [project.scripts]
 evoctl = "meta_webui_application_backend.evolver_edge.cli:main"
 evolver-controller = "meta_webui_application_backend.evolver_edge.service:main"
