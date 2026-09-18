@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-AUTHORITATIVE_FIRMWARE_SOURCE = "f10de7bab8aa800e0e76ec64c2851b5ed7020c1d"
+AUTHORITATIVE_FIRMWARE_SOURCE = "83483cda621a2e913ad778ae62294872084a507a"
 TARGETS = {"linux-x86_64-glibc", "linux-x86_64-nixos", "linux-aarch64-glibc"}
 PUBLISHABLE_TARGETS = {"linux-x86_64-glibc", "linux-x86_64-nixos"}
 LEGACY_TARGETS = {"linux-x86_64", "linux-aarch64"}

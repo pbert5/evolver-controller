@@ -59,7 +59,7 @@ def test_builder_writes_deterministic_manifest_fields_and_copies_inputs(tmp_path
     firmware_manifest = tmp_path / "firmware-manifest.json"
     firmware_manifest.write_text(
         json.dumps({
-            "source_commit": "f10de7bab8aa800e0e76ec64c2851b5ed7020c1d",
+            "source_commit": "83483cda621a2e913ad778ae62294872084a507a",
             "toolchain": {"board_manager_url": "https://example.invalid", "kept": True},
         }),
         encoding="utf-8",
@@ -86,7 +86,7 @@ def test_builder_writes_deterministic_manifest_fields_and_copies_inputs(tmp_path
     assert manifest["firmware_toolchain_required"] is True
     assert manifest["artifacts"]["linux-x86_64-glibc"]["sha256"] == hashlib.sha256(artifact.read_bytes()).hexdigest()
     assert manifest["artifacts"]["linux-x86_64-glibc"]["firmware_toolchain"]["offline"] is True
-    assert manifest["firmware"]["source_commit"] == "f10de7bab8aa800e0e76ec64c2851b5ed7020c1d"
+    assert manifest["firmware"]["source_commit"] == "83483cda621a2e913ad778ae62294872084a507a"
     assert "board_manager_url" not in manifest["firmware"]["toolchain"]
     assert (release / "schema/actions.json").read_text() == "schema\n"
     assert (release / "migrations/001.sql").read_text() == "migration\n"

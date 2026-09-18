@@ -20,8 +20,8 @@ The integrated pins are:
 
 | component | reviewed source | exact head |
 | --- | --- | --- |
-| firmware source | `pbert5/evolver-arduino` PR #1 | `f10de7bab8aa800e0e76ec64c2851b5ed7020c1d` |
-| hardware | `pbert5/evolver-hardware` PR #2 | `018590854aff8ea886138b37d6af0dd5ab82a8ea` |
+| firmware source | `pbert5/evolver-arduino` PR #1 | `83483cda621a2e913ad778ae62294872084a507a` |
+| hardware | `pbert5/evolver-hardware` PR #2 | `36da3d8b63b7cef65d35b5b86ec4d72f83690547` |
 | controller | `pbert5/evolver-controller` PR #13 | `01fd57f24685acdc907ebeb54e61d6585d5f2afd` |
 
 WorkflowHost availability must remain conservative: physical execution is
