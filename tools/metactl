@@ -26,6 +26,9 @@ server_lifecycle() {
     restart)
       [[ $# -eq 0 || ( $# -eq 1 && ( $1 == controller || $1 == hardware ) ) ]] || { usage; return 2; }
       ;;
+    logs)
+      [[ $# -eq 1 && ( $1 == controller || $1 == hardware ) ]] || { usage; return 2; }
+      ;;
     upgrade)
       [[ $# -eq 0 ]] || { usage; return 2; }
       echo 'metactl server upgrade: unavailable; no governed production release selector is configured' >&2

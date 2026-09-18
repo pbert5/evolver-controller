@@ -50,6 +50,16 @@ def test_server_restart_without_service_restarts_each_allowlisted_service(tmp_pa
     ]
 
 
+def test_server_logs_routes_only_allowlisted_service_to_canonical_adapter(tmp_path: Path) -> None:
+    launcher, _ = _sandbox(tmp_path)
+    capture = tmp_path / "capture"
+
+    result = _run(launcher, capture, "server", "logs", "hardware")
+
+    assert result.returncode == 0
+    assert capture.read_text(encoding="utf-8").splitlines() == ["logs", "hardware"]
+
+
 def test_server_lifecycle_rejects_arbitrary_arguments_before_adapter(tmp_path: Path) -> None:
     launcher, _ = _sandbox(tmp_path)
     capture = tmp_path / "capture"
