@@ -21,6 +21,8 @@ from .doctor import doctor_report
 from .operator import (DEFAULT_SOCKET as DEFAULT_OPERATOR_SOCKET, OperatorClient,
                        OperatorError, OperatorProtocolError, OperatorUnavailable,
                        request as operator_request)
+from .workflow_cli import WorkflowCLI, ScenarioRegistry, parse_parameters, production_host, ScenarioHost
+from .workflow_host import HostContext
 
 
 class CommandRegistryError(ValueError):
@@ -281,6 +283,23 @@ def build_parser() -> argparse.ArgumentParser:
     # Inventory is durable edge-domain data; simulator and hardware adapters
     # merely populate the same contract.
     commands.add_parser("controllers"); commands.add_parser("instruments")
+    workflow = commands.add_parser("workflow", help="browse and run trusted workflows")
+    workflow_sub = workflow.add_subparsers(dest="workflow_command", required=True)
+    workflow_list = workflow_sub.add_parser("list")
+    workflow_list.add_argument("--search", default="")
+    workflow_show = workflow_sub.add_parser("show")
+    workflow_show.add_argument("workflow_id")
+    for name in ("preflight", "run"):
+        item = workflow_sub.add_parser(name)
+        item.add_argument("workflow_id")
+        item.add_argument("--parameter", action="append", default=[], metavar="NAME=VALUE")
+        item.add_argument("--target", default="scenario-1")
+        item.add_argument("--simulator", action="store_true")
+        item.add_argument("--jsonl", action="store_true")
+        item.add_argument("--scenario", choices=ScenarioRegistry().names())
+        item.add_argument("--operator")
+        item.add_argument("--lease-token")
+        item.add_argument("--physical", action="store_true")
     instrument = commands.add_parser("instrument"); instrument_sub = instrument.add_subparsers(dest="instrument_command", required=True)
     show = instrument_sub.add_parser("show"); show.add_argument("instrument_id")
     calibration = commands.add_parser("calibration", help="inspect stored calibration evidence")
@@ -377,6 +396,33 @@ def main(argv: list[str] | None = None) -> int:
             break
     arguments = [*prefix, *_compatibility_argv(raw_arguments)]
     args = build_parser().parse_args(arguments)
+    if args.command == "workflow":
+        try:
+            parameters = parse_parameters(args.parameter) if args.workflow_command in {"preflight", "run"} else {}
+            if args.workflow_command == "list" or args.workflow_command == "show":
+                # Metadata commands intentionally require no operator socket.
+                root = Path(__file__).resolve().parents[5]
+                from evolver_procedure_runtime import WorkflowLibrary
+                library = WorkflowLibrary.from_directories([root / "workflows" / "calibration"])
+                host = ScenarioHost(tuple(library.list()))
+                if args.workflow_command == "list" and args.search:
+                    host.workflows = WorkflowLibrary(host.search_workflows(args.search))
+                renderer = WorkflowCLI(host, output=sys.stdout)
+                return renderer.list_workflows() if args.workflow_command == "list" else renderer.show_workflow(args.workflow_id)
+            if args.scenario:
+                host = ScenarioRegistry().host(args.scenario)
+            else:
+                context = HostContext(operator=args.operator, lease_token=args.lease_token, lease_owner=args.operator,
+                                      physical=args.physical, target_identity=args.target)
+                host = production_host(OperatorClient(args.operator_socket), target=args.target,
+                                        simulator=args.simulator, context=context)
+            cli = WorkflowCLI(host, output=sys.stdout, jsonl=args.jsonl)
+            if args.workflow_command == "preflight":
+                return cli.preflight(args.workflow_id, parameters)
+            return cli.run(args.workflow_id, parameters)
+        except (KeyError, OSError, TypeError, ValueError, OperatorError, json.JSONDecodeError) as error:
+            print(f"workflow_error: {error}", file=sys.stderr)
+            return 2
     live_request = None if args.offline else _live_request(args)
     if live_request is not None:
         operation, params = live_request
