@@ -112,7 +112,12 @@ def operator_safe_stop_authority(client: OperatorClient) -> SafeStopAuthority:
     def stop(*, target: TargetProjection, context: HostContext, command_id: str) -> Mapping[str, Any]:
         if context.physical is not True or not context.operator:
             raise PermissionError("physical opt-in and operator attribution are required")
-        if context.controller_generation != target.generation:
+        target_generation = target.generation
+        context_generation = context.controller_generation
+        if (type(target_generation) is not int or target_generation <= 0 or
+                type(context_generation) is not int or context_generation <= 0):
+            raise PermissionError("positive controller generations are required")
+        if context_generation != target_generation:
             raise PermissionError("controller generation is stale")
         result = client.safe_stop(operator=context.operator, physical=True, command_id=command_id)
         if not isinstance(result, Mapping):
