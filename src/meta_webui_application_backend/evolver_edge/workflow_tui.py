@@ -224,7 +224,8 @@ class WorkflowWorkspace:
     def save_inputs(self, tab_id: str, values: Mapping[str, Any]) -> None:
         tab = self._tab(tab_id)
         if tab.session is None:
-            self.start_current()
+            session = self.host.new_session(tab.workflow)
+            tab.session = session if hasattr(session, "snapshot_for_ui") else RuntimeSessionAdapter(session, tab.workflow)
         assert tab.session is not None
         for name, value in values.items():
             tab.session.provide_parameter(name, value)
