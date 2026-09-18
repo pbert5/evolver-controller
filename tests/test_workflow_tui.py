@@ -261,3 +261,57 @@ def test_production_host_pilot_renders_runtime_attention_and_rich_drawer():
             assert "abort_supported" in app.workspace.current.snapshot.drawer["Safety"]
 
     asyncio.run(exercise())
+
+
+def test_rendered_representation_tabs_use_canonical_api_and_cli_names():
+    app = create_textual_app(ScenarioRegistry().host("repeatable_calibration"))
+
+    async def exercise():
+        async with app.run_test() as pilot:
+            await pilot.press("ctrl+n")
+            await pilot.press("enter")
+            app.query_one("#representations").active = "representation-api"
+            await pilot.pause()
+            assert app.workspace.representation == "API"
+            app.query_one("#representations").active = "representation-cli"
+            await pilot.pause()
+            assert app.workspace.representation == "CLI"
+
+    asyncio.run(exercise())
+
+
+def test_rendered_draft_tree_selection_is_inspectable_and_non_mutating():
+    host = ScenarioRegistry().host("repeatable_calibration")
+    app = create_textual_app(host)
+
+    async def exercise():
+        async with app.run_test() as pilot:
+            await pilot.press("ctrl+n")
+            await pilot.press("enter")
+            session = app.workspace.current.session._session
+            before = (session.state, session.active_stage_id, session.active_instance_id)
+            tree = app.query_one("#procedure")
+            step = next(node for stage in tree.root.children for node in stage.children
+                        if isinstance(node.data, dict) and node.data.get("step_id"))
+            app.query_one("#procedure").select_node(step)
+            await pilot.pause()
+            assert app.workspace.current.snapshot.representations["Step"]
+            assert app.workspace.current.snapshot.representations["Raw"]
+            assert (session.state, session.active_stage_id, session.active_instance_id) == before
+
+    asyncio.run(exercise())
+
+
+def test_rendered_refresh_and_drawer_toggle_are_repeatable():
+    app = create_textual_app(ScenarioRegistry().host("repeatable_calibration"))
+
+    async def exercise():
+        async with app.run_test() as pilot:
+            for _ in range(10):
+                await pilot.press("d")
+                await pilot.press("ctrl+n")
+                await pilot.press("escape")
+            await pilot.pause()
+            assert app.workspace.tab_ids == ["library"]
+
+    asyncio.run(exercise())

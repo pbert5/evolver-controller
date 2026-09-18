@@ -29,6 +29,9 @@ STATUS_GLYPHS = {
 ATTENTION_GLYPHS = {"input": "!📝", "choice": "!📝", "observation": "!🔎", "physical": "!👤"}
 DOMAIN_GLYPHS = {"temperature": "🌡", "calibration": "⚖"}
 CONNECTIVITY_GLYPHS = {"connected": "↔", "online": "↔", "degraded": "⚠", "offline": "×"}
+REPRESENTATION_BY_PANE = {
+    "step": "Step", "action": "Action", "api": "API", "cli": "CLI", "raw": "Raw",
+}
 
 
 def _field(value: Any, name: str, default: Any = None) -> Any:
@@ -88,6 +91,7 @@ class WorkflowSnapshot:
     drawer: Mapping[str, Any] = field(default_factory=dict)
     metadata: Mapping[str, Any] = field(default_factory=dict)
     correction: Mapping[str, Any] = field(default_factory=dict)
+    inspection: Mapping[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "WorkflowSnapshot":
@@ -101,6 +105,7 @@ class WorkflowSnapshot:
             procedures=tuple(value.get("procedures", ()) or ()), selected_step=value.get("selected_step"),
             representations=value.get("representations", {}) or {}, drawer=value.get("drawer", {}) or {},
             metadata=value.get("metadata", {}) or {}, correction=value.get("correction", {}) or {},
+            inspection=value.get("inspection", {}) or {},
         )
 
     @property
@@ -129,10 +134,11 @@ class RuntimeSessionAdapter:
 
     def __init__(self, session: Any, workflow: Any, host: Any = None):
         self._session, self._workflow, self._host = session, workflow, host
+        self.inspection: Mapping[str, Any] = {}
 
     def snapshot_for_ui(self) -> WorkflowSnapshot:
         if self._host is not None and hasattr(self._host, "project_session_for_ui"):
-            return WorkflowSnapshot.from_mapping(self._host.project_session_for_ui(self._session))
+            return WorkflowSnapshot.from_mapping(self._host.project_session_for_ui(self._session, self.inspection))
         state = getattr(getattr(self._session, "state", None), "value", None) or getattr(self._session, "state", "READY")
         workflow_id = _field(self._workflow, "id", "workflow")
         title = _field(self._workflow, "title", workflow_id)
@@ -171,6 +177,7 @@ class WorkflowTab:
     workflow: Any
     session: WorkflowSessionLike | None = None
     draft: bool = True
+    inspection: Mapping[str, Any] = field(default_factory=dict)
 
     @property
     def snapshot(self) -> WorkflowSnapshot:
@@ -178,6 +185,8 @@ class WorkflowTab:
             workflow_id = _field(self.workflow, "id", self.tab_id)
             title = _field(self.workflow, "title", workflow_id)
             return WorkflowSnapshot(workflow_id, title)
+        if isinstance(self.session, RuntimeSessionAdapter):
+            self.session.inspection = self.inspection
         value = self.session.snapshot_for_ui()
         return value if isinstance(value, WorkflowSnapshot) else WorkflowSnapshot.from_mapping(value)
 
@@ -292,6 +301,14 @@ class WorkflowWorkspace:
 
     def inspector(self, mode: str | None = None) -> Any:
         return self.current.snapshot.representations.get(mode or self.representation, "Not available")
+
+    def select_inspection(self, value: Mapping[str, Any]) -> None:
+        """Select a read-only projection item; never advances runtime state."""
+        tab = self.current
+        if tab.tab_id != "library" and tab.session is not None:
+            tab.inspection = {key: value[key] for key in
+                              ("workflow_id", "stage_id", "instance_id", "procedure_id", "step_id")
+                              if key in value and value[key] is not None}
 
     def toggle_drawer(self) -> bool:
         self.drawer_open = not self.drawer_open
@@ -524,6 +541,9 @@ def create_textual_app(host: WorkflowHostLike):
         def __init__(self):
             super().__init__()
             self.workspace = WorkflowWorkspace(host)
+            self._refresh_requested = 0
+            self._refresh_rendered = 0
+            self._refresh_running = False
 
         def compose(self) -> ComposeResult:
             yield Header(show_clock=False)
@@ -543,8 +563,8 @@ def create_textual_app(host: WorkflowHostLike):
                         yield Static("", id=f"drawer-value-{view.lower()}")
             yield Footer()
 
-        def on_mount(self) -> None:
-            self.refresh_view()
+        async def on_mount(self) -> None:
+            await self.refresh_view()
 
         def on_key(self, event: Any) -> None:
             # Modal input retains focus while the filtered list is rebuilt.
@@ -554,12 +574,26 @@ def create_textual_app(host: WorkflowHostLike):
                 self.screen._choose_first()
                 event.stop()
 
-        def refresh_view(self) -> None:
+        async def refresh_view(self) -> None:
+            """Coalesce overlapping refresh requests into ordered UI transactions."""
+            self._refresh_requested += 1
+            if self._refresh_running:
+                return
+            self._refresh_running = True
+            try:
+                while self._refresh_rendered < self._refresh_requested:
+                    self._refresh_rendered = self._refresh_requested
+                    await self._render_view()
+            finally:
+                self._refresh_running = False
+
+        async def _render_view(self) -> None:
+            """Render one serialized transaction after prior children are removed."""
             tabs = "  ".join(f"{'▶ ' if i == self.workspace.active_index else ''}{tab.snapshot.status_glyph} {tab.snapshot.title} · {tab.snapshot.metadata.get('target', '')}" for i, tab in enumerate(self.workspace.tabs))
             self.query_one("#top-tabs", Static).update(tabs)
             tab = self.workspace.current
             library = self.query_one("#library", ListView)
-            library.clear()
+            await library.remove_children()
             if tab.tab_id == "library":
                 for item in self.workspace.workflows():
                     workflow_id = _field(item, "id", "")
@@ -597,56 +631,56 @@ def create_textual_app(host: WorkflowHostLike):
                 self.query_one(f"#drawer-value-{view.lower()}", Static).update(semantic_copy(value))
             self.query_one("#drawer-tabs", TabbedContent).active = f"drawer-{self.workspace.drawer_view.lower()}"
 
-        def action_previous_tab(self) -> None:
-            self.workspace.cycle_tab(-1); self.refresh_view()
+        async def action_previous_tab(self) -> None:
+            self.workspace.cycle_tab(-1); await self.refresh_view()
 
-        def action_next_tab(self) -> None:
-            self.workspace.cycle_tab(1); self.refresh_view()
+        async def action_next_tab(self) -> None:
+            self.workspace.cycle_tab(1); await self.refresh_view()
 
         def action_new_workflow(self) -> None:
-            def opened(workflow_id: str | None) -> None:
+            async def opened(workflow_id: str | None) -> None:
                 if workflow_id:
                     self.workspace.open_workflow(workflow_id)
-                    self.refresh_view()
+                    await self.refresh_view()
             self.push_screen(ChoiceModal(self.workspace), opened)
 
-        def on_list_view_selected(self, event: Any) -> None:
+        async def on_list_view_selected(self, event: Any) -> None:
             item_id = getattr(event.item, "id", "") or ""
             if item_id.startswith("workflow-"):
                 safe_id = item_id.removeprefix("workflow-")
                 workflow = next((candidate for candidate in self.workspace.workflows()
                                  if _safe_dom_id(_field(candidate, "id", "")) == safe_id), None)
                 self.workspace.open_workflow(_field(workflow, "id", safe_id))
-                self.refresh_view()
+                await self.refresh_view()
 
-        def action_close_workflow(self) -> None:
+        async def action_close_workflow(self) -> None:
             if self.workspace.current.snapshot.status.upper() in {"RUNNING", "WAITING", "WAITING_INPUT", "WAITING_ACTION", "WAITING_CONDITION", "PAUSED", "READY", "PREFLIGHTED"}:
                 self.push_screen(CloseModal(), self._close_decision)
             else:
                 self.workspace.close_current()
-                self.refresh_view()
+                await self.refresh_view()
 
-        def _close_decision(self, abort: bool | None) -> None:
+        async def _close_decision(self, abort: bool | None) -> None:
             if abort:
                 self.workspace.close_current(abort=True)
-                self.refresh_view()
+                await self.refresh_view()
 
-        def action_toggle_drawer(self) -> None:
-            self.workspace.toggle_drawer(); self.refresh_view()
+        async def action_toggle_drawer(self) -> None:
+            self.workspace.toggle_drawer(); await self.refresh_view()
 
         def action_open_input(self) -> None:
             tab = self.workspace.current
             if tab.tab_id != "library":
-                def done(result):
+                async def done(result):
                     if result:
                         action, values = result
                         self.workspace.save_inputs(tab.tab_id, values)
                         if action == "confirm":
                             self.workspace.confirm_inputs(tab.tab_id)
-                        self.refresh_view()
+                        await self.refresh_view()
                 self.push_screen(InputModal(self.workspace, tab), done)
 
-        def action_add_instance(self) -> None:
+        async def action_add_instance(self) -> None:
             tab = self.workspace.current
             if tab.tab_id == "library" or tab.session is None:
                 return
@@ -657,13 +691,13 @@ def create_textual_app(host: WorkflowHostLike):
                 return
             stage_id = str(candidate.get("id", candidate.get("stage_id", "")))
             fields = tuple(candidate.get("parameters", candidate.get("instance_parameters", ())))
-            def added(result):
+            async def added(result):
                 if result:
                     try:
                         self.workspace.add_instance(tab.tab_id, result[0], result[2])
                     except Exception as error:
                         self.notify(str(error), severity="error")
-                    self.refresh_view()
+                    await self.refresh_view()
             self.push_screen(InstanceModal(tab, stage_id, fields), added)
 
         def action_copy_focused(self) -> None:
@@ -674,12 +708,19 @@ def create_textual_app(host: WorkflowHostLike):
                 pass
             self.notify("Copied semantic content", severity="information")
 
-        def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
+        async def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
             tab_id = event.pane.id or ""
             if tab_id.startswith("representation-"):
-                self.workspace.set_representation(tab_id.removeprefix("representation-").title())
+                pane_id = tab_id.removeprefix("representation-")
+                self.workspace.set_representation(REPRESENTATION_BY_PANE[pane_id])
             elif tab_id.startswith("drawer-"):
                 self.workspace.set_drawer_view(tab_id.removeprefix("drawer-").title())
+            await self.refresh_view()
+
+        async def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
+            if isinstance(event.node.data, Mapping):
+                self.workspace.select_inspection(event.node.data)
+                await self.refresh_view()
 
     return WorkflowApp()
 

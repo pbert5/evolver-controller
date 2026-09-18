@@ -14,7 +14,8 @@ from meta_webui_application_backend.evolver_edge.workflow_host import (
     operator_safe_stop_authority,
     resolve_target,
 )
-from meta_webui_application_backend.evolver_edge.workflow_cli import ScenarioRegistry
+from meta_webui_application_backend.evolver_edge.cli import build_parser
+from meta_webui_application_backend.evolver_edge.workflow_cli import ScenarioRegistry, production_host
 
 
 class FakeOperator:
@@ -200,7 +201,13 @@ def test_projection_is_shared_for_renderers():
                                     parameters={"channel": 1, "duration_ms": 20})
     assert projection.action["id"] == projection.raw["id"] == projection.api["action_id"]
     assert projection.availability.classification is Availability.AVAILABLE
-    assert projection.cli.startswith("evoctl workflow action pulse_pump")
+    assert projection.cli == "Not applicable: evoctl has no canonical action subcommand"
+
+
+def test_real_cli_parser_does_not_claim_a_nonexistent_action_command():
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["workflow", "action", "pulse_pump"])
 
 
 def test_target_resolution_uses_only_operator_read_models():
@@ -246,3 +253,77 @@ def test_repeatable_stage_rejects_once_and_invalid_parameters_without_creation()
     with pytest.raises(ValueError, match="invalid instance parameter type"):
         host.add_stage_instance(session, "points", {"reference_value": "not-a-number"})
     assert host.project_stage_instances(session, "points").instances == ()
+
+
+def test_draft_projection_exposes_trusted_templates_without_creating_instances():
+    host = ScenarioRegistry().host("repeatable_calibration")
+    session = host.new_session(host.show_workflow("scenario.repeatable-calibration"))
+
+    projection = host.project_session_for_ui(session)
+
+    assert [stage["id"] for stage in projection["procedures"]] == ["setup", "points", "review"]
+    assert all(stage["steps"] for stage in projection["procedures"])
+    assert all(stage["instances"] == [] for stage in projection["procedures"])
+    assert projection["selected_step"] == "complete"
+    assert session.instances == {"setup": [], "points": [], "review": []}
+
+
+def test_inspection_selection_changes_projection_only():
+    host = ScenarioRegistry().host("repeatable_calibration")
+    session = host.new_session(host.show_workflow("scenario.repeatable-calibration"))
+    before = (session.state, session.active_stage_id, session.active_instance_id, dict(session.parameters))
+
+    projection = host.project_session_for_ui(session, {"stage_id": "review", "step_id": "complete"})
+
+    assert {key: projection["inspection"][key] for key in ("stage_id", "step_id")} == {
+        "stage_id": "review", "step_id": "complete",
+    }
+    assert projection["selected_step"] == "complete"
+    assert (session.state, session.active_stage_id, session.active_instance_id, dict(session.parameters)) == before
+
+
+def test_trusted_temperature_workflow_draft_projects_all_stages_without_operator_calls():
+    from pathlib import Path
+
+    client = FakeOperator()
+    root = Path(__file__).resolve().parents[3]
+    host = production_host(client, target="MEV-1", simulator=True, repository_root=root)
+    session = host.new_session(host.show_workflow("calibration.temperature"))
+
+    projection = host.project_session_for_ui(session)
+
+    assert [stage["id"] for stage in projection["procedures"]] == ["setup", "points", "review"]
+    assert all(stage["steps"] for stage in projection["procedures"])
+    assert all(not stage["instances"] for stage in projection["procedures"])
+    assert client.requests == []
+
+
+def test_inspection_selection_honors_repeatable_instance_identity():
+    host = ScenarioRegistry().host("repeatable_calibration")
+    session = host.new_session(host.show_workflow("scenario.repeatable-calibration"))
+    session.preflight()
+    session.advance()
+    session.continue_stage()
+    host.add_stage_instance(session, "points", {"reference_value": 1.0})
+    host.add_stage_instance(session, "points", {"reference_value": 2.0})
+
+    projection = host.project_session_for_ui(session, {
+        "stage_id": "points", "instance_id": "points-2", "step_id": "complete",
+    })
+
+    assert projection["inspection"]["instance_id"] == "points-2"
+
+
+def test_default_inspection_follows_active_instance_when_step_ids_repeat():
+    host = ScenarioRegistry().host("repeatable_calibration")
+    session = host.new_session(host.show_workflow("scenario.repeatable-calibration"))
+    session.preflight()
+    session.advance()
+    session.continue_stage()
+    host.add_stage_instance(session, "points", {"reference_value": 1.0})
+    host.add_stage_instance(session, "points", {"reference_value": 2.0})
+
+    projection = host.project_session_for_ui(session)
+
+    assert projection["inspection"]["stage_id"] == session.active_stage_id == "points"
+    assert projection["inspection"]["instance_id"] == session.active_instance_id == "points-2"
