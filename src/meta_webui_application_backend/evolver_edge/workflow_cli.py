@@ -21,7 +21,8 @@ _MAX_STRING = 512
 SCENARIO_NAMES = tuple(sorted((
     "bounded_poll", "central_disconnected", "concurrent_sessions", "correction_retry_stale", "failure_cleanup",
     "instrument_disconnected", "library_browsing", "observation_required", "physical_intervention",
-    "multiple_concurrent_sessions", "successful_completion", "unsupported_temperature", "waiting_for_input",
+    "multiple_concurrent_sessions", "repeatable_calibration", "successful_completion", "unsupported_temperature",
+    "waiting_for_input",
 )))
 
 
@@ -115,18 +116,55 @@ def _procedure(identifier: str, *, action: str = "wait", input_step: bool = Fals
                               "steps": steps, "abort_actions": [], "default_timeout": 10, "metadata": {}})
 
 
+def _calibration_definition() -> WorkflowDefinition:
+    return WorkflowDefinition.from_mapping({
+        "id": "scenario.repeatable-calibration", "name": "Repeatable Calibration", "version": 1,
+        "category": "scenario", "description": "deterministic repeatable-stage calibration",
+        "parameters": {}, "requirements": {},
+        "stages": [
+            {"id": "setup", "metadata": {"title": "Setup"},
+             "procedure": {"id": "scenario.repeatable-calibration.setup", "version": 1}},
+            {"id": "points", "metadata": {"title": "Calibration Points"},
+             "procedure": {"id": "scenario.repeatable-calibration.points", "version": 1},
+             "cardinality": "repeatable", "bindings": {
+                 "reference_value": {"instance_parameter": "reference_value"},
+             }},
+            {"id": "review", "metadata": {"title": "Review"},
+             "procedure": {"id": "scenario.repeatable-calibration.review", "version": 1}},
+        ], "metadata": {"scenario": True, "repeatable_fixture": True},
+    })
+
+
+def _calibration_procedures() -> dict[tuple[str, str | int], Any]:
+    def procedure(suffix: str, parameters: Mapping[str, Any] | None = None):
+        return compile_procedure({
+            "id": "scenario.repeatable-calibration." + suffix, "name": suffix.title(), "version": 1,
+            "purpose": "deterministic scenario", "parameters": dict(parameters or {}),
+            "entry_step_id": {"type": "step", "id": "complete"},
+            "steps": [{"id": "complete", "kind": "complete"}],
+            "abort_actions": [], "default_timeout": 10, "metadata": {},
+        })
+    return {
+        ("scenario.repeatable-calibration.setup", 1): procedure("setup"),
+        ("scenario.repeatable-calibration.points", 1): procedure(
+            "points", {"reference_value": {"type": "number", "minimum": 0, "maximum": 100}}
+        ),
+        ("scenario.repeatable-calibration.review", 1): procedure("review"),
+    }
+
+
 class ScenarioHost(WorkflowHost):
     """A WorkflowHost with an observable, side-effect-free operator fake."""
 
     def __init__(self, definitions: tuple[WorkflowDefinition, ...], *, input_step: bool = False,
-                 unsupported: bool = False):
+                 unsupported: bool = False, procedures: Mapping[tuple[str, str | int], Any] | None = None):
         self.operator = _ScenarioOperator()
         self.invocations: list[str] = []
         self.abort_count = 0
         target = TargetProjection("scenario-1", TargetKind.PHYSICAL, {"id": "scenario-controller", "generation": 1},
                                   binding={"generation": 1}, capabilities={} if unsupported else {"pump_control": {"supported": True}},
                                   connection={"state": "simulated"})
-        procedures = {(item.id + ".procedure", 1): _procedure(
+        procedures = procedures or {(item.id + ".procedure", 1): _procedure(
             item.id, action="set_temperature" if unsupported else "wait", input_step=input_step
         ) for item in definitions}
         super().__init__(self.operator, target=target, workflows=WorkflowLibrary(definitions), procedures=procedures,
@@ -149,6 +187,9 @@ class ScenarioRegistry:
             definitions = (_definition("scenario.input", "Input Scenario"),)
         elif name == "unsupported_temperature":
             definitions = (_definition("scenario.temperature", "Temperature Scenario", action="set_temperature"),)
+        elif name == "repeatable_calibration":
+            definitions = (_calibration_definition(),)
+            return ScenarioHost(definitions, procedures=_calibration_procedures())
         else:
             definitions = (_definition("scenario." + name, name.replace("_", " ").title()),)
         return ScenarioHost(definitions, input_step=name == "waiting_for_input", unsupported=name == "unsupported_temperature")
@@ -196,10 +237,19 @@ class WorkflowCLI:
         try:
             session.preflight(parameters)
             while session.state not in {WorkflowState.SUCCEEDED, WorkflowState.FAILED, WorkflowState.ABORTED}:
+                if session.active_stage_id and session.active_instance_id is None:
+                    if not self._choose_repeatable_instance(session):
+                        continue
+                    if session.state in {WorkflowState.SUCCEEDED, WorkflowState.FAILED, WorkflowState.ABORTED}:
+                        break
                 result = session.advance()
                 child = result.child
+                stage_title = None
+                if result.stage_id is not None:
+                    stage_title = self.host.project_stage_instances(session, result.stage_id).title
                 payload = {"workflow_id": workflow_id, "session_id": self._session_id(session),
-                           "state": result.state.value, "stage_id": result.stage_id, "instance_id": result.instance_id,
+                           "state": result.state.value, "stage_id": result.stage_id, "stage_title": stage_title,
+                           "instance_id": result.instance_id,
                            "procedure_state": child.state.value if child else None,
                            "attention": session.attention, "error": result.error}
                 self._emit("transition", payload)
@@ -213,10 +263,15 @@ class WorkflowCLI:
                     session.engine.provide_parameter(session.instances[result.stage_id][0].procedure_session,
                                                      child.input_parameter, value)
                 if result.state is WorkflowState.STAGE_COMPLETE:
-                    session.continue_stage()
+                    stage_projection = self.host.project_stage_instances(session, result.stage_id)
+                    if stage_projection.cardinality == "repeatable":
+                        self._choose_repeatable_instance(session)
+                    else:
+                        session.continue_stage()
             self._emit("outcome", {"workflow_id": workflow_id, "session_id": self._session_id(session),
                                     "state": session.state.value, "primary_outcome": session.error})
-            return 0 if session.state is WorkflowState.SUCCEEDED else 2
+            return (0 if session.state is WorkflowState.SUCCEEDED else
+                    130 if session.state is WorkflowState.ABORTED else 2)
         except (KeyboardInterrupt, EOFError) as interruption:
             reason = "operator cancelled" if isinstance(interruption, KeyboardInterrupt) else "input closed"
             session.abort(reason)
@@ -226,6 +281,68 @@ class WorkflowCLI:
                                     "state": "aborted", "primary_outcome": reason,
                                     "cleanup_outcome": "completed"})
             return 130
+
+    def _choose_repeatable_instance(self, session: Any) -> bool:
+        """Handle the explicit add/continue boundary for an empty repeatable stage."""
+        projection = self.host.project_stage_instances(session, session.active_stage_id)
+        if not projection.can_add:
+            raise ValueError(f"active stage cannot accept an instance: {projection.stage_id}")
+        self._emit("stage_instance_prompt", {
+            "stage_id": projection.stage_id, "title": projection.title,
+            "cardinality": projection.cardinality,
+            "existing_instance_ids": [item["id"] for item in projection.instances],
+            "choices": ["add", "continue", "abort"],
+            "parameters": [{"name": item.name, "type": item.schema.get("type"), "required": item.required}
+                           for item in projection.parameters],
+        })
+        choice = self.input_reader(
+            f"{projection.title} [A] Add point [C] Continue to next stage [Q] Abort: "
+        ).strip().casefold()
+        if choice in {"q", "quit", "abort"}:
+            session.abort("operator cancelled")
+            if hasattr(self.host, "abort_count"):
+                self.host.abort_count += 1
+            return True
+        if choice in {"c", "continue"}:
+            session.continue_stage()
+            return True
+        if choice not in {"a", "add", "point"}:
+            self._emit("stage_instance_error", {"stage_id": projection.stage_id,
+                                                  "error": "choose add, continue, or abort"})
+            return False
+        values: dict[str, Any] = {}
+        try:
+            for parameter in projection.parameters:
+                raw = self.input_reader(f"{parameter.name} ({parameter.schema.get('type', 'value')}): ")
+                values[parameter.name] = self._coerce_input(raw, parameter.schema)
+            created = self.host.add_stage_instance(session, projection.stage_id, values)
+        except (ValueError, TypeError) as error:
+            self._emit("stage_instance_error", {"stage_id": projection.stage_id, "error": str(error)})
+            return False
+        self._emit("stage_instance_created", {
+            "stage_id": created.stage_id, "instance_id": created.instances[-1]["id"],
+            "instance_count": len(created.instances), "actions_invoked": 0,
+        })
+        return False
+
+    @staticmethod
+    def _coerce_input(raw: str, schema: Mapping[str, Any]) -> Any:
+        expected = schema.get("type")
+        try:
+            if expected == "integer":
+                return int(raw)
+            if expected == "number":
+                return float(raw)
+            if expected == "boolean":
+                lowered = raw.strip().casefold()
+                if lowered in {"true", "yes", "y", "1"}:
+                    return True
+                if lowered in {"false", "no", "n", "0"}:
+                    return False
+                raise ValueError("boolean value must be true or false")
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"invalid {expected} value: {raw}") from error
+        return raw
 
     @staticmethod
     def _session_id(session: Any) -> str:
