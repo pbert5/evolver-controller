@@ -565,7 +565,8 @@ class WorkflowHost:
         raw = {"id": action_id, "version": version, "parameters": params}
         api = {"route": availability.route, "action_id": action_id, "version": version,
                "target": self.target.identity, "parameters": params}
-        cli = f"evoctl workflow action {action_id} --target {self.target.identity}" if availability.route else None
+        cli = ("Not applicable: evoctl has no canonical action subcommand"
+               if availability.route else None)
         return ActionProjection(dict(step), {"id": action_id, "version": version}, api, cli, raw, availability)
 
     def project_stage_instances(self, session: WorkflowSession, stage_id: str) -> StageInstanceProjection:
