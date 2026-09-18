@@ -91,6 +91,51 @@ def test_hardware_ipc_failures_map_to_typed_errors(tmp_path):
             HardwareBroker(store, request=lambda *_: (_ for _ in ()).throw(RuntimeError("invalid reply"))).protocol_test(operator="ash")
 
 
+def test_read_only_broker_exposes_fresh_status_and_sensor_evidence(tmp_path):
+    calls = []
+
+    def request(_path, payload, _timeout):
+        calls.append(payload)
+        if payload["operation"] == "get_status":
+            return {"device_identity": "MEV-1", "sleeves": "1", "temperature_state": "idle"}
+        return {"device_identity": "MEV-1", "value": "123", "metric": "thermistor_raw"}
+
+    with EdgeStore(tmp_path) as store:
+        store.bind(webui_controller_id="central", server_url="https://central", credential="secret", generation=7)
+        store.register_instruments([{"id": "instrument-1", "instrument_type": "minievolver",
+                                     "device_identity": "MEV-1", "vial_positions": [{"id": "vial-1"}],
+                                     "capabilities": {}}])
+        broker = HardwareBroker(store, request=request)
+        status = broker.status(operator="ash", target_identity="MEV-1")
+        sensor = broker.read_sensor(operator="ash", target_identity="MEV-1", sensor="temperature", channel=0)
+
+    assert status["freshness"] == "fresh"
+    assert status["source"] == "hardware_ipc"
+    assert status["device_identity"] == "MEV-1"
+    assert status["status"]["sleeves"] == "1"
+    assert sensor["sensor"] == "temperature"
+    assert sensor["channel"] == 0
+    assert sensor["raw_value"] == 123
+    assert sensor["derived_value"] is None
+    assert sensor["calibration"]["state"] == "not_calibrated"
+    assert sensor["evidence_level"] == "protocol_verified"
+    assert [call["operation"] for call in calls] == ["get_status", "read_sensor"]
+    assert all("physical" not in call for call in calls)
+
+
+def test_read_sensor_rejects_unregistered_channel_before_hardware_io(tmp_path):
+    calls = []
+    with EdgeStore(tmp_path) as store:
+        store.bind(webui_controller_id="central", server_url="https://central", credential="secret", generation=7)
+        store.register_instruments([{"id": "instrument-1", "instrument_type": "minievolver",
+                                     "device_identity": "MEV-1", "vial_positions": [{"id": "vial-1"}],
+                                     "capabilities": {}}])
+        broker = HardwareBroker(store, request=lambda *_: calls.append(True) or {})
+        with pytest.raises(ValueError, match="channel"):
+            broker.read_sensor(operator="ash", target_identity="MEV-1", sensor="od", channel=1)
+    assert calls == []
+
+
 def test_mutating_broker_fences_safety_and_bounds(tmp_path):
     with _store(tmp_path) as store:
         broker = HardwareBroker(store, request=lambda *_: {"request_accepted": True})
