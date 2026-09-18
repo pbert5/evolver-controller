@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 from meta_webui_application_backend.evolver_edge import cli
 from meta_webui_application_backend.evolver_edge.cli import CommandMode, command_spec
@@ -19,6 +20,17 @@ from meta_webui_application_backend.evolver_edge.operator import OperatorUnavail
         ("controllers", CommandMode.LIVE),
         ("instruments", CommandMode.LIVE),
         ("instrument.show", CommandMode.LIVE),
+        ("instrument.status", CommandMode.LIVE),
+        ("instrument.sensors.list", CommandMode.LIVE),
+        ("instrument.sensors.read", CommandMode.LIVE),
+        ("instrument.telemetry.latest", CommandMode.LIVE),
+        ("instrument.telemetry.list", CommandMode.LIVE),
+        ("capabilities", CommandMode.LIVE),
+        ("action.list", CommandMode.LIVE),
+        ("action.show", CommandMode.LIVE),
+        ("action.availability", CommandMode.LIVE),
+        ("action.preflight", CommandMode.LIVE),
+        ("action.run", CommandMode.LIVE),
         ("calibration.artifacts", CommandMode.LIVE),
         ("calibration.preflight", CommandMode.LIVE),
         ("hardware.lease.acquire", CommandMode.LIVE),
@@ -107,3 +119,66 @@ def test_maintenance_operations_report_explicit_delegation(monkeypatch: pytest.M
     monkeypatch.setattr(cli, "operator_request", lambda *_args, **_kwargs: pytest.fail("maintenance must not be implicit LIVE"))
     result = cli.maintenance_disposition("update.apply")
     assert result == {"mode": "MAINTENANCE", "disposition": "delegated", "delegate": "controller-service"}
+
+
+def test_instrument_and_action_parser_namespaces_leave_update_and_lifecycle_space_intact() -> None:
+    parser = cli.build_parser()
+    assert parser.parse_args(["instrument", "list"]).instrument_command == "list"
+    assert parser.parse_args(["instrument", "status", "instrument-1"]).instrument_command == "status"
+    assert parser.parse_args(["instrument", "sensors", "read", "instrument-1", "temperature",
+                              "--channel", "0"]).sensor == "temperature"
+    assert parser.parse_args(["instrument", "telemetry", "latest", "instrument-1"]).telemetry_command == "latest"
+    assert parser.parse_args(["action", "availability", "capture_measurement", "--target", "instrument-1"]).action_command == "availability"
+    assert parser.parse_args(["update", "status"]).command == "update"
+    assert parser.parse_args(["lifecycle-plan", "--operation", "update"]).command == "lifecycle-plan"
+
+
+def test_cli_instrument_reads_use_typed_operator_contract(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    calls: list[tuple[str, dict]] = []
+
+    def operator(operation: str, _path: str, *, params: dict) -> object:
+        calls.append((operation, params))
+        return {"instrument_id": "instrument-1", "freshness": "fresh"}
+
+    monkeypatch.setattr(cli, "operator_request", operator)
+    assert cli.main(["instrument", "status", "instrument-1"]) == 0
+    assert calls == [("instrument", {"action": "status", "instrument_id": "instrument-1"})]
+    assert '"freshness": "fresh"' in capsys.readouterr().out
+
+
+def test_cached_telemetry_is_explicitly_distinct_from_fresh_sensor_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict]] = []
+
+    def operator(operation: str, _path: str, *, params: dict) -> object:
+        calls.append((operation, params))
+        return []
+
+    monkeypatch.setattr(cli, "operator_request", operator)
+    assert cli.main(["instrument", "sensors", "read", "instrument-1", "od", "--channel", "0"]) == 0
+    assert cli.main(["instrument", "telemetry", "latest", "instrument-1"]) == 0
+    assert calls == [
+        ("instrument", {"action": "sensor_read", "instrument_id": "instrument-1", "sensor": "od", "channel": 0}),
+        ("instrument", {"action": "telemetry_latest", "instrument_id": "instrument-1"}),
+    ]
+
+
+def test_action_catalog_is_read_only_and_simulator_preflight_invokes_no_action(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert cli.main(["action", "list"]) == 0
+    catalog = cli.json.loads(capsys.readouterr().out)
+    assert {item["id"] for item in catalog["actions"]} == set(cli.TRUSTED_ACTIONS)
+
+    assert cli.main(["action", "preflight", "set_temperature", "--target", "sim-1",
+                     "--simulator", "--parameters", '{"target_temperature_c": 30}']) == 0
+    preflight = cli.json.loads(capsys.readouterr().out)
+    assert preflight["state"] == "preflighted"
+    assert preflight["actions_invoked"] == 0
+
+
+def test_controller_trusted_action_projection_matches_authoritative_schema() -> None:
+    schema_path = Path(__file__).resolve().parents[2] / "evolver-schemas" / "registry" / "trusted_actions.yaml"
+    schema = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
+    assert tuple(schema["actions"]) == cli.TRUSTED_ACTIONS
