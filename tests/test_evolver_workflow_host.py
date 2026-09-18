@@ -200,7 +200,7 @@ def test_projection_is_shared_for_renderers():
                                     parameters={"channel": 1, "duration_ms": 20})
     assert projection.action["id"] == projection.raw["id"] == projection.api["action_id"]
     assert projection.availability.classification is Availability.AVAILABLE
-    assert projection.cli.startswith("evoctl workflow action pulse_pump")
+    assert projection.cli.startswith("evoctl action run pulse_pump")
 
 
 def test_target_resolution_uses_only_operator_read_models():

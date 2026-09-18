@@ -187,11 +187,12 @@ def operator_safe_stop_authority(client: OperatorClient) -> SafeStopAuthority:
 
 
 _VERSIONS = {"1", "1.0", 1}
-_TRUSTED_ACTIONS = (
+TRUSTED_ACTIONS = (
     "set_temperature", "set_stirring", "pulse_pump", "run_pump", "stop_actuator",
     "capture_measurement", "wait", "start_activity", "stop_activity",
     "request_observation", "evaluate_criteria", "emit_marker", "complete_run", "fail_run",
 )
+_TRUSTED_ACTIONS = TRUSTED_ACTIONS
 
 
 class ProcedureActionInvoker:
@@ -506,7 +507,7 @@ class WorkflowHost:
         raw = {"id": action_id, "version": version, "parameters": params}
         api = {"route": availability.route, "action_id": action_id, "version": version,
                "target": self.target.identity, "parameters": params}
-        cli = f"evoctl workflow action {action_id} --target {self.target.identity}" if availability.route else None
+        cli = f"evoctl action run {action_id} --target {self.target.identity}" if availability.route else None
         return ActionProjection(dict(step), {"id": action_id, "version": version}, api, cli, raw, availability)
 
     def project_stage_instances(self, session: WorkflowSession, stage_id: str) -> StageInstanceProjection:
