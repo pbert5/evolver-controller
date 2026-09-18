@@ -44,8 +44,13 @@ READ_OPERATIONS = {
 NATIVE_MODULES = (
     "meta_webui_application_backend.evolver_edge.native_tui",
     "meta_webui_application_backend.evolver_edge.evoctl_tui",
+    # #131 may retain the controller's historical module path while replacing
+    # its implementation.  It is accepted only when it exports create_app.
+    "meta_webui_application_backend.evolver_edge.tui",
 )
 WORKFLOW_MODULES = (
+    "meta_webui_application_backend.evolver_edge.native_tui",
+    "meta_webui_application_backend.evolver_edge.evoctl_tui",
     "meta_webui_application_backend.evolver_edge.workflow_cli",
 )
 
@@ -216,9 +221,13 @@ def _native_module() -> Any:
     errors: list[str] = []
     for name in NATIVE_MODULES:
         try:
-            return _import(name)
+            module = _import(name)
         except SurfaceUnavailable as error:
             errors.append(str(error))
+            continue
+        if callable(getattr(module, "create_app", None)):
+            return module
+        errors.append(f"native module {name} has no create_app factory")
     raise SurfaceUnavailable("native EvoctlApp factory unavailable; " + " | ".join(errors))
 
 
