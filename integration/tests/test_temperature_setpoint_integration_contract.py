@@ -1,4 +1,7 @@
 from pathlib import Path
+import subprocess
+
+import pytest
 
 
 ROOT = Path.cwd()
@@ -9,6 +12,19 @@ def test_reviewed_component_heads_are_pinned_exactly() -> None:
     assert "83483cda621a2e913ad778ae62294872084a507a" in contract
     assert "36da3d8b63b7cef65d35b5b86ec4d72f83690547" in contract
     assert "01fd57f24685acdc907ebeb54e61d6585d5f2afd" in contract
+    try:
+        controller = subprocess.check_output(
+            ["git", "rev-parse", "HEAD:evolver/evolver-controller"],
+            cwd=ROOT, text=True, stderr=subprocess.DEVNULL,
+        ).strip()
+        hardware = subprocess.check_output(
+            ["git", "rev-parse", "HEAD:evolver/evolver-hardware"],
+            cwd=ROOT, text=True, stderr=subprocess.DEVNULL,
+        ).strip()
+    except subprocess.CalledProcessError:
+        pytest.skip("container mount does not expose the worktree git metadata")
+    assert controller == "01fd57f24685acdc907ebeb54e61d6585d5f2afd"
+    assert hardware == "36da3d8b63b7cef65d35b5b86ec4d72f83690547"
 
 
 def test_firmware_provenance_and_evidence_contract_are_frozen() -> None:
