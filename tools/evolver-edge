@@ -96,7 +96,12 @@ final_state() {
   case "$mode" in
     running) require_running "$output" "$@" ;;
     stopped) require_stopped "$output" "$@" ;;
-    absent) ! printf '%s\n' "$output" | grep -Eiq $'\t(up|running|restarting|created|paused)\t' ;;
+    absent)
+      if [[ -n "${output//[[:space:]]/}" ]] && ! printf '%s\n' "$output" | grep -Eiq '^no containers'; then
+        echo "final state still lists service containers: $output" >&2
+        return 1
+      fi
+      ;;
   esac
 }
 

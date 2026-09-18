@@ -155,6 +155,18 @@ def test_down_does_not_report_success_while_a_service_is_restarting(tmp_path: Pa
     assert result.returncode == 1
 
 
+def test_down_does_not_report_success_with_lingering_exited_or_dead_rows(tmp_path: Path) -> None:
+    for state in ("Exited", "Dead"):
+        result = run_adapter(
+            tmp_path / state.lower(),
+            "down",
+            ps_output=f"evolver-controller\t{state}\tnone\n",
+        )
+
+        assert result.returncode == 1
+        assert "still lists service containers" in result.stderr
+
+
 def test_restart_and_logs_use_only_the_canonical_service_name(tmp_path: Path) -> None:
     restart = run_adapter(tmp_path / "restart", "restart", "hardware")
     logs = run_adapter(tmp_path / "logs", "logs", "controller")
