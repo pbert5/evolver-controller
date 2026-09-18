@@ -2,7 +2,7 @@
 
 Clone with `git clone --recurse-submodules` and open the root in its Dev
 Container. The Server profile uses a worktree-local `.venv`, a persistent
-worktree-scoped uv cache, and a root uv workspace containing all four Python
+worktree-scoped uv cache, and a root uv workspace containing all five Python
 components. Bootstrap runs `uv sync --all-packages --all-extras`; no Node.js or
 npm installation is required. The image also includes the standalone Codex CLI;
 verify it with `command -v codex` and `codex --version`. Codex login state and
@@ -31,7 +31,7 @@ order with xdist disabled. `tools/test-coverage` runs the complete topology
 with isolated per-component coverage data and reports.
 
 For focused work, use `tools/test component
-<controller|hardware|server|metactl|root>`. Every component is invoked in its
+<controller|hardware|server|metactl|procedure-runtime|root>`. Every component is invoked in its
 own pytest subprocess so its package/import environment remains isolated from
 the other components. `PYTEST_WORKERS` accepts `auto` (the default) or a
 non-negative integer and controls xdist workers for parallel lanes; invalid

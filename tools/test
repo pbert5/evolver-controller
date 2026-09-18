@@ -3,7 +3,7 @@ set -euo pipefail
 
 readonly SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 readonly ROOT_DIR=$(cd -- "$SCRIPT_DIR/.." && pwd)
-readonly COMPONENTS=(root controller hardware server metactl)
+readonly COMPONENTS=(root controller hardware server metactl procedure-runtime)
 
 die() {
   echo "tools/test: $*" >&2
@@ -23,6 +23,7 @@ component_pythonpath() {
     hardware) printf '%s\n' evolver/evolver-hardware/src ;;
     server) printf '%s\n' evolver/evolver-server/src ;;
     metactl) printf '%s\n' metactl ;;
+    procedure-runtime) printf '%s\n' evolver/evolver-procedure-runtime ;;
     *) die "unknown component: $1" ;;
   esac
 }
@@ -34,6 +35,7 @@ component_tests() {
     hardware) printf '%s\n' evolver/evolver-hardware/tests ;;
     server) printf '%s\n' evolver/evolver-server/tests ;;
     metactl) printf '%s\n' metactl/tests ;;
+    procedure-runtime) printf '%s\n' evolver/evolver-procedure-runtime/tests ;;
     *) die "unknown component: $1" ;;
   esac
 }
