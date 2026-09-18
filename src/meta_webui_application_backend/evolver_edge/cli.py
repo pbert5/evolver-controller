@@ -22,7 +22,10 @@ from .operator import (DEFAULT_SOCKET as DEFAULT_OPERATOR_SOCKET, OperatorClient
                        OperatorError, OperatorProtocolError, OperatorUnavailable,
                        request as operator_request)
 from .workflow_cli import WorkflowCLI, ScenarioRegistry, parse_parameters, production_host, ScenarioHost
-from .workflow_host import HostContext
+from .workflow_host import (ActionAvailability, Availability, HostContext,
+                             ProcedureActionInvoker, TargetKind, operator_safe_stop_authority,
+                             resolve_target, TRUSTED_ACTIONS)
+from evolver_procedure_runtime import ActionRef
 
 
 class CommandRegistryError(ValueError):
@@ -50,6 +53,20 @@ _COMMAND_REGISTRY: dict[str, CommandSpec] = {
     "controllers": CommandSpec(CommandMode.LIVE),
     "instruments": CommandSpec(CommandMode.LIVE),
     "instrument.show": CommandSpec(CommandMode.LIVE),
+    "instrument.list": CommandSpec(CommandMode.LIVE),
+    "instrument.status": CommandSpec(CommandMode.LIVE),
+    "instrument.capabilities": CommandSpec(CommandMode.LIVE),
+    "instrument.components": CommandSpec(CommandMode.LIVE),
+    "instrument.sensors.list": CommandSpec(CommandMode.LIVE),
+    "instrument.sensors.read": CommandSpec(CommandMode.LIVE),
+    "instrument.telemetry.latest": CommandSpec(CommandMode.LIVE),
+    "instrument.telemetry.list": CommandSpec(CommandMode.LIVE),
+    "capabilities": CommandSpec(CommandMode.LIVE),
+    "action.list": CommandSpec(CommandMode.LIVE),
+    "action.show": CommandSpec(CommandMode.LIVE),
+    "action.availability": CommandSpec(CommandMode.LIVE),
+    "action.preflight": CommandSpec(CommandMode.LIVE),
+    "action.run": CommandSpec(CommandMode.LIVE),
     "run.show": CommandSpec(CommandMode.LIVE),
     "run.events": CommandSpec(CommandMode.LIVE),
     "run.telemetry": CommandSpec(CommandMode.LIVE),
@@ -109,7 +126,7 @@ def _live_request(args: argparse.Namespace) -> tuple[str, dict[str, Any]] | None
     if args.command == "run":
         key = f"run.{args.run_command}"
     elif args.command == "instrument":
-        key = "instrument.show"
+        key = _instrument_command_key(args)
     elif args.command == "calibration":
         key = f"calibration.{args.calibration_command}"
     elif args.command == "hardware":
@@ -125,7 +142,23 @@ def _live_request(args: argparse.Namespace) -> tuple[str, dict[str, Any]] | None
         return args.command, {}
     if args.command == "controllers":
         return "status", {"view": "controllers"}
+    if args.command == "capabilities":
+        return "capabilities", {}
     if args.command == "instrument":
+        if args.instrument_command == "list":
+            return "instruments", {}
+        if args.instrument_command in {"show", "capabilities", "components"}:
+            return "instrument", {"instrument_id": args.instrument_id}
+        if args.instrument_command == "status":
+            return "instrument", {"action": "status", "instrument_id": args.instrument_id}
+        if args.instrument_command == "telemetry":
+            params = {"action": f"telemetry_{args.telemetry_command}", "instrument_id": args.instrument_id}
+            if args.limit is not None:
+                params["limit"] = args.limit
+            return "instrument", params
+        if args.instrument_command == "sensors" and args.sensors_command == "read":
+            return "instrument", {"action": "sensor_read", "instrument_id": args.instrument_id,
+                                   "sensor": args.sensor, "channel": args.channel}
         return "instrument", {"instrument_id": args.instrument_id}
     if args.command == "calibration":
         if args.calibration_command == "artifacts":
@@ -175,6 +208,101 @@ def _live_request(args: argparse.Namespace) -> tuple[str, dict[str, Any]] | None
 
 def _root(value: str | None) -> Path:
     return Path(value or os.environ.get("EVOLVER_STATE_ROOT", "/var/lib/evolver-controller"))
+
+
+def _instrument_command_key(args: argparse.Namespace) -> str:
+    command = args.instrument_command
+    if command == "sensors":
+        return f"instrument.sensors.{args.sensors_command}"
+    if command == "telemetry":
+        return f"instrument.telemetry.{args.telemetry_command}"
+    return f"instrument.{command}"
+
+
+_ACTION_DESCRIPTIONS = {
+    "set_temperature": "Set a temperature controller target.",
+    "set_stirring": "Set a stirring controller target.",
+    "pulse_pump": "Dispense a bounded pump pulse.",
+    "run_pump": "Run a pump for a bounded duration.",
+    "stop_actuator": "Stop an actuator through safe-stop authority.",
+    "capture_measurement": "Capture a read-only measurement.",
+    "request_observation": "Request a read-only observation.",
+    "wait": "Wait in the local workflow runtime.",
+    "evaluate_criteria": "Evaluate local workflow criteria.",
+    "emit_marker": "Emit a local workflow marker.",
+    "start_activity": "Start a workflow activity.",
+    "stop_activity": "Stop a workflow activity.",
+    "complete_run": "Complete a workflow run.",
+    "fail_run": "Fail a workflow run.",
+}
+
+
+def _availability_json(availability: ActionAvailability) -> dict[str, Any]:
+    return {"action": availability.action, "version": availability.version,
+            "classification": availability.classification.value, "reason": availability.reason,
+            "provenance": dict(availability.provenance), "route": availability.route}
+
+
+def _action_cli(args: argparse.Namespace) -> int:
+    action_id = getattr(args, "action_id", None)
+    if args.action_command == "list" and args.target is None:
+        _emit({"actions": [{"id": item, "version": "1", "description": _ACTION_DESCRIPTIONS[item]}
+                            for item in TRUSTED_ACTIONS]})
+        return 0
+    if action_id is None:
+        action_id = ""
+    if action_id not in TRUSTED_ACTIONS:
+        _emit({"error": f"unknown trusted action: {action_id}"})
+        return 2
+    if args.action_command == "show" and args.target is None:
+        _emit({"id": action_id, "version": "1", "description": _ACTION_DESCRIPTIONS[action_id]})
+        return 0
+    if args.target is None:
+        _emit({"error": "--target is required for action availability"})
+        return 2
+    client = OperatorClient(args.operator_socket)
+    target = resolve_target(client, args.target, kind=TargetKind.SIMULATOR if args.simulator else TargetKind.PHYSICAL)
+    operator = getattr(args, "operator", None)
+    context = HostContext(operator=operator, lease_token=getattr(args, "lease_token", None),
+                          lease_owner=operator, controller_generation=getattr(args, "controller_generation", None),
+                          physical=getattr(args, "physical", False), target_identity=args.target)
+    invoker = ProcedureActionInvoker(client, target, context=context,
+                                     safe_stop_authority=operator_safe_stop_authority(client))
+    action = ActionRef(action_id, 1)
+    availability = invoker.availability(action)
+    if args.action_command == "list":
+        _emit({"target": args.target, "actions": [
+            {"id": item, "version": "1", "description": _ACTION_DESCRIPTIONS[item],
+             "availability": _availability_json(invoker.availability(ActionRef(item, 1)))}
+            for item in TRUSTED_ACTIONS]})
+        return 0
+    if args.action_command == "show":
+        _emit({"id": action_id, "version": "1", "description": _ACTION_DESCRIPTIONS[action_id],
+               "availability": _availability_json(availability)})
+        return 0
+    if args.action_command == "availability":
+        _emit(_availability_json(availability))
+        return 0
+    try:
+        parameters = json.loads(args.parameters)
+        if not isinstance(parameters, dict):
+            raise ValueError("--parameters must be a JSON object")
+        if args.action_command == "preflight":
+            invoker.preflight(action, parameters)
+            _emit({"action": action_id, "target": args.target, "state": "preflighted",
+                   "actions_invoked": 0, "availability": _availability_json(availability)})
+            return 0
+        invocation = invoker.invoke(action, parameters)
+        result = invoker.poll(invocation)
+        _emit({"action": action_id, "target": args.target, "invocation_id": invocation.token,
+               "state": "succeeded" if result.succeeded else "failed",
+               "result": result.value if result.succeeded else {"error": result.error},
+               "availability": _availability_json(availability)})
+        return 0 if result.succeeded else 2
+    except (OperatorError, OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+        _emit({"action": action_id, "target": args.target, "state": "failed", "error": str(error),
+               "availability": _availability_json(availability)})
+        return 2
 
 
 _SENSITIVE_KEY_PARTS = ("credential", "password", "secret", "token", "private_key", "api_key", "authorization")
@@ -265,6 +393,7 @@ def build_parser() -> argparse.ArgumentParser:
     enroll.add_argument("--confirm-forced-adoption", action="store_true",
                         help="explicit operator acknowledgement for recovery takeover")
     commands.add_parser("status"); commands.add_parser("runs"); commands.add_parser("binding"); commands.add_parser("recovery")
+    commands.add_parser("capabilities", help="inspect typed operator protocol capabilities")
     release = commands.add_parser("record-installed-release", help=argparse.SUPPRESS)
     release.add_argument("release")
     lifecycle = commands.add_parser("lifecycle-plan", help="inspect and plan a lifecycle operation without mutating the host")
@@ -306,6 +435,35 @@ def build_parser() -> argparse.ArgumentParser:
         item.add_argument("--physical", action="store_true")
     instrument = commands.add_parser("instrument"); instrument_sub = instrument.add_subparsers(dest="instrument_command", required=True)
     show = instrument_sub.add_parser("show"); show.add_argument("instrument_id")
+    instrument = commands.add_parser("instrument", help="inspect and operate one instrument")
+    instrument_sub = instrument.add_subparsers(dest="instrument_command", required=True)
+    item = instrument_sub.add_parser("list")
+    for name in ("show", "status", "capabilities", "components"):
+        item = instrument_sub.add_parser(name); item.add_argument("instrument_id")
+    sensors = instrument_sub.add_parser("sensors")
+    sensors_sub = sensors.add_subparsers(dest="sensors_command", required=True)
+    sensor_list = sensors_sub.add_parser("list"); sensor_list.add_argument("instrument_id")
+    sensor_read = sensors_sub.add_parser("read")
+    sensor_read.add_argument("instrument_id"); sensor_read.add_argument("sensor", choices=("temperature", "od"))
+    sensor_read.add_argument("--channel", type=int, required=True)
+    telemetry = instrument_sub.add_parser("telemetry")
+    telemetry_sub = telemetry.add_subparsers(dest="telemetry_command", required=True)
+    for name in ("latest", "list"):
+        item = telemetry_sub.add_parser(name); item.add_argument("instrument_id"); item.add_argument("--limit", type=int)
+    action = commands.add_parser("action", help="inspect or invoke trusted workflow actions")
+    action_sub = action.add_subparsers(dest="action_command", required=True)
+    action_list = action_sub.add_parser("list"); action_list.add_argument("--target")
+    action_list.add_argument("--simulator", action="store_true")
+    action_show = action_sub.add_parser("show"); action_show.add_argument("action_id"); action_show.add_argument("--target")
+    action_show.add_argument("--simulator", action="store_true")
+    for name in ("availability", "preflight", "run"):
+        item = action_sub.add_parser(name)
+        item.add_argument("action_id"); item.add_argument("--target", required=True)
+        item.add_argument("--parameters", default="{}", help="bounded action parameters as a JSON object")
+        item.add_argument("--operator"); item.add_argument("--lease-token")
+        item.add_argument("--controller-generation", type=int); item.add_argument("--physical", action="store_true")
+        item.add_argument("--simulator", action="store_true")
+>>>>>>> 5c7fdf9 (feat: expose evoctl instrument and action surfaces)
     calibration = commands.add_parser("calibration", help="inspect stored calibration evidence")
     calibration_sub = calibration.add_subparsers(dest="calibration_command", required=True)
     artifacts = calibration_sub.add_parser("artifacts")
@@ -431,6 +589,15 @@ def main(argv: list[str] | None = None) -> int:
         except (KeyError, OSError, TypeError, ValueError, OperatorError, json.JSONDecodeError) as error:
             print(f"workflow_error: {error}", file=sys.stderr)
             return 2
+    if args.command == "action":
+        try:
+            return _action_cli(args)
+        except (OperatorUnavailable, OperatorProtocolError, OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+            if isinstance(error, OperatorError):
+                print(f"{error.kind}: {error}", file=sys.stderr)
+                return _operator_exit_code(error)
+            print(f"action_error: {error}", file=sys.stderr)
+            return 2
     live_request = None if args.offline else _live_request(args)
     if live_request is not None:
         operation, params = live_request
@@ -439,6 +606,16 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "controllers":
                 result = [{**result["controller"], "binding": result["binding"],
                            "inventory": operator_request("instruments", args.operator_socket, params={})}]
+            elif args.command == "instrument":
+                if args.instrument_command == "capabilities":
+                    result = {"instrument_id": args.instrument_id, "capabilities": result.get("capabilities", {})}
+                elif args.instrument_command == "components":
+                    result = {"instrument_id": args.instrument_id,
+                              "components": result.get("components", result.get("vial_positions", []))}
+                elif args.instrument_command == "sensors" and args.sensors_command == "list":
+                    capabilities = result.get("capabilities", {})
+                    result = {"instrument_id": args.instrument_id,
+                              "sensors": result.get("sensors", capabilities.get("sensors", []))}
             _emit(result)
             if (args.command == "hardware" and args.hardware_command == "safe-stop"
                     and isinstance(result, dict) and result.get("request_accepted") is False):
@@ -454,7 +631,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "run":
         command_key = f"run.{args.run_command}"
     elif args.command == "instrument":
-        command_key = "instrument.show"
+        command_key = _instrument_command_key(args)
     elif args.command == "calibration":
         command_key = f"calibration.{args.calibration_command}"
     elif args.command == "update":
