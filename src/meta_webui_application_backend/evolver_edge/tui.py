@@ -162,10 +162,15 @@ def create_app(*, source: TuiSource, workflow_host: Any | None = None,
                 status += f" · read error: {error} · showing last good data"
             self.query_one("#status", Static).update(status)
             if self.current_view == "workflows" and self._workflow_workspace is not None:
+                tab = self._workflow_workspace.current
+                snapshot = tab.snapshot
                 data = {"workflow_tabs": self._workflow_workspace.tab_ids,
-                        "workflows": [{"id": item.get("id", ""), "title": item.get("title", "")}
-                                      if isinstance(item, Mapping) else str(item)
-                                      for item in self._workflow_workspace.workflows()]}
+                        "active_tab": tab.tab_id,
+                        "status": snapshot.status_glyph,
+                        "title": snapshot.title,
+                        "procedures": snapshot.procedures,
+                        "representations": snapshot.representations,
+                        "drawer": snapshot.drawer}
             self.query_one("#content", Static).update(_format(data))
 
         async def refresh_view(self) -> None:
@@ -193,9 +198,17 @@ def create_app(*, source: TuiSource, workflow_host: Any | None = None,
             self.run_worker(self.refresh_view(), exclusive=True)
 
         def action_previous_view(self) -> None:
+            if self.current_view == "workflows" and self._workflow_workspace is not None:
+                self._workflow_workspace.cycle_tab(-1)
+                self.run_worker(self.refresh_view(), exclusive=True)
+                return
             self._move(-1)
 
         def action_next_view(self) -> None:
+            if self.current_view == "workflows" and self._workflow_workspace is not None:
+                self._workflow_workspace.cycle_tab(1)
+                self.run_worker(self.refresh_view(), exclusive=True)
+                return
             self._move(1)
 
         def action_refresh_view(self) -> None:
