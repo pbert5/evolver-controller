@@ -2,13 +2,16 @@
 name = "meta-ball"
 version = "0.1.0"
 requires-python = ">=3.10"
-dependencies = ["PyYAML>=6"]
+dependencies = ["PyYAML>=6", "evolver-procedure-runtime==0.1.0"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-xdist>=3.8", "pytest-cov>=6"]
 
 [tool.uv.workspace]
-members = ["evolver/evolver-controller", "evolver/evolver-hardware", "evolver/evolver-server", "metactl"]
+members = ["evolver/evolver-controller", "evolver/evolver-hardware", "evolver/evolver-procedure-runtime", "evolver/evolver-server", "metactl"]
+
+[tool.uv.sources]
+evolver-procedure-runtime = { workspace = true }
 
 [tool.pytest.ini_options]
 testpaths = ["private-schema/tests", "integration/tests", "evolver/evolver-schemas/tests"]

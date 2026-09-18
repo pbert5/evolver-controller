@@ -19,7 +19,7 @@ jobs:
         with:
           version: '0.8.14'
       - name: Initialize active component pins
-        run: rtk git submodule update --init metactl evolver/evolver-server evolver/evolver-controller evolver/evolver-hardware
+        run: rtk git submodule update --init metactl evolver/evolver-server evolver/evolver-controller evolver/evolver-hardware evolver/evolver-procedure-runtime
       - name: Resolve updated workspace lock
         run: rtk tools/check-locks --relock
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

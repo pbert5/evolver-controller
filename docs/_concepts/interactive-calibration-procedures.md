@@ -4,7 +4,7 @@ aliases:
 ---
 # Interactive Calibration Procedures
 
-The short-session descriptors in `procedure/examples/` are declarative
+The short-session descriptors in `workflows/examples/` are declarative
 operator flows. Each family separates setup, point/sample collection, and
 review where applicable. Inputs are typed and bounded; action polling and
 session timeouts are finite; every descriptor declares actuator cleanup.

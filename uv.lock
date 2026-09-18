@@ -10,6 +10,7 @@ resolution-markers = [
 members = [
     "evolver-controller",
     "evolver-hardware",
+    "evolver-procedure-runtime",
     "evolver-server",
     "meta-ball",
     "metactl",
@@ -187,9 +188,13 @@ tui = [
     { name = "jsonschema" },
     { name = "textual" },
 ]
+workflow = [
+    { name = "evolver-procedure-runtime" },
+]
 
 [package.metadata]
 requires-dist = [
+    { name = "evolver-procedure-runtime", marker = "extra == 'workflow'", editable = "evolver/evolver-procedure-runtime" },
     { name = "jsonschema", marker = "extra == 'tui'", specifier = ">=4.18,<5" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
     { name = "pyserial", specifier = "==3.5" },
@@ -200,7 +205,7 @@ requires-dist = [
     { name = "textual", marker = "extra == 'tui'", specifier = ">=0.89,<2" },
     { name = "zstandard", specifier = "==0.25.0" },
 ]
-provides-extras = ["dev", "tui"]
+provides-extras = ["dev", "tui", "workflow"]
 
 [[package]]
 name = "evolver-hardware"
@@ -221,6 +226,30 @@ requires-dist = [
     { name = "pyserial", specifier = "==3.5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.8" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "evolver-procedure-runtime"
+version = "0.1.0"
+source = { editable = "evolver/evolver-procedure-runtime" }
+dependencies = [
+    { name = "pyyaml" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "pytest-xdist" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=6" },
+    { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.8" },
+    { name = "pyyaml", specifier = ">=6" },
 ]
 provides-extras = ["dev"]
 
@@ -365,6 +394,7 @@ name = "meta-ball"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "evolver-procedure-runtime" },
     { name = "pyyaml" },
 ]
 
@@ -377,6 +407,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "evolver-procedure-runtime", editable = "evolver/evolver-procedure-runtime" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=6" },
     { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.8" },
