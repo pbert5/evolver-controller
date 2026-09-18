@@ -161,6 +161,10 @@ def plan_calibrated_temperature(*, artifact: Mapping[str, Any], target_temperatu
     return {"operation": "set_temperature", "parameters": {"channel": position,
             "raw_target_adc": raw_target}, "calibration": {
                 "artifact_id": artifact["id"], "artifact_digest": artifact["artifact_digest"],
+                "calibration_fingerprint": artifact["artifact_digest"],
+                "instrument_id": artifact["instrument_id"],
+                "vial_position_id": artifact["vial_position_id"],
+                "calibration_type": artifact["calibration_type"],
                 "method": artifact["method"], "method_version": artifact["method_version"],
                 "reference_min": reference_min, "reference_max": reference_max,
                 "raw_min": raw_min, "raw_max": raw_max,

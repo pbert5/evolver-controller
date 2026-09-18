@@ -480,9 +480,13 @@ class HardwareDeviceCommandSink:
                 from .bundle import calibration_artifact_digest
                 if artifact.get("artifact_digest") != calibration_artifact_digest(artifact):
                     raise EdgeStoreError("temperature calibration artifact digest mismatch")
-                for field in ("artifact_id", "artifact_digest", "method", "method_version"):
-                    if calibration.get(field) != artifact.get("id" if field == "artifact_id" else field):
+                for field in ("artifact_id", "artifact_digest", "calibration_fingerprint", "method", "method_version",
+                              "instrument_id", "vial_position_id", "calibration_type"):
+                    artifact_field = "id" if field == "artifact_id" else "artifact_digest" if field == "calibration_fingerprint" else field
+                    if calibration.get(field) != artifact.get(artifact_field):
                         raise EdgeStoreError(f"temperature calibration {field} mismatch")
+                if calibration.get("calibration_fingerprint") != calibration.get("artifact_digest"):
+                    raise EdgeStoreError("temperature calibration fingerprint mismatch")
                 calibration_range = artifact.get("calibration_range")
                 if not isinstance(calibration_range, Mapping):
                     raise EdgeStoreError("temperature calibration bounds are missing")
@@ -578,10 +582,13 @@ class HardwareIPCDeviceCommandSink:
                 from .bundle import calibration_artifact_digest
                 if artifact.get("artifact_digest") != calibration_artifact_digest(artifact):
                     raise EdgeStoreError("temperature calibration artifact digest mismatch")
-                for field in ("artifact_id", "artifact_digest", "method", "method_version"):
-                    artifact_field = "id" if field == "artifact_id" else field
+                for field in ("artifact_id", "artifact_digest", "calibration_fingerprint", "method", "method_version",
+                              "instrument_id", "vial_position_id", "calibration_type"):
+                    artifact_field = "id" if field == "artifact_id" else "artifact_digest" if field == "calibration_fingerprint" else field
                     if calibration.get(field) != artifact.get(artifact_field):
                         raise EdgeStoreError(f"temperature calibration {field} mismatch")
+                if calibration.get("calibration_fingerprint") != calibration.get("artifact_digest"):
+                    raise EdgeStoreError("temperature calibration fingerprint mismatch")
                 bounds = artifact.get("calibration_range")
                 if not isinstance(bounds, Mapping) or any(calibration.get(field) != bounds.get(field)
                                                            for field in ("reference_min", "reference_max", "raw_min", "raw_max")):

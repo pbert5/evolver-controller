@@ -352,6 +352,28 @@ def _reply(reply: str, expected: str) -> dict[str, str]:
     return dict(item.split("=", 1) for item in parts[4].split(",") if "=" in item) if len(parts) > 4 else {}
 
 
+def _temperature_ack(reply: str, correlation: str) -> dict[str, str]:
+    """Parse only the authoritative fenced TEMP v2 acknowledgement."""
+    parts = reply.strip().split("|")
+    if len(parts) < 4 or parts[0] != "TEMP" or parts[1] != "2" or parts[2] != "ACK":
+        raise ProbeError(ProbeOutcome.MALFORMED, "invalid TEMP setpoint acknowledgement",
+                         evidence={"operation": "set_temperature", "reply": reply})
+    if parts[3] != correlation:
+        raise ProbeError(ProbeOutcome.PROTOCOL, "TEMP acknowledgement correlation mismatch",
+                         evidence={"operation": "set_temperature", "correlation": parts[3]})
+    fields: dict[str, str] = {}
+    for field in parts[4:]:
+        if "=" not in field:
+            raise ProbeError(ProbeOutcome.MALFORMED, "TEMP acknowledgement field is malformed",
+                             evidence={"operation": "set_temperature"})
+        key, value = field.split("=", 1)
+        if not key or not value or key in fields:
+            raise ProbeError(ProbeOutcome.MALFORMED, "TEMP acknowledgement field is invalid",
+                             evidence={"operation": "set_temperature"})
+        fields[key] = value
+    return {"correlation": parts[3], **fields}
+
+
 def _identity_reply(reply: str) -> DeviceIdentity:
     return parse_identity(reply)
 
@@ -523,7 +545,7 @@ class ReadOnlyHardwareService:
         instrument_id = str(uuid5(NAMESPACE_URL, f"minievolver/{identity.device_id}"))
         sleeves = _nonnegative_int(status.get("sleeves"), default=2)
         observation.update({"id": instrument_id, "controller_id": self.store.identity()["id"],
-                            "instrument_type": "minievolver", "capabilities": _capabilities(),
+                            "instrument_type": "minievolver", "capabilities": _capabilities(identity.hw_protocol, sleeves),
                             "vial_positions": [{"id": str(uuid5(NAMESPACE_URL, f"{instrument_id}/vial/{index}")),
                                                 "instrument_id": instrument_id, "position_index": index}
                                                for index in range(sleeves)]})
@@ -610,8 +632,11 @@ class HardwareService(ReadOnlyHardwareService):
                     identity = _identity_reply(self.transport.exchange(HANDSHAKE))
                     if not identity.provisioned or identity.device_id != request.target_identity:
                         raise HardwareUnavailableError("attached device identity does not match command target")
+                    if request.operation == "set_temperature" and identity.hw_protocol < 2:
+                        raise HardwareUnavailableError("temperature setpoint requires firmware hardware protocol v2")
                     raw = self.transport.exchange(frame)
-                fields = _reply(raw, expected)
+                fields = (_temperature_ack(raw, request.command_id)
+                          if request.operation == "set_temperature" else _reply(raw, expected))
                 return HardwareResult(request.command_id, True, raw, {**fields, "operator": effective_operator} if actuator else fields,
                                       "protocol_verified", retryable).as_json()
             except (HardwareUnavailableError, ValueError) as error:
@@ -661,6 +686,24 @@ class HardwareService(ReadOnlyHardwareService):
             duration, level = _bounded("heater_duration_ms", p.get("duration_ms")), _bounded("heater_level", p.get("level"))
             return self._execute(request, f"HW_PULSE_HEATER,{channel},{duration},{level}_!", "PULSE_HEATER", actuator=True, retryable=False)
         if request.operation == "set_temperature":
+            instrument = next((item for item in self.store.list_instruments()
+                               if item.get("device_identity") == request.target_identity), None)
+            if not isinstance(instrument, Mapping):
+                raise ValueError("temperature target device is not in durable inventory")
+            capabilities = instrument.get("capabilities")
+            temperature_capability = capabilities.get("temperature_setpoint") if isinstance(capabilities, Mapping) else None
+            if (not isinstance(temperature_capability, Mapping)
+                    or temperature_capability.get("supported") is not True
+                    or temperature_capability.get("protocol_version") != 2):
+                raise ValueError("temperature setpoint requires a supported firmware v2 capability")
+            supported_channels = temperature_capability.get("supported_channels")
+            if supported_channels is None:
+                count = temperature_capability.get("channels")
+                supported_channels = list(range(count)) if isinstance(count, int) and not isinstance(count, bool) and count >= 0 else None
+            if (not isinstance(supported_channels, (list, tuple, set))
+                    or any(isinstance(item, bool) or not isinstance(item, int) for item in supported_channels)
+                    or channel not in supported_channels):
+                raise ValueError("temperature channel is not supported by firmware capability")
             raw = p.get("raw_target_adc")
             temperature = p.get("temperature_c")
             calibration = p.get("calibration")
@@ -669,6 +712,11 @@ class HardwareService(ReadOnlyHardwareService):
                     or not 0 <= float(temperature) <= 100 or not isinstance(calibration, Mapping)):
                 raise ValueError("temperature setpoint payload is invalid")
             try:
+                if calibration["calibration_fingerprint"] != calibration["artifact_digest"]:
+                    raise ValueError("temperature calibration fingerprint mismatch")
+                for field in ("instrument_id", "vial_position_id", "calibration_type", "method", "method_version"):
+                    if not isinstance(calibration[field], str) or not calibration[field]:
+                        raise ValueError("temperature calibration identity is incomplete")
                 reference_min, reference_max = float(calibration["reference_min"]), float(calibration["reference_max"])
                 raw_min, raw_max = int(calibration["raw_min"]), int(calibration["raw_max"])
             except (KeyError, TypeError, ValueError) as error:
@@ -782,7 +830,7 @@ def _nonnegative_int(value: str | None, *, default: int) -> int:
         return default
 
 
-def _capabilities() -> Json:
+def _capabilities(hw_protocol: int = 2, temperature_channels: int = 0) -> Json:
     # The firmware protocol supports these operations, but no physical
     # actuation was performed during repository validation.  ``enabled``
     # therefore remains false until an operator supplies physical evidence.
@@ -798,7 +846,8 @@ def _capabilities() -> Json:
                              "duration_ms": {"minimum": 1, "maximum": 1000}},
             "heater_control": {"verification": "not_tested", "enabled": False, "supported": True,
                                "mode": "output_pulse", "temperature_setpoint": {"supported": False, "reason": "firmware commissioning protocol exposes heater output, not a target"}},
-            "temperature_setpoint": {"supported": True, "protocol_version": 2,
+            "temperature_setpoint": {"supported": hw_protocol >= 2, "protocol_version": hw_protocol,
+                                      "supported_channels": list(range(max(0, temperature_channels))),
                                       "raw_target_adc": {"minimum": 1, "maximum": 65535},
                                       "firmware_pid_ceiling": 64,
                                       "calibration": "per_vial_immutable"},
