@@ -165,6 +165,24 @@ class ProcedureActionInvoker:
         return ActionAvailability(action_id, version, Availability.UNSUPPORTED,
                                   "trusted action has no host realization", provenance)
 
+    @property
+    def controller_generation(self) -> int | None:
+        """Expose the target fence required by runtime cleanup coordination."""
+        return self.target.generation
+
+    def describe(self, action: ActionRef | str) -> Mapping[str, Any]:
+        """Return the same authorization/fence projection used by preflight."""
+        action_id, version = _action_parts(action)
+        availability = self.availability(action)
+        return {
+            "id": action_id,
+            "version": version,
+            "authorized": availability.classification not in {
+                Availability.UNSUPPORTED, Availability.BLOCKED_DEPENDENCY,
+            },
+            "controller_generation": self.controller_generation,
+        }
+
     def preflight(self, action: ActionRef | str, parameters: dict[str, Any]) -> None:
         action_id, version = _action_parts(action)
         if action_id not in _TRUSTED_ACTIONS:

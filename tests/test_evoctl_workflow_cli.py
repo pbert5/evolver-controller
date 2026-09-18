@@ -68,6 +68,8 @@ def test_run_uses_session_until_success_and_keeps_jsonl_stable():
     records = [json.loads(item) for item in output.getvalue().splitlines()]
     assert records[-1]["event"] == "outcome"
     assert records[-1]["payload"]["state"] == "succeeded"
+    session_ids = {record["payload"]["session_id"] for record in records}
+    assert len(session_ids) == 1
 
 
 def test_scenario_registry_is_stable_and_has_no_io_scenarios():

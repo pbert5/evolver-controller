@@ -227,4 +227,9 @@ class WorkflowCLI:
     def _session_id(session: Any) -> str:
         if session.active_stage_id and session.active_instance_id:
             return session.instances[session.active_stage_id][0].procedure_session.run_id
+        for instances in session.instances.values():
+            for instance in instances:
+                run_id = getattr(instance.procedure_session, "run_id", None)
+                if run_id:
+                    return run_id
         return "workflow-session"

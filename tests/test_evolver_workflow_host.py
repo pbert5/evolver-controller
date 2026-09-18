@@ -62,6 +62,16 @@ def test_stop_remains_dependency_blocked_without_safe_stop_authority():
     assert availability.provenance["dependency"] == "#47"
 
 
+def test_invoker_exposes_cleanup_fence_and_authorization_projection():
+    invoker = ProcedureActionInvoker(FakeOperator(), target(), context=HostContext())
+    assert invoker.controller_generation == 7
+    description = invoker.describe(ActionRef("stop_actuator", 1))
+    assert description == {
+        "id": "stop_actuator", "version": 1, "authorized": False,
+        "controller_generation": 7,
+    }
+
+
 def test_domain_activity_is_not_falsely_session_local():
     invoker = ProcedureActionInvoker(FakeOperator(), target(), context=HostContext())
     assert invoker.availability(ActionRef("stop_activity", 1)).classification is Availability.UNSUPPORTED
