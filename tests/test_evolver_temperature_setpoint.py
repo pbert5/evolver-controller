@@ -41,6 +41,10 @@ def test_calibrated_temperature_inverts_and_maps_stable_vial_identity():
     assert plan["calibration"]["requested_temperature_c"] == 30.0
     assert plan["calibration"]["predicted_temperature_c"] == 30.0
     assert plan["calibration"]["quantization_error_c"] == 0.0
+    assert plan["calibration"]["reference_min"] == 10.0
+    assert plan["calibration"]["reference_max"] == 50.0
+    assert plan["calibration"]["raw_min"] == 10
+    assert plan["calibration"]["raw_max"] == 100
 
 
 def test_calibrated_temperature_accepts_integral_float_raw_bounds_from_fitted_artifacts():
@@ -103,6 +107,10 @@ def test_trusted_temperature_requires_artifact_and_preserves_typed_provenance():
     assert command["operation"] == "set_temperature"
     assert command["parameters"] == {"channel": 2, "raw_target_adc": 20}
     assert command["context"]["calibration"]["artifact_id"] == "temp-cal"
+    assert command["context"]["calibration"]["reference_min"] == 10.0
+    assert command["context"]["calibration"]["reference_max"] == 50.0
+    assert command["context"]["calibration"]["raw_min"] == 10
+    assert command["context"]["calibration"]["raw_max"] == 100
 
 
 def test_simulator_projects_calibrated_target_and_safe_stop_clears_it():

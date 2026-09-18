@@ -162,6 +162,8 @@ def plan_calibrated_temperature(*, artifact: Mapping[str, Any], target_temperatu
             "raw_target_adc": raw_target}, "calibration": {
                 "artifact_id": artifact["id"], "artifact_digest": artifact["artifact_digest"],
                 "method": artifact["method"], "method_version": artifact["method_version"],
+                "reference_min": reference_min, "reference_max": reference_max,
+                "raw_min": raw_min, "raw_max": raw_max,
                 "requested_temperature_c": target, "predicted_temperature_c": predicted,
                 "quantization_error_c": predicted - target}}
 
