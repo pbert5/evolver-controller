@@ -11,7 +11,7 @@ readonly COMPOSE=(
 readonly SERVICES=(evolver-controller evolver-hardware)
 
 usage() {
-  echo 'usage: tools/evolver-edge {status|up [--build]|stop [controller|hardware]|down|restart controller|restart hardware|logs controller|logs hardware}' >&2
+  echo 'usage: tools/evolver-edge {status|up [--build]|stop [controller|hardware]|down|restart controller|restart hardware|logs controller|logs hardware|upgrade}' >&2
 }
 
 die() {
@@ -106,6 +106,30 @@ final_state() {
   esac
 }
 
+upgrade() {
+  local old_sha new_sha branch upstream status_output
+  status_output=$(git -C "$ROOT" status --porcelain) || die 'upgrade cannot inspect checkout state'
+  [[ -z "$status_output" ]] || die 'upgrade requires a clean checkout'
+  branch=$(git -C "$ROOT" symbolic-ref --short HEAD) || die 'upgrade requires a named branch'
+  [[ -n "$branch" ]] || die 'upgrade requires a named branch'
+  old_sha=$(git -C "$ROOT" rev-parse HEAD) || die 'upgrade cannot read current revision'
+  upstream=$(git -C "$ROOT" rev-parse --abbrev-ref --symbolic-full-name '@{u}') ||
+    die 'upgrade requires an upstream branch'
+  [[ -n "$upstream" ]] || die 'upgrade requires an upstream branch'
+
+  git -C "$ROOT" fetch --prune origin || die 'upgrade fetch failed'
+  git -C "$ROOT" merge --ff-only "$upstream" ||
+    die 'upgrade requires a fast-forward-only update'
+  git -C "$ROOT" submodule sync --recursive || die 'upgrade submodule URL sync failed'
+  git -C "$ROOT" submodule update --init --recursive || die 'upgrade submodule update failed'
+
+  new_sha=$(git -C "$ROOT" rev-parse HEAD) || die 'upgrade cannot read updated revision'
+  printf 'developer checkout upgrade: %s -> %s (%s)\n' "$old_sha" "$new_sha" "$branch"
+  run_compose up -d --build || exit 1
+  final_state running || exit 1
+  printf 'developer checkout upgrade complete: %s is healthy\n' "$new_sha"
+}
+
 operation=${1:-}
 case "$operation" in
   status)
@@ -121,6 +145,9 @@ case "$operation" in
   restart|logs)
     [[ $# -eq 2 ]] || { usage; exit 2; }
     service=$(service_name "$2")
+    ;;
+  upgrade)
+    [[ $# -eq 1 ]] || { usage; exit 2; }
     ;;
   *)
     usage
@@ -161,5 +188,8 @@ case "$operation" in
     ;;
   logs)
     run_compose logs -f "$service" || exit 1
+    ;;
+  upgrade)
+    upgrade
     ;;
 esac

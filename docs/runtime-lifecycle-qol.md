@@ -2,7 +2,9 @@
 
 Tracking issue: #112
 
-Status: planned. The commands in the target sections below are not yet an implemented contract unless they are already documented elsewhere as existing behavior.
+Status: lifecycle implementation integrated on the `hardware-testing` line;
+central production release upgrade remains unavailable until an authoritative
+selector exists.
 
 ## Goal
 
@@ -28,7 +30,10 @@ The convenience commands must remain presentation over existing runtime and rele
 
 ## Existing authority
 
-The edge repository already has a host-side Compose helper at `tools/evolver-edge` with `up`, `down`, `restart`, `status`, `logs`, `diagnose`, and `rescue`.
+The edge repository has a host-side Compose helper at `tools/evolver-edge` with
+fixed, allowlisted `up`, `down`, `stop`, `restart`, `status`, and `logs`
+operations. It also exposes the separate developer-only `upgrade` checkout
+workflow described below.
 
 The controller CLI already has explicit release operations:
 
@@ -111,15 +116,15 @@ The normal metactl toolbox/API context must not gain Docker socket access, SSH a
 
 A command such as `metactl server down` must run from an external host-runtime process whose authority survives termination of the central service.
 
-## Developer checkout upgrade
+## Developer checkout upgrade (implemented)
 
-The developer-only edge helper may provide:
+The developer-only edge helper provides:
 
 ```text
 tools/evolver-edge upgrade
 ```
 
-Its contract is:
+Its implemented contract is:
 
 1. require a clean working tree
 2. fetch the configured remote
@@ -135,7 +140,9 @@ Its contract is:
 
 It must never force reset, discard dirty files, silently switch branches, delete volumes/state, or flash firmware.
 
-If a central developer-checkout upgrade is added, it should follow the same source-control rules and use the central runtime's canonical migration/build/health entrypoints.
+Central `metactl server upgrade` is currently unavailable and exits with a
+truthful diagnostic; it does not pretend that a source checkout refresh is a
+production release upgrade.
 
 ## Observability
 

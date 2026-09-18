@@ -34,6 +34,17 @@ tools/dev-env evolver-edge up
 # Check the edge runtime status
 tools/dev-env evolver-edge exec evoctl status
 
+# Refresh a clean developer checkout and rebuild the edge runtime
+tools/evolver-edge upgrade
+
+# Inspect or operate the fixed edge runtime
+tools/evolver-edge status
+tools/evolver-edge up
+tools/evolver-edge stop
+tools/evolver-edge down
+tools/evolver-edge restart controller
+tools/evolver-edge logs controller
+
 # Show the repository worktree status
 git status --short --branch
 

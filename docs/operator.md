@@ -30,22 +30,33 @@ and points to `tools/evolver-edge up`, `tools/evolver-edge status`, and
 `tools/evolver-edge logs controller`. The edge launcher returns an unavailable
 exit status instead of presenting stale local data as live state.
 
-Offline mode is an intentional rescue/maintenance mode. It reads the durable
-controller store without contacting the operator socket and does not prove
-central state or physical hardware was observed. Use the explicit route when
-the controller service is stopped:
+Offline reads are deliberately separate from live operation and are outside
+the fixed lifecycle adapter. Direct `evoctl --offline ...` is rejected by the
+normal edge launcher. Offline output must be labelled as offline and cannot be
+used as evidence of current central state or physical hardware.
+
+## Runtime lifecycle and upgrade modes
+
+The edge lifecycle aliases delegate to the fixed host-runtime adapter:
 
 ```text
-tools/evolver-edge rescue recovery
-tools/evolver-edge rescue export-state recovery.tar.zst
+evoctl runtime status|up|stop|down|restart|logs|upgrade
+evoctl up|down|restart|logs|upgrade
+metactl server status|up|stop|down|restart|logs|upgrade
 ```
 
-Inside the edge container, `evoctl rescue ...` delegates to that host helper;
-it never reads the local controller store. Direct `evoctl --offline ...` is
-rejected with the same canonical rescue guidance.
-Recovery/planning commands include `recovery`, `export-state`,
-`lifecycle-plan`, and `update status`; offline output must be labelled as
-offline by the operator.
+`evoctl update apply RELEASE` installs an explicit governed release, while
+`evoctl upgrade` selects the configured recommended governed release. Neither
+command performs a Git checkout update. The developer-only
+`tools/evolver-edge upgrade` command is the source-checkout fast-forward,
+submodule-sync, rebuild, and health-verification path. Central
+`metactl server upgrade` remains unavailable until a governed central release
+selector is configured.
+
+`stop` retains service containers and `down` removes the Compose runtime while
+preserving durable state and named volumes. Lifecycle commands accept only the
+fixed service allowlist and do not expose project, path, shell, container-ID,
+Docker-socket, firmware, or physical-actuation authority.
 
 ## Safety boundary
 
