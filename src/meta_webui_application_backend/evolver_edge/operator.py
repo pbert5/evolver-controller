@@ -486,6 +486,11 @@ class OperatorClient:
     def request(self, operation: str, params: dict[str, Any] | None = None) -> Any:
         return request(operation, self.path, self.timeout, params=params)
 
+    def safe_stop(self, *, operator: str, physical: bool, command_id: str) -> Any:
+        """Request the dedicated lease-independent safe-stop operation."""
+        return self.request("hardware", {"operation": "safe_stop", "physical": physical,
+                                          "operator": operator, "command_id": command_id})
+
 
 def request(operation: str, path: str | os.PathLike[str] = DEFAULT_SOCKET, timeout: float = 3.0,
             *, params: dict[str, Any] | None = None) -> Any:
