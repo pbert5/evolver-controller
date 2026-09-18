@@ -159,6 +159,9 @@ metactl controllers archive <controller_id>
 % Meta BAL path controllers restore [action_id=evolver.controllers.restore]
 metactl controllers restore <controller_id>
 
+% Meta BAL path controllers safe-stop [action_id=evolver.controllers.safe_stop]
+metactl controllers safe-stop <controller_id>
+
 % Meta BAL path controllers measurements [action_id=evolver.controllers.measurements]
 metactl controllers measurements <controller_id>
 
@@ -284,6 +287,9 @@ metactl evolver.controllers.manual.command
 
 % Meta BAL action evolver.controllers.manual.stir [action_id=evolver.controllers.manual.stir]
 metactl evolver.controllers.manual.stir
+
+% Meta BAL action evolver.controllers.safe_stop [action_id=evolver.controllers.safe_stop]
+metactl evolver.controllers.safe_stop
 
 % Meta BAL action evolver.controllers.measurements [action_id=evolver.controllers.measurements]
 metactl evolver.controllers.measurements
