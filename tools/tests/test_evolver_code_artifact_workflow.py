@@ -4,7 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).parents[2]
 WORKFLOW = ROOT / ".github/workflows/evolver-code-artifact.yml"
 SOURCE = "pbert5/evolver-arduino"
-COMMIT = "952a6fd713c40caa072444a0e0e3fc4fc6ee4639"
+COMMIT = "f10de7bab8aa800e0e76ec64c2851b5ed7020c1d"
 
 
 def test_evolver_code_workflow_freezes_source_and_uploads_provenance() -> None:

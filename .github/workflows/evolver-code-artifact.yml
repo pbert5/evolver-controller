@@ -11,7 +11,7 @@ permissions:
 
 env:
   EVOLVER_CODE_REPOSITORY: pbert5/evolver-arduino
-  EVOLVER_CODE_COMMIT: 952a6fd713c40caa072444a0e0e3fc4fc6ee4639
+  EVOLVER_CODE_COMMIT: f10de7bab8aa800e0e76ec64c2851b5ed7020c1d
 
 jobs:
   build:
