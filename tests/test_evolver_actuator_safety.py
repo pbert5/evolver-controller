@@ -7,6 +7,7 @@ from meta_webui_application_backend.evolver_edge.actuator import (
     RunActuatorExecutor,
     SimulatorDeviceCommandSink,
     compile_device_command,
+    compile_trusted_action,
 )
 from meta_webui_application_backend.evolver_edge.store import EdgeStoreError
 
@@ -100,3 +101,48 @@ def test_replay_acknowledged_deduplicates_but_failed_is_operator_visible():
         "status": "failed", "result": {"error": "timeout"}}
     with pytest.raises(EdgeStoreError, match="operator review"):
         executor.execute_actions(run=RUN, state="running", revision=1, actions=[ACTION])
+
+
+def test_trusted_run_pump_and_pulse_pump_adapt_to_fenced_pump_pulses():
+    common = dict(command_id="trusted-1", run_id="run-a", run_revision=3,
+                  bundle_id="bundle-a", state="running", instrument_id="instrument-a",
+                  controller_generation=7)
+    command = compile_trusted_action(
+        {"action_id": "run_pump", "action_version": "1.0", "target": {"channel": 2},
+         "parameters": {"duration_ms": 40}}, **common)
+    assert command["operation"] == "pump_pulse"
+    assert command["parameters"] == {"channel": 2, "direction": "forward", "duration_ms": 40}
+
+    pulse = compile_trusted_action(
+        {"action_id": "pulse_pump", "action_version": "1", "target": {"channel": 1},
+         "parameters": {"duration_ms": 25}}, **{**common, "command_id": "trusted-2"})
+    assert pulse["operation"] == "pump_pulse"
+
+    calibrated = compile_trusted_action(
+        {"action_id": "dispense", "target": {"channel": 1},
+         "parameters": {"volume_ul": 80},
+         "calibration_artifact": {"id": "pump-cal", "artifact_digest": "sha256:pump",
+                                   "calibration_type": "pump_flow_rate", "assessment": {"status": "valid"},
+                                   "coefficients": {"ul_per_ms": 2.0}}},
+        **{**common, "command_id": "trusted-3"})
+    assert calibrated["operation"] == "pump_pulse"
+    assert calibrated["parameters"]["duration_ms"] == 40
+    assert calibrated["context"]["calibration"]["artifact_id"] == "pump-cal"
+
+
+def test_set_temperature_is_logical_and_physical_sink_rejects_without_dispatch():
+    command = compile_trusted_action(
+        {"action_id": "set_temperature", "parameters": {"target": 30}},
+        command_id="temp-1", run_id="run-a", run_revision=0, bundle_id="bundle-a",
+        state="running", instrument_id="instrument-a", controller_generation=7)
+    assert command["operation"] == "set_temperature"
+    assert command["parameters"] == {"temperature_c": 30.0}
+
+    class Service:
+        def command(self, *args, **kwargs):
+            raise AssertionError("temperature target must not reach physical service")
+
+    store = MemoryStore()
+    store.instrument = lambda _instrument_id: {"device_identity": "device-a"}
+    with pytest.raises(EdgeStoreError, match="temperature setpoint"):
+        HardwareDeviceCommandSink(store, Service()).send(command)

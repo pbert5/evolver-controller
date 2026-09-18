@@ -9,6 +9,7 @@ from uuid import NAMESPACE_URL, uuid5
 
 from .store import EdgeStore, EdgeStoreError, Json
 from .actuator import RunActuatorExecutor, SimulatorDeviceCommandSink, compile_device_command
+from .domain import plan_calibrated_dispense
 
 
 @dataclass(frozen=True)
@@ -59,7 +60,7 @@ class EvolverSimulator:
         self.tick_seconds = float(tick_seconds)
         controller_id = store.identity()["id"]
         self.instruments = tuple(self._inventory(controller_id, instruments, vials_per_instrument))
-        self.device_sink = SimulatorDeviceCommandSink()
+        self.device_sink = SimulatorDeviceCommandSink(store)
         self.actuator_executor = RunActuatorExecutor(store, self.device_sink)
         # The simulator uses exactly the durable Instrument contract that a
         # hardware adapter uses.  Discovery may update observations, but never
@@ -94,6 +95,37 @@ class EvolverSimulator:
         """Return deterministic effective device state without hardware I/O."""
         self._instrument(instrument_id)
         return self.device_sink.state(instrument_id)
+
+    def plan_dispense(self, *, artifact: Mapping[str, Any], volume_ul: float,
+                      instrument_id: str, channel: int = 0) -> Json:
+        """Return a calibrated simulator command; does not execute it."""
+        self._instrument(instrument_id)
+        plan = plan_calibrated_dispense(artifact=artifact, volume_ul=volume_ul, channel=channel)
+        plan["target"] = {"instrument_id": instrument_id}
+        return plan
+
+    def dispense(self, *, run_id: str, artifact: Mapping[str, Any], volume_ul: float,
+                 instrument_id: str, channel: int = 0) -> Json:
+        """Execute one calibrated dispense through the normal run action path."""
+        from .domain import reject_calibrated_dispense
+        try:
+            run = self.store.run(run_id)
+            if run["state"] != "running" or instrument_id not in run.get("instrument_ids", []):
+                return reject_calibrated_dispense(reason="run does not own target instrument", artifact=artifact,
+                                                 run_id=run_id, volume_ul=volume_ul)
+            plan = self.plan_dispense(artifact=artifact, volume_ul=volume_ul,
+                                      instrument_id=instrument_id, channel=channel)
+        except (EdgeStoreError, KeyError, TypeError, ValueError) as error:
+            return reject_calibrated_dispense(reason=str(error), artifact=artifact,
+                                             run_id=run_id, volume_ul=volume_ul)
+        action = {"action_id": f"calibrated-dispense:{artifact.get('artifact_digest')}:{volume_ul}:{channel}",
+                  "kind": "device_command", "operation": "pump_pulse",
+                  "target": {"instrument_id": instrument_id, "channel": channel},
+                  "parameters": plan["parameters"], "calibration": plan["calibration"]}
+        result = self.actuator_executor.execute_actions(run=run, state="running",
+                                                        revision=run["current_revision"], actions=[action])
+        return {"disposition": "executed", "run_id": run_id, "result": result[0],
+                "calibration": plan["calibration"]}
 
     def start_run(self, *, run_id: str, bundle_id: str, instrument_ids: Sequence[str] | None = None) -> Json:
         """Create a running simulated run from an immutable declarative bundle."""
@@ -197,8 +229,16 @@ class EvolverSimulator:
                 prior = self.store.telemetry_after(stream)
                 sequence = prior[-1]["sequence"] + 1 if prior else 1
                 payload = self._telemetry(run_id, instrument_id, vial_index, sequence)
+                captured_at = f"simulated+{sequence * self.tick_seconds:.3f}s"
                 samples.append(self.store.spool_telemetry(stream_id=stream, sequence=sequence, payload=payload,
-                                                          captured_at=f"simulated+{sequence * self.tick_seconds:.3f}s"))
+                                                          captured_at=captured_at))
+                self.store.record_measurement({"id": f"{stream}:{sequence}", "run_id": run_id,
+                    "instrument_id": instrument_id, "vial_position_id": vial_id,
+                    "stream_id": stream, "sequence_number": sequence,
+                    "captured_at": captured_at, "measurement_type": "simulated_observation",
+                    "raw_value": payload, "derived_value": payload, "unit": "mixed",
+                    "source_type": "instrument_telemetry", "extrapolated": False,
+                    "quality_flags": ["simulated"]})
         self._transition_if_ready(run_id, plan, state)
         return samples
 

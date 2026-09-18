@@ -178,6 +178,12 @@ class EdgeStore:
             CREATE TABLE IF NOT EXISTS telemetry (
               stream_id TEXT NOT NULL, sequence INTEGER NOT NULL, payload TEXT NOT NULL,
               digest TEXT NOT NULL, captured_at TEXT NOT NULL, PRIMARY KEY(stream_id, sequence));
+            CREATE TABLE IF NOT EXISTS measurements (
+              id TEXT PRIMARY KEY, stream_id TEXT, sequence INTEGER, payload TEXT NOT NULL,
+              digest TEXT NOT NULL, captured_at TEXT NOT NULL, UNIQUE(stream_id, sequence));
+            CREATE TABLE IF NOT EXISTS activities (
+              id TEXT PRIMARY KEY, run_id TEXT, activity_type TEXT NOT NULL, status TEXT NOT NULL,
+              payload TEXT NOT NULL, created_at TEXT NOT NULL);
             -- Identity and topology are durable.  Transport and connection state
             -- deliberately live in the latest observation instead of becoming an
             -- accidental hardware identifier.
@@ -316,6 +322,32 @@ class EdgeStore:
             )
         return self.instrument(instrument_id)
 
+    def record_simulator_device_state(self, instrument_id: str, state: Mapping[str, Any],
+                                      *, clock_ms: int) -> Json:
+        """Persist simulator effective state as observed, not as identity.
+
+        The simulator is a production-shaped device boundary.  Its effective
+        outputs must therefore survive a controller restart, while remaining
+        volatile observation data that cannot alter stable instrument
+        topology or identity.
+        """
+        instrument = self.instrument(instrument_id)
+        if isinstance(clock_ms, bool) or not isinstance(clock_ms, int) or clock_ms < 0:
+            raise EdgeStoreError("simulator clock must be a non-negative integer")
+        observation = {key: value for key, value in instrument.items()
+                       if key not in {"id", "controller_id", "instrument_type", "vial_positions",
+                                      "capabilities", "created_at", "assigned_runs", "observed_at"}}
+        observation.update({"connection_state": "connected", "transport": {"kind": "simulated"},
+                            "transport_evidence": {"event": "simulated_command", "simulated": True},
+                            "effective_device_state": dict(state), "simulator_clock_ms": clock_ms})
+        with self._transaction() as cursor:
+            cursor.execute(
+                "INSERT INTO instrument_observations(instrument_id, payload, observed_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(instrument_id) DO UPDATE SET payload=excluded.payload, observed_at=excluded.observed_at",
+                (instrument_id, _canonical(observation), _now()),
+            )
+        return self.instrument(instrument_id)
+
     # Instrument inventory -------------------------------------------------
     def register_instruments(self, inventory: list[Mapping[str, Any]]) -> list[Json]:
         """Record stable instrument identity/topology and its latest observation.
@@ -427,10 +459,10 @@ class EdgeStore:
         """
         payload = dict(artifact)
         artifact_id, supplied = payload.get("id"), payload.get("artifact_digest")
-        required = (artifact_id, supplied, payload.get("instrument_id"), payload.get("vial_position_id"),
+        required = (artifact_id, supplied, payload.get("instrument_id"),
                     payload.get("calibration_type"), payload.get("method"), payload.get("method_version"))
         if not all(isinstance(value, str) and value for value in required):
-            raise ImmutableBundleError("calibration artifact requires id, digest, instrument, vial position, type, and method")
+            raise ImmutableBundleError("calibration artifact requires id, digest, instrument, type, and method")
         try:
             actual_digest = calibration_artifact_digest(payload)
         except (TypeError, ValueError) as error:
@@ -584,6 +616,10 @@ class EdgeStore:
         bundle_id, supplied_digest = payload.get("id"), payload.pop("digest", None)
         if not bundle_id or not supplied_digest:
             raise ImmutableBundleError("ExperimentBundle requires id and digest")
+        if "purpose" in payload:
+            experiment_purpose(payload["purpose"])
+        if "execution_mode" in payload and payload["execution_mode"] != "declarative_state_machine":
+            raise ImmutableBundleError("only declarative_state_machine bundles are supported")
         digest = canonical_digest(payload)
         if digest != supplied_digest:
             raise ImmutableBundleError("ExperimentBundle digest does not match canonical content")
@@ -629,6 +665,75 @@ class EdgeStore:
                 raise EdgeStoreError(f"run already exists or bundle absent: {run_id}") from error
         self.append_event(run_id=run_id, event_type="run_created", revision=0, details={"bundle_id": bundle_id})
         return self.run(run_id)
+
+    def create_calibration_run(self, *, run_id: str, calibration_type: str,
+                               instrument_id: str, component_id: str | None = None,
+                               vial_position_id: str | None = None) -> Json:
+        """Create a calibration as a normal durable ExperimentRun."""
+        from ..evolver_calibration import calibration_run_definition, calibration_run_state
+        if calibration_type == "pump_flow_rate" and not component_id:
+            raise EdgeStoreError("pump_flow_rate calibration requires component_id")
+        bundle = calibration_run_definition(run_id=run_id, calibration_type=calibration_type,
+                                            instrument_id=instrument_id, component_id=component_id,
+                                            vial_position_id=vial_position_id)
+        bundle["digest"] = canonical_digest(bundle)
+        self.put_bundle(bundle)
+        return self.create_run(run_id=run_id, bundle_id=bundle["id"], instrument_ids=[instrument_id],
+                               state="running", effective_state=calibration_run_state(
+                                   run_id=run_id, calibration_type=calibration_type,
+                                   instrument_id=instrument_id, component_id=component_id,
+                                   vial_position_id=vial_position_id))
+
+    def record_calibration_observation(self, *, run_id: str, observation: Mapping[str, Any]) -> Json:
+        """Append calibration evidence to the run revision and event journal."""
+        from ..evolver_calibration import validate_observation
+        run = self.run(run_id)
+        state = run["effective_state"]
+        if state.get("kind") != "calibration" or run.get("state") != "running":
+            raise EdgeStoreError("calibration ExperimentRun is not collecting evidence")
+        item = validate_observation(str(state["calibration_type"]), observation)
+        item = {**item, "id": item.get("id") or str(uuid.uuid4()),
+                "run_id": run_id, "vial_position_id": state.get("vial_position_id"),
+                "sequence": len(state.get("observations", [])) + 1}
+        revision = self.apply_patch({"run_id": run_id, "based_on_revision": run["current_revision"],
+                                     "patch_kind": "calibration_observation",
+                                     "change": {"observations": [*state.get("observations", []), item]}})
+        self.append_event(run_id=run_id, event_type="calibration_observation_recorded",
+                          revision=revision["revision"], details=item)
+        return self.run(run_id)
+
+    def activate_calibration_artifact(self, *, artifact: Mapping[str, Any], run_id: str,
+                                      activated_by: str, based_on_revision: int | None = None) -> Json:
+        """Record activation as an append-only run fact with artifact provenance."""
+        from ..evolver_calibration import activation_record
+        run = self.run(run_id)
+        if run["state"] not in {"running", "paused"}:
+            raise EdgeStoreError("calibration activation requires an active ExperimentRun")
+        if run["effective_state"].get("kind") != "calibration":
+            raise EdgeStoreError("calibration activation requires a calibration ExperimentRun")
+        if artifact.get("instrument_id") not in run.get("instrument_ids", []):
+            raise EdgeStoreError("calibration artifact target is not owned by the run")
+        if artifact.get("calibration_type") != run["effective_state"].get("calibration_type"):
+            raise EdgeStoreError("calibration artifact type does not match the run")
+        expected = run["effective_state"].get("component_id")
+        if expected and artifact.get("component_id") and artifact.get("component_id") != expected:
+            raise EdgeStoreError("calibration artifact component is not owned by the run")
+        if based_on_revision is None:
+            based_on_revision = run["current_revision"]
+        if isinstance(based_on_revision, bool) or not isinstance(based_on_revision, int):
+            raise EdgeStoreError("based_on_revision must be an integer")
+        record = activation_record(artifact, run_id=run_id, activated_by=activated_by)
+        revision = self.apply_patch({
+            "run_id": run_id, "based_on_revision": based_on_revision,
+            "patch_kind": "calibration_activation",
+            "change": {"activations": [*run["effective_state"].get("activations", []), record]},
+        })
+        event = self.append_event(run_id=run_id, event_type=record["event_type"],
+                                  revision=revision["revision"], details=record)
+        self.record_activity(activity_type="calibration_activation", run_id=run_id,
+                             activity_id=f"activation:{artifact.get('id')}:{run_id}",
+                             details=record)
+        return {"activation": record, "event": event, "run": self.run(run_id)}
 
     def run(self, run_id: str) -> Json:
         row = self._connection.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
@@ -919,6 +1024,74 @@ class EdgeStore:
     def telemetry_streams(self) -> list[str]:
         return [row["stream_id"] for row in self._connection.execute("SELECT DISTINCT stream_id FROM telemetry ORDER BY stream_id")]
 
+    # Measurement and activity projections --------------------------------
+    def record_measurement(self, measurement: Mapping[str, Any]) -> Json:
+        """Persist one validated observation without conflating it with actuation."""
+        value = dict(measurement)
+        required = ("id", "captured_at", "measurement_type", "source_type", "extrapolated")
+        if any(not isinstance(value.get(key), str) or not value[key] for key in required[:4]):
+            raise EdgeStoreError("measurement requires id, captured_at, measurement_type, and source_type")
+        if not isinstance(value["extrapolated"], bool):
+            raise EdgeStoreError("measurement extrapolated must be boolean")
+        if "raw_value" not in value:
+            raise EdgeStoreError("measurement raw_value is required")
+        if value.get("stream_id") is not None and not isinstance(value["stream_id"], str):
+            raise EdgeStoreError("measurement stream_id must be a string")
+        value.setdefault("quality_flags", [])
+        if not isinstance(value["quality_flags"], list):
+            raise EdgeStoreError("measurement quality_flags must be a list")
+        digest = canonical_digest(value)
+        encoded = _canonical(value)
+        row = self._connection.execute("SELECT digest, payload FROM measurements WHERE id=?", (value["id"],)).fetchone()
+        if row:
+            if row["digest"] != digest or row["payload"] != encoded:
+                raise EdgeStoreError("measurement id is already bound to different content")
+            return _decode(row["payload"])
+        stream_id, sequence = value.get("stream_id"), value.get("sequence_number")
+        with self._transaction() as cursor:
+            try:
+                cursor.execute("INSERT INTO measurements VALUES (?, ?, ?, ?, ?, ?)",
+                               (value["id"], stream_id, sequence, encoded, digest, value["captured_at"]))
+            except sqlite3.IntegrityError as error:
+                raise EdgeStoreError("measurement stream sequence is already bound") from error
+        return value
+
+    def measurements_after(self, stream_id: str, sequence: int = 0) -> list[Json]:
+        rows = self._connection.execute(
+            "SELECT payload FROM measurements WHERE stream_id=? AND sequence>? ORDER BY sequence", (stream_id, sequence))
+        return [_decode(row["payload"]) for row in rows]
+
+    def record_activity(self, *, activity_type: str, run_id: str | None = None,
+                        activity_id: str | None = None, status: str = "recorded",
+                        details: Mapping[str, Any] | None = None) -> Json:
+        if not isinstance(activity_type, str) or not activity_type.strip():
+            raise EdgeStoreError("activity_type is required")
+        if status not in {"recorded", "started", "completed", "failed", "cancelled"}:
+            raise EdgeStoreError("activity status is invalid")
+        value = {"id": activity_id or str(uuid.uuid4()), "run_id": run_id,
+                 "activity_type": activity_type, "status": status,
+                 "details": dict(details or {}), "created_at": _now()}
+        encoded = _canonical(value)
+        with self._transaction() as cursor:
+            existing = cursor.execute("SELECT payload FROM activities WHERE id=?", (value["id"],)).fetchone()
+            if existing:
+                prior = _decode(existing["payload"])
+                comparable = {key: value[key] for key in value if key != "created_at"}
+                prior_comparable = {key: prior[key] for key in prior if key != "created_at"}
+                if prior_comparable != comparable:
+                    raise EdgeStoreError("activity id is already bound to different content")
+                return prior
+            cursor.execute("INSERT INTO activities VALUES (?, ?, ?, ?, ?, ?)",
+                           (value["id"], run_id, activity_type, status, encoded, value["created_at"]))
+        return value
+
+    def activities(self, *, run_id: str | None = None) -> list[Json]:
+        if run_id is None:
+            rows = self._connection.execute("SELECT payload FROM activities ORDER BY created_at, id")
+        else:
+            rows = self._connection.execute("SELECT payload FROM activities WHERE run_id=? ORDER BY created_at, id", (run_id,))
+        return [_decode(row["payload"]) for row in rows]
+
     def command_acknowledgements(self) -> list[Json]:
         return [_decode(row["acknowledgement"]) for row in self._connection.execute(
             "SELECT acknowledgement FROM commands WHERE status IN ('completed','quarantined') AND acknowledgement IS NOT NULL ORDER BY completed_at")]
@@ -1071,6 +1244,9 @@ class EdgeStore:
         events = [_decode(r["payload"]) for r in self._connection.execute("SELECT payload FROM events ORDER BY run_id, sequence")] if include_records else []
         run_action_executions = [self.run_action(row["command_id"]) for row in self._connection.execute(
             "SELECT command_id FROM run_action_executions ORDER BY created_at")] if include_records else []
+        measurements = [_decode(row["payload"]) for row in self._connection.execute(
+            "SELECT payload FROM measurements ORDER BY captured_at, id")] if include_records else []
+        activities = self.activities() if include_records else []
         revisions = [self.revision(run["id"]) for run in runs]
         ranges = []
         for row in self._connection.execute("SELECT stream_id, MIN(sequence) lo, MAX(sequence) hi FROM telemetry GROUP BY stream_id"):
@@ -1092,6 +1268,7 @@ class EdgeStore:
                 "active_runs": [r for r in runs if r["state"] in {"running", "paused", "stopping"}],
                 "runs": runs, "bundles": bundles, "run_patches": patches, "run_events": events,
                 "run_action_executions": run_action_executions,
+                "measurements": measurements, "activities": activities,
                 "run_revisions": revisions, "telemetry_ranges": ranges,
                 "completed_unsynchronized_runs": completed_unsynchronized,
                 "source_metadata": [s for b in bundles for s in b.get("source_metadata", [])],
