@@ -70,6 +70,47 @@ def test_operator_live_inventory_and_calibration_operations_are_typed(tmp_path: 
         assert invalid["error"]["kind"] == "invalid_request"
 
 
+def test_operator_safe_stop_is_authenticated_physical_and_lease_free(tmp_path: Path) -> None:
+    path = tmp_path / "operator.sock"
+    operator = OperatorIdentity("alice", "local_operator", frozenset({"hardware_maintenance"}))
+    calls = []
+
+    def ipc_request(_path, payload, _timeout):
+        calls.append(payload)
+        return {"command_id": payload["command_id"], "request_accepted": True,
+                "verification": "protocol_verified"}
+
+    with EdgeStore(tmp_path / "state") as store:
+        store.bind(webui_controller_id="central", server_url="https://central",
+                   credential="secret", generation=7)
+        store.register_instruments([{"id": "instrument-1", "instrument_type": "minievolver",
+                                     "device_identity": "MEV-1", "vial_positions": [], "capabilities": {}}])
+        store.set_control_lease(lease_token="foreign", owner="other", generation=7,
+                                expires_at="2030-01-01T01:00:00+00:00")
+        broker = HardwareBroker(store, request=ipc_request)
+        with OperatorServer(store, path, operator=operator, hardware_broker=broker):
+            result = request("hardware", path, params={"operation": "safe_stop",
+                                                         "physical": True, "operator": "alice"})
+            assert result["request_accepted"] is True
+            denied = _wire(path, {"operation": "hardware", "params": {
+                "operation": "safe_stop", "physical": False, "operator": "alice"}})
+            assert denied["error"]["kind"] == "unsafe"
+            assert store.command_acknowledgements()[-1]["request_accepted"] is True
+
+    assert calls and calls[0]["operator"] == "alice"
+    assert calls[0]["controller_generation"] == 7
+    assert "lease_token" not in calls[0]
+    assert "target_identity" in calls[0]
+def test_operator_safe_stop_requires_hardware_permission(tmp_path: Path) -> None:
+    path = tmp_path / "operator.sock"
+    operator = OperatorIdentity("alice", "local_operator", frozenset())
+    with EdgeStore(tmp_path / "state") as store, OperatorServer(store, path, operator=operator,
+                                                                  hardware_broker=HardwareBroker(store)):
+        denied = _wire(path, {"operation": "hardware", "params": {
+            "operation": "safe_stop", "physical": True, "operator": "alice"}})
+        assert denied["error"]["kind"] == "forbidden"
+
+
 def test_operator_calibration_run_is_authenticated_typed_and_transport_neutral(tmp_path: Path) -> None:
     path = tmp_path / "operator.sock"
     operator = OperatorIdentity("alice", "local_operator", frozenset({"manage_calibration"}))

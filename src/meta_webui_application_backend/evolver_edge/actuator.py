@@ -118,17 +118,28 @@ class ManualCommandExecutor:
             operation_for_device = "set_stir"
         else:
             operation_for_device = "safe_stop"
+        context = {"run_id": run_id, "controller_generation": generation}
+        if operation == "safe_stop":
+            requested_by = command.get("requested_by")
+            if not isinstance(requested_by, str) or not requested_by:
+                return {"command_id": command_id, "disposition": "rejected_invalid",
+                        "reason": "safe-stop operator attribution is required"}
+            context["operator"] = requested_by
+        else:
+            context.update({"lease_token": command.get("lease_token"),
+                            "lease_owner": command.get("lease_holder")})
         typed = {"schema_version": DEVICE_PROTOCOL_VERSION, "command_id": command_id,
                  "operation": operation_for_device,
                  "target": {"instrument_id": instrument_id, "device_id": target.get("device_id", instrument_id)},
                  "parameters": parameters,
-                 "context": {"run_id": run_id, "controller_generation": generation,
-                             "lease_token": command.get("lease_token"), "lease_owner": command.get("lease_holder")}}
+                 "context": context}
         try:
             result = dict(self.sink.send(typed))
         except Exception as error:
             return {"command_id": command_id, "disposition": "failed", "reason": str(error)}
-        return {"command_id": command_id, "disposition": "completed", "result": result}
+        accepted = result.get("request_accepted", True)
+        disposition = "completed" if accepted else ("partial" if operation == "safe_stop" else "failed")
+        return {"command_id": command_id, "disposition": disposition, "result": result}
 
 
 def _int(value: Any, name: str, low: int, high: int) -> int:
@@ -451,15 +462,25 @@ class HardwareDeviceCommandSink:
         for index, instrument in enumerate(instruments):
             device_identity = instrument.get("device_identity")
             if not isinstance(device_identity, str) or not device_identity:
-                raise EdgeStoreError("instrument has no provisioned device identity; safe stop is not confirmed for all instruments")
-            result = self.service.command(operation, device_identity, parameters,
-                                          command_id=command["command_id"] if index == 0 else f"{command['command_id']}:{index}",
-                                          run_id=context.get("run_id"), controller_generation=generation,
-                                          lease_token=context.get("lease_token"), lease_owner=context.get("lease_owner"),
-                                          require_lease=bool(context.get("lease_token")))
-            results.append(result.as_json())
+                results.append({"command_id": f"{command['command_id']}:{index}",
+                                "request_accepted": False, "verification": "unverified",
+                                "error": "instrument has no provisioned device identity"})
+                continue
+            try:
+                result = self.service.command(operation, device_identity, parameters,
+                                              command_id=command["command_id"] if index == 0 else f"{command['command_id']}:{index}",
+                                              run_id=context.get("run_id"), controller_generation=generation,
+                                              operator=context.get("operator"),
+                                              lease_token=context.get("lease_token"), lease_owner=context.get("lease_owner"),
+                                              require_lease=operation != "safe_stop")
+                results.append(result.as_json())
+            except Exception as error:
+                results.append({"command_id": f"{command['command_id']}:{index}",
+                                "request_accepted": False, "verification": "unverified",
+                                "error": str(error)})
+        accepted = bool(results) and all(item.get("request_accepted", False) for item in results)
         return results[0] if len(results) == 1 else {"command_id": command["command_id"], "request_accepted": all(item["request_accepted"] for item in results),
-                                                      "verification": "protocol_verified", "results": results}
+                                                      "verification": "protocol_verified" if accepted else "unverified", "results": results}
 
 
 class HardwareIPCDeviceCommandSink:
@@ -483,22 +504,38 @@ class HardwareIPCDeviceCommandSink:
         instruments = self.store.list_instruments() if operation == "safe_stop" else [self.store.instrument(instrument_id)]
         context = command.get("context") if isinstance(command.get("context"), Mapping) else {}
         generation = context.get("controller_generation")
-        lease_token, lease_owner = context.get("lease_token"), context.get("lease_owner")
         if not isinstance(generation, int) or isinstance(generation, bool) or generation <= 0:
             raise EdgeStoreError("hardware command requires the active positive controller generation")
-        if not isinstance(lease_token, str) or not isinstance(lease_owner, str) or not lease_token or not lease_owner:
-            raise EdgeStoreError("hardware command requires an active lease")
+        if operation == "safe_stop":
+            operator = context.get("operator")
+            if not isinstance(operator, str) or not operator:
+                raise EdgeStoreError("safe-stop operator attribution is required")
+        else:
+            lease_token, lease_owner = context.get("lease_token"), context.get("lease_owner")
+            if not isinstance(lease_token, str) or not isinstance(lease_owner, str) or not lease_token or not lease_owner:
+                raise EdgeStoreError("hardware command requires an active lease")
         results: list[Mapping[str, Any]] = []
         for index, instrument in enumerate(instruments):
             device_identity = instrument.get("device_identity")
             if not isinstance(device_identity, str) or not device_identity:
-                raise EdgeStoreError("instrument has no provisioned device identity")
+                results.append({"command_id": f"{command['command_id']}:{index}",
+                                "request_accepted": False, "verification": "unverified",
+                                "error": "instrument has no provisioned device identity"})
+                continue
             payload = {"operation": operation, "physical": True, "target_identity": device_identity,
-                       "operator": lease_owner, "lease_token": lease_token, "controller_generation": generation,
+                       "operator": context.get("operator") if operation == "safe_stop" else lease_owner,
+                       "controller_generation": generation,
                        "command_id": command["command_id"] if index == 0 else f"{command['command_id']}:{index}",
                        "parameters": dict(command.get("parameters") or {})}
-            results.append(self.request(self.socket_path, payload, self.timeout))
+            if operation != "safe_stop":
+                payload.update({"lease_token": lease_token, "lease_owner": lease_owner})
+            try:
+                results.append(self.request(self.socket_path, payload, self.timeout))
+            except Exception as error:
+                results.append({"command_id": payload["command_id"], "request_accepted": False,
+                                "verification": "unverified", "error": str(error)})
         if len(results) == 1:
             return results[0]
-        return {"command_id": command["command_id"], "request_accepted": all(item.get("request_accepted", False) for item in results),
-                "verification": "protocol_verified", "results": results}
+        accepted = bool(results) and all(item.get("request_accepted", False) for item in results)
+        return {"command_id": command["command_id"], "request_accepted": accepted,
+                "verification": "protocol_verified" if accepted else "unverified", "results": results}

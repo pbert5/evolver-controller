@@ -574,7 +574,7 @@ class HardwareService(ReadOnlyHardwareService):
         # Direct mock/developer service calls retain the historical physical
         # gate when no lease has ever been installed; once a lease exists, or
         # for every daemon IPC request, lease fencing is mandatory.
-        if actuator and (request.require_lease or self.store.meta("control_lease") is not None):
+        if actuator and request.operation != "safe_stop" and (request.require_lease or self.store.meta("control_lease") is not None):
             self.store.validate_control_lease(lease_token=request.lease_token, owner=request.lease_owner or effective_operator,
                                               generation=request.controller_generation)
         if request.timeout <= 0:

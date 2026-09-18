@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 from typing import Any, Callable, Mapping
+from uuid import uuid4
 
 from .hardware import ACTUATOR_BOUNDS, validate_device_operation
 from .hardware_ipc import DEFAULT_IPC_TIMEOUT_SECONDS, request as ipc_request
@@ -101,6 +102,37 @@ class HardwareBroker:
                    "controller_generation": controller_generation}
         if command_id is not None: payload["command_id"] = command_id
         return self._call(payload)
+
+    def safe_stop(self, *, operator: str, physical: bool = False,
+                  command_id: str | None = None) -> dict[str, Any]:
+        self._require_operator(operator)
+        if physical is not True:
+            raise PermissionError("physical opt-in is required")
+        binding = self.store.binding()
+        generation = binding.get("generation") if isinstance(binding, Mapping) else None
+        if not isinstance(generation, int) or isinstance(generation, bool) or generation <= 0:
+            raise ValueError("controller generation is stale or missing")
+        command_id = command_id or f"safe-stop-{uuid4()}"
+        results: list[dict[str, Any]] = []
+        for index, instrument in enumerate(self.store.list_instruments()):
+            item_id = f"{command_id}:{index}"
+            device_identity = instrument.get("device_identity")
+            if not isinstance(device_identity, str) or not device_identity:
+                results.append({"command_id": item_id, "request_accepted": False,
+                                "verification": "unverified",
+                                "error": "instrument has no provisioned device identity"})
+                continue
+            payload = {"operation": "safe_stop", "target_identity": device_identity,
+                       "parameters": {}, "physical": True, "operator": operator,
+                       "controller_generation": generation, "command_id": item_id}
+            try:
+                results.append(self._call(payload))
+            except Exception as error:
+                results.append({"command_id": item_id, "request_accepted": False,
+                                "verification": "unverified", "error": str(error)})
+        accepted = bool(results) and all(item.get("request_accepted", False) for item in results)
+        return {"command_id": command_id, "request_accepted": accepted,
+                "verification": "protocol_verified" if accepted else "unverified", "results": results}
 
     @staticmethod
     def _require_operator(operator: str) -> None:
