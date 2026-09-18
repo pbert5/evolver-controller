@@ -213,12 +213,13 @@ class WorkflowCLI:
             self._emit("outcome", {"workflow_id": workflow_id, "session_id": self._session_id(session),
                                     "state": session.state.value, "primary_outcome": session.error})
             return 0 if session.state is WorkflowState.SUCCEEDED else 2
-        except KeyboardInterrupt:
-            session.abort("operator cancelled")
+        except (KeyboardInterrupt, EOFError) as interruption:
+            reason = "operator cancelled" if isinstance(interruption, KeyboardInterrupt) else "input closed"
+            session.abort(reason)
             if hasattr(self.host, "abort_count"):
                 self.host.abort_count += 1
             self._emit("outcome", {"workflow_id": workflow_id, "session_id": self._session_id(session),
-                                    "state": "aborted", "primary_outcome": "operator cancelled",
+                                    "state": "aborted", "primary_outcome": reason,
                                     "cleanup_outcome": "completed"})
             return 130
 
