@@ -40,6 +40,11 @@ uses strict marker checking, so new lane-specific tests should use
 `@pytest.mark.integration`, `@pytest.mark.simulator`, or
 `@pytest.mark.serial` explicitly.
 
+Repository-owned Codex orchestration follows the primary-executor/workstream-
+owner model described in `docs/codex-agent-workflow.md`. Use a fresh Codex
+session for live nested-agent smoke checks so startup-loaded configuration is
+current; keep those checks synthetic and hardware-free.
+
 The Server container forwards port 18086 as `Meta Ball API`. Services launched
 through the host Docker daemon should use `META_BAL_DEV_BIND_ADDRESS` and
 `META_BAL_DEV_PORT`; the default bind is loopback. To make a service reachable
