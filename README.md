@@ -1,8 +1,8 @@
 # Meta Ball
 
 Private integration repository for independently usable eVOLVER components.
-The public component repositories are extracted from the private Meta WebUI
-reference checkout and are pinned here when integrated. Meta Ball owns
+The public component repositories were extracted from the historical private
+Meta WebUI source and are pinned here when integrated. Meta Ball owns
 integration tooling and private schema consumption; it is not the runtime
 implementation owner.
 
@@ -39,5 +39,6 @@ owner.
 
 For central/server development, use the Server Dev Container. The development
 and test workflow is documented in [docs/development.md](docs/development.md).
-The reference checkout under `refference/` is intentionally retained with its
-original spelling and is read-only source material.
+Historical extraction provenance is documented in
+[docs/extraction-map.md](docs/extraction-map.md); no private reference checkout
+is required by this repository.

@@ -1,12 +1,14 @@
 # Historical Python test recovery
 
-Source: `refference/meta_webui_demo` at `wire-in-cli` commit
-`652cc5de7098949c31d71d035f41fbe0499e6ac1`. The reference checkout is source
-material only; WebUI/frontend and private BAL behavior are not reintroduced.
+Historical source provenance: the recovery inventory was created from the
+private Meta WebUI source at `wire-in-cli` commit
+`652cc5de7098949c31d71d035f41fbe0499e6ac1`. That source is no longer a
+submodule or repository dependency; this document preserves only the recovery
+record. WebUI/frontend and private BAL behavior are not reintroduced.
 
-The complete reference scan found 82 Python test files (75 application/repo
-tests and 7 package-scoped suites). Classification is semantic by test family;
-individual obsolete frontend tests are intentionally retired rather than copied.
+The historical scan found 82 Python test files (75 application/repo tests and 7
+package-scoped suites). Classification is semantic by test family; individual
+obsolete frontend tests are intentionally retired rather than copied.
 
 | Classification | Recovered families or decision |
 |---|---|
@@ -29,7 +31,6 @@ Current ownership decisions:
 - all hardware tests use fakes, simulators, or pseudo-terminals and never
   actuate physical outputs or flash firmware.
 
-The inventory is revisited when a component adds a new public surface or when
-the pinned reference changes. Derived action, route, schema, and test-file
-counts are asserted by the automated contract tests rather than hand-edited in
-this document.
+The inventory is revisited when a component adds a new public surface. Derived
+action, route, schema, and test-file counts are asserted by automated contract
+tests rather than hand-edited in this document.

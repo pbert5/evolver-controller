@@ -1,8 +1,13 @@
 # Extraction map
 
-Reference source: `refference/meta_webui_demo`, `wire-in-cli` at
-`652cc5de7098949c31d71d035f41fbe0499e6ac1`; the proven Dev Container source is
-`realy-fix-devcontainers` at `a21bb4009938e3a61ca52377ad109d753890b05c`.
+Historical source provenance: the original Meta WebUI extraction used
+`wire-in-cli` at `652cc5de7098949c31d71d035f41fbe0499e6ac1`; the proven Dev
+Container source used `realy-fix-devcontainers` at
+`a21bb4009938e3a61ca52377ad109d753890b05c`.
+
+The historical private reference repository is not a submodule or runtime
+dependency of Meta Ball. The table below is retained only to document where the
+current independently owned components originated.
 
 | Old path/package | New owner | Tests | Status |
 |---|---|---|---|
@@ -12,4 +17,4 @@ Reference source: `refference/meta_webui_demo`, `wire-in-cli` at
 | `tools/metactl.py`, `metactl_transport.py` | `metactl` | `test_metactl.py`, transport tests | catalog-driven transport; canonical eVOLVER action contract in `applications/evolver/actions.json` |
 | `tools/build_evolver_*.py`, `validate_evolver_release.py` | Meta Ball `tools/` | release-builder tests | copied authoritative implementation |
 | BAL assembled schema selection | Meta Ball `private-schema/` | focused selector tests | implemented without private source |
-| `.devcontainer/server`, `.devcontainer/evolver-edge`, `.codex`, `.vscode` | Meta Ball root | devcontainer contract tests | adapted from reference |
+| `.devcontainer/server`, `.devcontainer/evolver-edge`, `.codex`, `.vscode` | Meta Ball root | devcontainer contract tests | adapted from historical source |

@@ -10,6 +10,3 @@
 [submodule "metactl"]
 	path = metactl
 	url = ../metactl.git
-[submodule "refference/meta_webui_demo"]
-	path = refference/meta_webui_demo
-	url = ../meta_webui_demo.git
