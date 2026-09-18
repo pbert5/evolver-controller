@@ -26,7 +26,7 @@ PROVISIONING_EXCHANGE_COUNT = 3
 PROVISIONING_INNER_BUDGET_SECONDS = PROVISIONING_EXCHANGE_COUNT * HARDWARE_EXCHANGE_TIMEOUT_SECONDS
 PROVISIONING_IPC_TIMEOUT_SECONDS = PROVISIONING_INNER_BUDGET_SECONDS + 1.0
 READ_OPERATIONS = {"discover", "get_status", "read_sensor", "protocol_test"}
-ACTUATOR_OPERATIONS = {"safe_stop", "set_stir", "set_output", "pulse_pump", "pulse_heater"}
+ACTUATOR_OPERATIONS = {"safe_stop", "set_temperature", "set_stir", "set_output", "pulse_pump", "pulse_heater"}
 
 
 def _send(sock: socket.socket, value: dict[str, Any]) -> None:

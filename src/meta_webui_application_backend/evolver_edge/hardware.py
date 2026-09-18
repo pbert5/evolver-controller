@@ -566,7 +566,7 @@ class HardwareService(ReadOnlyHardwareService):
 
     def _execute(self, request: HardwareCommand, frame: str, expected: str, *, actuator: bool = False,
                  retryable: bool = True) -> HardwareResult:
-        if request.operation not in {"get_status", "read_sensor", "safe_stop", "set_output", "pulse_pump", "set_stir", "pulse_heater"}:
+        if request.operation not in {"get_status", "read_sensor", "safe_stop", "set_output", "pulse_pump", "set_stir", "pulse_heater", "set_temperature"}:
             raise ValueError(f"unsupported hardware operation {request.operation}")
         effective_operator = request.operator or self.operator
         if actuator and (not (self.allow_physical or self.daemon_capable) or not effective_operator):
@@ -635,6 +635,22 @@ class HardwareService(ReadOnlyHardwareService):
         if request.operation == "pulse_heater":
             duration, level = _bounded("heater_duration_ms", p.get("duration_ms")), _bounded("heater_level", p.get("level"))
             return self._execute(request, f"HW_PULSE_HEATER,{channel},{duration},{level}_!", "PULSE_HEATER", actuator=True, retryable=False)
+        if request.operation == "set_temperature":
+            raw = p.get("raw_target_adc")
+            temperature = p.get("temperature_c")
+            calibration = p.get("calibration")
+            if (isinstance(raw, bool) or not isinstance(raw, int) or not 1 <= raw <= 65535
+                    or isinstance(temperature, bool) or not isinstance(temperature, (int, float))
+                    or not 0 <= float(temperature) <= 100 or not isinstance(calibration, Mapping)):
+                raise ValueError("temperature setpoint payload is invalid")
+            try:
+                reference_min, reference_max = float(calibration["reference_min"]), float(calibration["reference_max"])
+                raw_min, raw_max = int(calibration["raw_min"]), int(calibration["raw_max"])
+            except (KeyError, TypeError, ValueError) as error:
+                raise ValueError("temperature calibration bounds are invalid") from error
+            if not reference_min <= float(temperature) <= reference_max or not raw_min <= raw <= raw_max:
+                raise ValueError("temperature target is outside calibration bounds")
+            return self._execute(request, f"TEMP|2|{channel}|{raw}_!", "TEMP", actuator=True, retryable=True)
         raise ValueError(f"unsupported hardware operation {request.operation}")
 
     def command(self, operation: str, target_identity: str, parameters: Mapping[str, Any], **context: Any) -> HardwareResult:
@@ -644,7 +660,7 @@ class HardwareService(ReadOnlyHardwareService):
             # carry its current generation so the store can fence them. An
             # explicit generation is left untouched for normal stale checks.
             context["controller_generation"] = binding.get("generation", 0) if isinstance(binding, dict) else 0
-            if operation in {"safe_stop", "set_output", "pulse_pump", "set_stir", "pulse_heater"}:
+            if operation in {"safe_stop", "set_output", "pulse_pump", "set_stir", "pulse_heater", "set_temperature"}:
                 if (self.allow_physical or self.daemon_capable) and self.operator and (
                         not isinstance(binding, dict) or not isinstance(binding.get("generation"), int) or binding["generation"] <= 0):
                     raise EdgeStoreError("physical actuation requires an active positive controller generation")
@@ -751,21 +767,24 @@ def _capabilities() -> Json:
                              "duration_ms": {"minimum": 1, "maximum": 1000}},
             "heater_control": {"verification": "not_tested", "enabled": False, "supported": True,
                                "mode": "output_pulse", "temperature_setpoint": {"supported": False, "reason": "firmware commissioning protocol exposes heater output, not a target"}},
-            "temperature_setpoint": {"supported": False, "reason": "firmware does not expose a temperature-setpoint operation"},
+            "temperature_setpoint": {"supported": True, "protocol_version": 2,
+                                      "raw_target_adc": {"minimum": 1, "maximum": 65535},
+                                      "firmware_pid_ceiling": 64,
+                                      "calibration": "per_vial_immutable"},
             "safe_stop": {"supported": True, "enabled": False, "scope": "all_outputs"}}
 
 
 def validate_device_operation(operation: str, parameters: Mapping[str, Any]) -> None:
     """Reject unsupported actuator semantics before identity/serial I/O."""
-    if operation not in {"get_status", "read_sensor", "safe_stop", "set_output", "pulse_pump", "set_stir", "pulse_heater"}:
+    if operation not in {"get_status", "read_sensor", "safe_stop", "set_output", "pulse_pump", "set_stir", "pulse_heater", "set_temperature"}:
         raise ValueError(f"unsupported device operation {operation}")
     if operation == "pulse_pump" and parameters.get("direction", "forward") != "forward":
         raise ValueError("reverse pumping is unsupported by verified firmware")
-    if operation in {"read_sensor", "set_output", "pulse_pump", "pulse_heater"}:
+    if operation in {"read_sensor", "set_output", "pulse_pump", "pulse_heater", "set_temperature"}:
         channel = parameters.get("channel")
         if isinstance(channel, bool) or not isinstance(channel, int):
             raise ValueError("channel must be an integer")
-        high = 5 if operation == "pulse_pump" else 1
+        high = 5 if operation in {"pulse_pump", "set_temperature"} else 1
         if not 0 <= channel <= high:
             raise ValueError(f"channel must be between 0 and {high}")
     if operation == "set_stir":

@@ -194,6 +194,9 @@ def compile_trusted_action(action: Mapping[str, Any], *, command_id: str,
         if not isinstance(lease_token, str) or not lease_token or not isinstance(lease_owner, str) or not lease_owner:
             raise EdgeStoreError("temperature setpoint requires an active lease")
         context["calibration"] = plan["calibration"]
+        # Retain the canonical immutable source at the final physical boundary;
+        # the summary alone cannot prove that its digest still matches.
+        context["calibration_artifact"] = dict(artifact)
         context.update({"lease_token": lease_token, "lease_owner": lease_owner})
         return {"schema_version": DEVICE_PROTOCOL_VERSION, "command_id": command_id,
                 "operation": plan["operation"], "target": {"device_id": instrument_id,
@@ -468,6 +471,37 @@ class HardwareDeviceCommandSink:
                      "heater_pulse": "pulse_heater", "safe_stop": "safe_stop"}[command["operation"]]
         parameters = dict(command.get("parameters", {}))
         context = command.get("context", {})
+        if command.get("operation") == "set_temperature":
+            calibration = context.get("calibration") if isinstance(context, Mapping) else None
+            artifact = context.get("calibration_artifact") if isinstance(context, Mapping) else None
+            if not isinstance(calibration, Mapping) or not isinstance(artifact, Mapping):
+                raise EdgeStoreError("temperature command calibration provenance is required")
+            try:
+                from .bundle import calibration_artifact_digest
+                if artifact.get("artifact_digest") != calibration_artifact_digest(artifact):
+                    raise EdgeStoreError("temperature calibration artifact digest mismatch")
+                for field in ("artifact_id", "artifact_digest", "method", "method_version"):
+                    if calibration.get(field) != artifact.get("id" if field == "artifact_id" else field):
+                        raise EdgeStoreError(f"temperature calibration {field} mismatch")
+                calibration_range = artifact.get("calibration_range")
+                if not isinstance(calibration_range, Mapping):
+                    raise EdgeStoreError("temperature calibration bounds are missing")
+                for field in ("reference_min", "reference_max", "raw_min", "raw_max"):
+                    if calibration.get(field) != calibration_range.get(field):
+                        raise EdgeStoreError(f"temperature calibration {field} mismatch")
+                target = calibration.get("requested_temperature_c")
+                raw_target = parameters.get("raw_target_adc")
+                channel = parameters.get("channel")
+                if (isinstance(target, bool) or not isinstance(target, (int, float)) or not 0 <= float(target) <= 100
+                        or isinstance(channel, bool) or not isinstance(channel, int) or not 0 <= channel <= 5
+                        or isinstance(raw_target, bool) or not isinstance(raw_target, int) or not 1 <= raw_target <= 65535
+                        or not calibration["reference_min"] <= target <= calibration["reference_max"]
+                        or not calibration["raw_min"] <= raw_target <= calibration["raw_max"]):
+                    raise EdgeStoreError("temperature target is outside immutable calibration bounds")
+            except (KeyError, TypeError) as error:
+                raise EdgeStoreError("temperature calibration provenance is malformed") from error
+            parameters = {"channel": channel, "raw_target_adc": raw_target,
+                          "temperature_c": float(target), "calibration": dict(calibration)}
         generation = context.get("controller_generation")
         binding = self.store.binding()
         if (isinstance(generation, bool) or not isinstance(generation, int) or generation <= 0
@@ -485,7 +519,7 @@ class HardwareDeviceCommandSink:
                 result = self.service.command(operation, device_identity, parameters,
                                               command_id=command["command_id"] if index == 0 else f"{command['command_id']}:{index}",
                                               run_id=context.get("run_id"), controller_generation=generation,
-                                              operator=context.get("operator"),
+                                              operator=context.get("operator") or context.get("lease_owner"),
                                               lease_token=context.get("lease_token"), lease_owner=context.get("lease_owner"),
                                               require_lease=operation != "safe_stop")
                 results.append(result.as_json())
@@ -510,9 +544,7 @@ class HardwareIPCDeviceCommandSink:
         if command.get("schema_version") != DEVICE_PROTOCOL_VERSION:
             raise EdgeStoreError("unsupported device protocol")
         operation = command.get("operation")
-        if operation == "set_temperature":
-            raise EdgeStoreError("temperature setpoint is not supported by verified firmware")
-        if operation not in {"set_stir", "pulse_heater", "safe_stop"}:
+        if operation not in {"set_temperature", "set_stir", "pulse_heater", "safe_stop"}:
             raise EdgeStoreError(f"unsupported manual device operation: {operation}")
         target = command.get("target") if isinstance(command.get("target"), Mapping) else {}
         instrument_id = target.get("instrument_id")
@@ -537,11 +569,39 @@ class HardwareIPCDeviceCommandSink:
                                 "request_accepted": False, "verification": "unverified",
                                 "error": "instrument has no provisioned device identity"})
                 continue
+            parameters = dict(command.get("parameters") or {})
+            if operation == "set_temperature":
+                calibration = context.get("calibration")
+                artifact = context.get("calibration_artifact")
+                if not isinstance(calibration, Mapping) or not isinstance(artifact, Mapping):
+                    raise EdgeStoreError("temperature command calibration provenance is required")
+                from .bundle import calibration_artifact_digest
+                if artifact.get("artifact_digest") != calibration_artifact_digest(artifact):
+                    raise EdgeStoreError("temperature calibration artifact digest mismatch")
+                for field in ("artifact_id", "artifact_digest", "method", "method_version"):
+                    artifact_field = "id" if field == "artifact_id" else field
+                    if calibration.get(field) != artifact.get(artifact_field):
+                        raise EdgeStoreError(f"temperature calibration {field} mismatch")
+                bounds = artifact.get("calibration_range")
+                if not isinstance(bounds, Mapping) or any(calibration.get(field) != bounds.get(field)
+                                                           for field in ("reference_min", "reference_max", "raw_min", "raw_max")):
+                    raise EdgeStoreError("temperature calibration bounds mismatch")
+                target = calibration.get("requested_temperature_c")
+                raw = parameters.get("raw_target_adc")
+                channel = parameters.get("channel")
+                if (isinstance(target, bool) or not isinstance(target, (int, float)) or not 0 <= float(target) <= 100
+                        or isinstance(raw, bool) or not isinstance(raw, int) or not 1 <= raw <= 65535
+                        or isinstance(channel, bool) or not isinstance(channel, int) or not 0 <= channel <= 5
+                        or not calibration["reference_min"] <= target <= calibration["reference_max"]
+                        or not calibration["raw_min"] <= raw <= calibration["raw_max"]):
+                    raise EdgeStoreError("temperature target is outside immutable calibration bounds")
+                parameters = {"channel": channel, "raw_target_adc": raw,
+                              "temperature_c": float(target), "calibration": dict(calibration)}
             payload = {"operation": operation, "physical": True, "target_identity": device_identity,
                        "operator": context.get("operator") if operation == "safe_stop" else lease_owner,
                        "controller_generation": generation,
                        "command_id": command["command_id"] if index == 0 else f"{command['command_id']}:{index}",
-                       "parameters": dict(command.get("parameters") or {})}
+                       "parameters": parameters}
             if operation != "safe_stop":
                 payload.update({"lease_token": lease_token, "lease_owner": lease_owner})
             try:
