@@ -111,6 +111,25 @@ def test_operator_instrument_reads_preserve_fresh_vs_cached_evidence(tmp_path: P
     assert [call["operation"] for call in calls] == ["get_status", "read_sensor"]
 
 
+def test_operator_instrument_read_rejects_mismatched_target_identity(tmp_path: Path) -> None:
+    path = tmp_path / "operator.sock"
+    operator = OperatorIdentity("alice", "local_operator", frozenset({"hardware_maintenance"}))
+    calls = []
+
+    with EdgeStore(tmp_path / "state") as store:
+        store.register_instruments([{"id": "instrument-1", "instrument_type": "minievolver",
+                                     "device_identity": "MEV-1", "vial_positions": [{"id": "vial-1"}],
+                                     "capabilities": {}}])
+        broker = HardwareBroker(store, request=lambda *_: calls.append(True) or {"value": 1})
+        with OperatorServer(store, path, operator=operator, hardware_broker=broker):
+            invalid = _wire(path, {"operation": "instrument", "params": {
+                "action": "sensor_read", "instrument_id": "instrument-1", "target_identity": "MEV-2",
+                "sensor": "od", "channel": 0}})
+
+    assert invalid["error"]["kind"] == "invalid_request"
+    assert calls == []
+
+
 def test_operator_safe_stop_is_authenticated_physical_and_lease_free(tmp_path: Path) -> None:
     path = tmp_path / "operator.sock"
     operator = OperatorIdentity("alice", "local_operator", frozenset({"hardware_maintenance"}))

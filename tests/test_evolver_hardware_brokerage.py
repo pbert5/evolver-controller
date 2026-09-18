@@ -136,6 +136,20 @@ def test_read_sensor_rejects_unregistered_channel_before_hardware_io(tmp_path):
     assert calls == []
 
 
+def test_read_sensor_rejects_malformed_or_mismatched_hardware_reply(tmp_path):
+    with EdgeStore(tmp_path) as store:
+        store.bind(webui_controller_id="central", server_url="https://central", credential="secret", generation=7)
+        store.register_instruments([{"id": "instrument-1", "instrument_type": "minievolver",
+                                     "device_identity": "MEV-1", "vial_positions": [{"id": "vial-1"}],
+                                     "capabilities": {}}])
+        missing_value = HardwareBroker(store, request=lambda *_: {"device_identity": "MEV-1"})
+        with pytest.raises(HardwareBrokerProtocolError, match="value"):
+            missing_value.read_sensor(operator="ash", target_identity="MEV-1", sensor="od", channel=0)
+        mismatched = HardwareBroker(store, request=lambda *_: {"device_identity": "MEV-2", "value": 1})
+        with pytest.raises(HardwareBrokerProtocolError, match="identity"):
+            mismatched.read_sensor(operator="ash", target_identity="MEV-1", sensor="od", channel=0)
+
+
 def test_mutating_broker_fences_safety_and_bounds(tmp_path):
     with _store(tmp_path) as store:
         broker = HardwareBroker(store, request=lambda *_: {"request_accepted": True})
