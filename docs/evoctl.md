@@ -65,6 +65,24 @@ not identity or command authority. Enrollment, handoff, forced adoption,
 release changes, uninstall, firmware upload, and actuation retain their
 operator, confirmation, generation, lease, and physical-evidence checks.
 
+## Runtime lifecycle QoL
+
+A first-class host-runtime convenience surface is planned in
+[Runtime Lifecycle QoL](runtime-lifecycle-qol.md) and tracked by issue #112.
+
+The planned `upgrade` command is deliberately distinct from the existing
+explicit release contract:
+
+```text
+evoctl update apply RELEASE   # explicit governed release
+evoctl upgrade                # planned latest/recommended governed release
+tools/evolver-edge upgrade    # planned developer checkout refresh/rebuild
+```
+
+Until #112 is implemented and accepted, use the existing documented
+`tools/evolver-edge` and `evoctl update ...` paths rather than assuming the
+planned short aliases exist.
+
 ## Workflow CLI
 
 The workflow commands use the same trusted library, `WorkflowHost`, and
@@ -98,6 +116,7 @@ experiment enqueue/run and run-start remain planned.
 
 ## Related
 
+- [Runtime Lifecycle QoL](runtime-lifecycle-qol.md)
 - [Operator guide](operator.md) `[[Operator Guide]]`
 - [Central vs Edge](_concepts/central-vs-edge.md) `[[Central vs Edge]]`
 - [Command Disposition](_concepts/command-disposition.md) `[[Command Disposition]]`
