@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 
 import pytest
@@ -9,6 +10,7 @@ from meta_webui_application_backend.evolver_edge.workflow_tui import (
     FakeWorkflowHost,
     WorkflowSnapshot,
     WorkflowWorkspace,
+    create_textual_app,
     semantic_status,
 )
 
@@ -104,3 +106,105 @@ def test_inspector_modes_are_projections_of_same_selected_step(mode):
     workspace = WorkflowWorkspace(FakeWorkflowHost([], {"temp-cal": [session]}))
     workspace.open_workflow("temp-cal")
     assert workspace.inspector(mode) == session.snapshot.representations[mode]
+
+
+def _pilot_host(session):
+    return FakeWorkflowHost(
+        [{"id": "temp-cal", "title": "Temperature Calibration"},
+         {"id": "pump-cal", "title": "Pump Flow Calibration"}],
+        {"temp-cal": [session], "pump-cal": [FakeSession(_snapshot())]},
+    )
+
+
+def test_rendered_pilot_selector_search_and_independent_top_tab():
+    session = FakeSession(_snapshot())
+    app = create_textual_app(_pilot_host(session))
+
+    async def exercise():
+        async with app.run_test() as pilot:
+            await pilot.press("ctrl+n")
+            search = app.query_one("#workflow-search")
+            search.value = "pump"
+            await pilot.pause()
+            assert len(app.query("#choice-pump-cal")) == 1
+            await pilot.press("enter")
+            assert app.workspace.tab_ids == ["library", "pump-cal"]
+            await pilot.press("ctrl+n")
+            await pilot.press("escape")
+            assert app.workspace.tab_ids == ["library", "pump-cal"]
+
+    asyncio.run(exercise())
+
+
+def test_rendered_pilot_input_has_save_only_and_confirm_continue():
+    session = FakeSession(_snapshot(attention="observation"))
+    snapshot = session.snapshot
+    session.snapshot = WorkflowSnapshot.from_mapping({
+        **snapshot.__dict__,
+        "drawer": {**snapshot.drawer, "Input schema": [{"name": "reference", "label": "Reference", "type": "number"}]},
+    })
+    app = create_textual_app(_pilot_host(session))
+
+    async def exercise():
+        async with app.run_test() as pilot:
+            await pilot.press("ctrl+n"); await pilot.press("enter"); await pilot.press("i")
+            assert app.query_one("#save-only") and app.query_one("#confirm-continue")
+            field = app.query_one("#input-reference")
+            field.value = "31.42"
+            await pilot.click("#save-only")
+            assert session.advances == 0 and session.inputs == [("reference", "31.42")]
+            await pilot.press("i")
+            await pilot.click("#confirm-continue")
+            assert session.advances == 1
+
+    asyncio.run(exercise())
+
+
+def test_rendered_pilot_drawer_tabs_and_safe_close_prompt():
+    session = FakeSession(_snapshot(state="RUNNING"))
+    app = create_textual_app(_pilot_host(session))
+
+    async def exercise():
+        async with app.run_test() as pilot:
+            await pilot.press("ctrl+n"); await pilot.press("enter")
+            await pilot.press("d")
+            assert len(app.query("#drawer-value-safety")) == 1
+            await pilot.press("ctrl+k")
+            assert len(app.query("#close-modal")) == 1
+            await pilot.click("#abort-close")
+            assert session.aborted is True
+            assert app.workspace.tab_ids == ["library"]
+
+    asyncio.run(exercise())
+
+
+def test_rendered_pilot_repeatable_add_instance_delegates_to_host():
+    class AddSession(FakeSession):
+        def __init__(self, snapshot):
+            super().__init__(snapshot)
+            self.created = []
+
+        def add_instance(self, stage_id, values):
+            self.created.append((stage_id, values))
+
+    session = AddSession(WorkflowSnapshot.from_mapping({
+        "workflow_id": "temp-cal", "title": "Temperature Calibration", "status": "READY",
+        "procedures": [{"id": "points", "title": "Calibration Points", "cardinality": "repeatable",
+                         "parameters": [{"name": "point", "label": "Point", "type": "integer"}]}],
+    }))
+
+    class AddHost(FakeWorkflowHost):
+        def add_stage_instance(self, active_session, stage_id, values):
+            active_session.add_instance(stage_id, values)
+
+    app = create_textual_app(AddHost([{"id": "temp-cal", "title": "Temperature Calibration"}], {"temp-cal": [session]}))
+
+    async def exercise():
+        async with app.run_test() as pilot:
+            await pilot.press("ctrl+n"); await pilot.press("enter"); await pilot.press("a")
+            assert app.query_one("#instance-modal")
+            app.query_one("#instance-point").value = "2"
+            await pilot.click("#create-instance")
+            assert session.created == [("points", {"point": "2"})]
+
+    asyncio.run(exercise())
