@@ -1,0 +1,32 @@
+id: calibration.temperature
+name: Temperature Calibration
+version: 1
+category: calibration
+description: Settle a target temperature, capture one or more reference points, and review the evidence.
+parameters:
+  target_temperature_c: {type: number, unit: degree_Celsius, minimum: 0, maximum: 100}
+  settle_timeout_s: {type: integer, unit: second, minimum: 1, maximum: 3600}
+requirements:
+  capabilities: [temperature_control, calibration_observation]
+  equipment: [temperature_probe, reference_thermometer]
+stages:
+  - id: setup
+    procedure: {id: calibration.temperature.start, version: 1}
+    cardinality: once
+    bindings:
+      target_temperature_c: {workflow_parameter: target_temperature_c}
+      settle_timeout_s: {workflow_parameter: settle_timeout_s}
+  - id: points
+    procedure: {id: calibration.temperature.point, version: 1}
+    cardinality: repeatable
+    bindings:
+      target_temperature_c: {workflow_parameter: target_temperature_c}
+      reference_temperature_c: {instance_parameter: reference_temperature_c}
+  - id: review
+    procedure: {id: calibration.temperature.review, version: 1}
+    cardinality: once
+    metadata: {purpose: review calibration evidence}
+metadata:
+  tags: [temperature, calibration]
+  source: meta_bal.workflows.calibration
+  operator_notes: Use a calibrated reference thermometer for each point.

@@ -1,6 +1,9 @@
 [submodule "evolver-controller"]
 	path = evolver/evolver-controller
 	url = ../evolver-controller.git
+[submodule "evolver-procedure-runtime"]
+	path = evolver/evolver-procedure-runtime
+	url = ../evolver-procedure-runtime.git
 [submodule "evolver-hardware"]
 	path = evolver/evolver-hardware
 	url = ../evolver-hardware.git

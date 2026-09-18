@@ -1,0 +1,31 @@
+id: calibration.pump-flow
+name: Pump Flow Calibration
+version: 1
+category: calibration
+description: Pulse a pump, record one or more delivered volumes, and review the evidence.
+parameters:
+  pulse_duration_ms: {type: number, unit: millisecond, minimum: 1, maximum: 10000}
+  pulse_count: {type: integer, minimum: 1, maximum: 1}
+requirements:
+  capabilities: [pump_control, calibration_observation]
+  equipment: [graduated_vessel, calibrated_scale]
+stages:
+  - id: setup
+    procedure: {id: calibration.pump-flow.start, version: 1}
+    cardinality: once
+    bindings:
+      pulse_duration_ms: {workflow_parameter: pulse_duration_ms}
+      pulse_count: {workflow_parameter: pulse_count}
+  - id: points
+    procedure: {id: calibration.pump-flow.point, version: 1}
+    cardinality: repeatable
+    bindings:
+      pulse_duration_ms: {workflow_parameter: pulse_duration_ms}
+      delivered_volume_ul: {instance_parameter: delivered_volume_ul}
+  - id: review
+    procedure: {id: calibration.pump-flow.review, version: 1}
+    cardinality: once
+metadata:
+  tags: [pump, flow, calibration]
+  source: meta_bal.workflows.calibration
+  operator_notes: Collect each delivered volume in the same vessel and units.
