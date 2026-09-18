@@ -39,6 +39,34 @@ not identity or command authority. Enrollment, handoff, forced adoption,
 release changes, uninstall, firmware upload, and actuation retain their
 operator, confirmation, generation, lease, and physical-evidence checks.
 
+## Workflow CLI
+
+The workflow commands use the same trusted library, `WorkflowHost`, and
+session runtime as the workflow UI:
+
+```text
+evoctl workflow list [--search TEXT]
+evoctl workflow show WORKFLOW_ID
+evoctl workflow preflight WORKFLOW_ID --target INSTRUMENT_ID --parameter name=value
+evoctl workflow run WORKFLOW_ID --target INSTRUMENT_ID --parameter name=value
+```
+
+`preflight` performs read-only target/capability resolution and never invokes
+an action. `run --jsonl` emits versioned, deterministic records with bounded
+structural redaction; lease tokens, credentials, and raw unbounded responses
+are not emitted. Ctrl+C during a run calls the runtime abort path and reports
+the terminal cleanup outcome.
+
+Product tests and preview tooling can use the side-effect-free scenario seam:
+
+```python
+from meta_webui_application_backend.evolver_edge.workflow_cli import ScenarioRegistry
+host = ScenarioRegistry().host("waiting_for_input")
+```
+
+Scenario hosts use the public host/session contracts and an in-memory operator;
+they do not open sockets, access stores, or touch hardware.
+
 Central catalog entries marked `planned` are not callable capabilities;
 experiment enqueue/run and run-start remain planned.
 
