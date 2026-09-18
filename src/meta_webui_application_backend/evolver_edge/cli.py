@@ -643,7 +643,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "tui":
             from .tui import TUIUnavailableError, run_offline
             try:
-                return run_offline(store, page=args.page)
+                return run_offline(store, page="workflows" if args.workflow else args.page)
             except TUIUnavailableError as error:
                 print(str(error), file=sys.stderr)
                 return 2

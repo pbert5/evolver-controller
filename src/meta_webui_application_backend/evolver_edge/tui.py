@@ -147,7 +147,7 @@ def create_app(*, source: TuiSource, workflow_host: Any | None = None,
             if self.workflow_host is not None:
                 from .workflow_tui import WorkflowWorkspace
                 self._workflow_workspace = WorkflowWorkspace(self.workflow_host)
-            self.run_worker(self.refresh_view(), exclusive=True)
+            self.run_worker(self.refresh_view())
 
         def _render_navigation(self) -> None:
             self.query_one("#navigation", Static).update("  ".join(
@@ -195,24 +195,24 @@ def create_app(*, source: TuiSource, workflow_host: Any | None = None,
 
         def _move(self, delta: int) -> None:
             self.current_view = self.view_names[(self.view_names.index(self.current_view) + delta) % len(self.view_names)]
-            self.run_worker(self.refresh_view(), exclusive=True)
+            self.run_worker(self.refresh_view())
 
         def action_previous_view(self) -> None:
             if self.current_view == "workflows" and self._workflow_workspace is not None:
                 self._workflow_workspace.cycle_tab(-1)
-                self.run_worker(self.refresh_view(), exclusive=True)
+                self.run_worker(self.refresh_view())
                 return
             self._move(-1)
 
         def action_next_view(self) -> None:
             if self.current_view == "workflows" and self._workflow_workspace is not None:
                 self._workflow_workspace.cycle_tab(1)
-                self.run_worker(self.refresh_view(), exclusive=True)
+                self.run_worker(self.refresh_view())
                 return
             self._move(1)
 
         def action_refresh_view(self) -> None:
-            self.run_worker(self.refresh_view(), exclusive=True)
+            self.run_worker(self.refresh_view())
 
         def action_show_help(self) -> None:
             self.notify("Ctrl+Left/Right or Ctrl+[ ]: navigate · 1-7: select · r: refresh · ?: help")
@@ -223,7 +223,7 @@ def create_app(*, source: TuiSource, workflow_host: Any | None = None,
                 if focused is not None and focused.__class__.__name__ in {"Input", "TextArea"}:
                     return
                 self.current_view = self.view_names[int(event.key) - 1]
-                self.run_worker(self.refresh_view(), exclusive=True)
+                self.run_worker(self.refresh_view())
 
     return EvoctlApp()
 
@@ -251,7 +251,8 @@ def _workflow_host(client: OperatorClient):
 
 
 def run(client: OperatorClient, *, page: str = "overview", workflow: bool = False) -> int:
-    app = create_app(source=LiveTuiSource(client), workflow_host=_workflow_host(client),
+    host = _workflow_host(client) if workflow or page == "workflows" else None
+    app = create_app(source=LiveTuiSource(client), workflow_host=host,
                      initial_view="workflows" if workflow else page)
     app.run()
     return 0
