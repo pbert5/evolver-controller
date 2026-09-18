@@ -11,6 +11,12 @@ The evidence ladder is intentionally separate:
 `requested -> validated -> command sent -> correlated protocol ACK -> refresh
 active -> telemetry observed -> thermal/physical evidence`
 
+The authoritative firmware frame is the fenced nine-field
+`TEMP|2|SET|correlation|channel|raw|owner|wire_lease|generation_!` grammar.
+The legacy `HW_TEMP_V2` grammar is fail-closed. The controller derives the
+positive uint32 `wire_lease` as the first eight hexadecimal SHA-256 digits of
+the opaque lease token; correlation and generation are positive uint32 values.
+
 A protocol ACK is only protocol evidence. It is not evidence that a vial
 reached its target, that calibration is physically valid, or that a heater
 changed state. Simulator behavior is `simulator_only`; hardware fakes and
@@ -21,8 +27,8 @@ The integrated pins are:
 | component | reviewed source | exact head |
 | --- | --- | --- |
 | firmware source | `pbert5/evolver-arduino` PR #1 | `83483cda621a2e913ad778ae62294872084a507a` |
-| hardware | `pbert5/evolver-hardware` PR #2 | `36da3d8b63b7cef65d35b5b86ec4d72f83690547` |
-| controller | `pbert5/evolver-controller` PR #13 | `01fd57f24685acdc907ebeb54e61d6585d5f2afd` |
+| hardware | `pbert5/evolver-hardware` PR #2 | `5a7f0c188978851ae1324b5de1cc05a1278d84f4` |
+| controller | `pbert5/evolver-controller` PR #13 | `a65844bb1624da5c0fbf8aa0845f6e61d9278fc1` |
 
 WorkflowHost availability must remain conservative: physical execution is
 available only for hardware protocol v2 plus a matching eligible calibration
