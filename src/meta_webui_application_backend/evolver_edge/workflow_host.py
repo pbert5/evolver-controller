@@ -107,6 +107,26 @@ class SafeStopAuthority(Protocol):
     def __call__(self, *, target: TargetProjection, context: HostContext, command_id: str) -> Mapping[str, Any]: ...
 
 
+def operator_safe_stop_authority(client: OperatorClient) -> SafeStopAuthority:
+    """Build the production safe-stop authority from the typed operator API."""
+    def stop(*, target: TargetProjection, context: HostContext, command_id: str) -> Mapping[str, Any]:
+        if context.physical is not True or not context.operator:
+            raise PermissionError("physical opt-in and operator attribution are required")
+        target_generation = target.generation
+        context_generation = context.controller_generation
+        if (type(target_generation) is not int or target_generation <= 0 or
+                type(context_generation) is not int or context_generation <= 0):
+            raise PermissionError("positive controller generations are required")
+        if context_generation != target_generation:
+            raise PermissionError("controller generation is stale")
+        result = client.safe_stop(operator=context.operator, physical=True, command_id=command_id)
+        if not isinstance(result, Mapping):
+            raise OperatorError("safe-stop authority returned an invalid result", kind="invalid_response")
+        return {"status": "accepted", "evidence": "protocol_ack", "authority_result": dict(result),
+                "physical_cessation": "not_verified", "command_id": command_id}
+    return stop
+
+
 _VERSIONS = {"1", "1.0", 1}
 _TRUSTED_ACTIONS = (
     "set_temperature", "set_stirring", "pulse_pump", "run_pump", "stop_actuator",

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from evolver_procedure_runtime import ActionRef, MutationOutcome, WorkflowLibrary
 
 from meta_webui_application_backend.evolver_edge.workflow_host import (
@@ -9,6 +11,7 @@ from meta_webui_application_backend.evolver_edge.workflow_host import (
     TargetKind,
     TargetProjection,
     WorkflowHost,
+    operator_safe_stop_authority,
     resolve_target,
 )
 
@@ -60,6 +63,77 @@ def test_stop_remains_dependency_blocked_without_safe_stop_authority():
     availability = invoker.availability(ActionRef("stop_actuator", 1))
     assert availability.classification is Availability.BLOCKED_DEPENDENCY
     assert availability.provenance["dependency"] == "#47"
+
+
+def test_configured_safe_stop_uses_typed_lease_free_operator_authority():
+    client = FakeOperator()
+    invoker = ProcedureActionInvoker(
+        client, target(), context=HostContext(operator="alice", physical=True,
+                                              controller_generation=7, target_identity="MEV-1"),
+        safe_stop_authority=operator_safe_stop_authority(client),
+    )
+    assert invoker.availability(ActionRef("stop_actuator", 1)).classification is Availability.AVAILABLE
+    invocation = invoker.invoke(ActionRef("stop_actuator", 1), {})
+    result = invoker.poll(invocation)
+    assert result.succeeded
+    assert result.value["evidence"] == "protocol_ack"
+    assert result.value["physical_cessation"] == "not_verified"
+    assert client.requests == [("hardware", {"operation": "safe_stop", "operator": "alice",
+                                               "physical": True, "command_id": invocation.token})]
+    assert "lease_token" not in client.requests[0][1]
+
+
+@pytest.mark.parametrize("target_projection", [
+    TargetProjection("MEV-1", TargetKind.PHYSICAL, {"id": "controller-1"}),
+    TargetProjection("MEV-1", TargetKind.PHYSICAL, {"id": "controller-1", "generation": 0},
+                     binding={"generation": 0}),
+    TargetProjection("MEV-1", TargetKind.PHYSICAL, {"id": "controller-1", "generation": "7"},
+                     binding={"generation": "7"}),
+])
+def test_safe_stop_does_not_reach_operator_without_valid_target_generation(target_projection):
+    client = FakeOperator()
+    invoker = ProcedureActionInvoker(
+        client, target_projection, context=HostContext(operator="alice", physical=True,
+                                                        controller_generation=7),
+        safe_stop_authority=operator_safe_stop_authority(client),
+    )
+
+    result = invoker.poll(invoker.invoke(ActionRef("stop_actuator", 1), {}))
+
+    assert not result.succeeded
+    assert "positive controller generations" in result.error
+    assert client.requests == []
+
+
+def test_safe_stop_does_not_reach_operator_on_generation_mismatch():
+    client = FakeOperator()
+    invoker = ProcedureActionInvoker(
+        client, target(), context=HostContext(operator="alice", physical=True,
+                                              controller_generation=8),
+        safe_stop_authority=operator_safe_stop_authority(client),
+    )
+
+    result = invoker.poll(invoker.invoke(ActionRef("stop_actuator", 1), {}))
+
+    assert not result.succeeded
+    assert "stale" in result.error
+    assert client.requests == []
+
+
+@pytest.mark.parametrize("context_generation", [None, 0, -1, "7", True])
+def test_safe_stop_does_not_reach_operator_without_valid_context_generation(context_generation):
+    client = FakeOperator()
+    invoker = ProcedureActionInvoker(
+        client, target(), context=HostContext(operator="alice", physical=True,
+                                              controller_generation=context_generation),
+        safe_stop_authority=operator_safe_stop_authority(client),
+    )
+
+    result = invoker.poll(invoker.invoke(ActionRef("stop_actuator", 1), {}))
+
+    assert not result.succeeded
+    assert "positive controller generations" in result.error
+    assert client.requests == []
 
 
 def test_invoker_exposes_cleanup_fence_and_authorization_projection():
