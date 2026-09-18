@@ -19,6 +19,7 @@ database, direct EdgeStore access, SSH transport, or duplicated domain logic.
 - [Troubleshooting](troubleshooting.md): connection, auth, drift, and command-state problems.
 - [API Workbench](../api-workbench.md): advanced API inspection, fixtures, drift, and evidence.
 - [evoctl](../evoctl.md): controller-local edge operation.
+- [Runtime Lifecycle QoL](../runtime-lifecycle-qol.md): planned host-runtime up/down/restart/upgrade convenience and its safety boundary.
 
 ## Design rule
 
@@ -39,6 +40,30 @@ metactl tui
 
 An explicit target remains available for unusual deployments, but it is an
 override rather than the ordinary setup path.
+
+## Planned host-runtime lifecycle QoL
+
+Issue #112 tracks a planned explicit host-runtime surface such as:
+
+```text
+metactl server up
+metactl server stop
+metactl server down
+metactl server restart [SERVICE]
+metactl server logs [SERVICE]
+metactl server upgrade
+```
+
+These spellings are a target, not an assertion that they are currently
+implemented. The implementation must extend the existing host-runtime
+capability boundary. It must not add Docker socket access, SSH authority, or
+arbitrary shell execution to the normal metactl toolbox/API context, and
+self-shutdown must not be routed through the central HTTP service being
+terminated.
+
+See [Runtime Lifecycle QoL](../runtime-lifecycle-qol.md) for the full planned
+contract and the distinction between governed release upgrade and developer
+checkout refresh.
 
 ## Mental model
 
