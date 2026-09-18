@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from meta_webui_application_backend.evolver_edge import EdgeStore
+from meta_webui_application_backend.evolver_edge.cli import build_parser
 from meta_webui_application_backend.evolver_edge.tui import (
     LiveTuiSource,
     OfflineTuiSource,
@@ -82,3 +83,14 @@ def test_offline_source_is_explicit_and_has_no_operator_client() -> None:
     source = OfflineTuiSource(Store())
     assert source.read("overview")["controller"]["id"] == "edge-offline"
     assert source.read("recovery")["manifest"] == {"state": "offline"}
+
+
+def test_cli_workflow_deep_link_and_page_use_the_same_native_view_names() -> None:
+    parser = build_parser()
+    workflow = parser.parse_args(["tui", "--workflow"])
+    page = parser.parse_args(["tui", "--page", "workflows"])
+
+    assert workflow.workflow is True
+    assert workflow.page == "overview"
+    assert page.workflow is False
+    assert page.page == "workflows"
