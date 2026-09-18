@@ -401,10 +401,16 @@ def _native_smoke_for_view(view: str) -> SurfaceResult:
 
 def _source_error_smoke() -> SurfaceResult:
     source = FakeTuiSource()
-    source.fail_next("instruments")
     try:
         app = create_native_app(source=source, initial_view="instruments")
-        evidence = _run_pilot(app, lambda a, p: _native_interaction(a, p, "instruments", source))
+        async def exercise(a: Any, p: Any) -> Mapping[str, Any]:
+            if _active_view(a) != "instruments":
+                raise AssertionError("source-error fixture did not start on Instruments")
+            source.fail_next("instruments")
+            await p.press("r")
+            await p.pause()
+            return {"renderer": type(a).__name__, "view": "instruments", "refresh": "instruments", "settled": True}
+        evidence = _run_pilot(app, exercise)
     except Exception as error:
         return SurfaceResult("native:source-error", "pilot", "FAIL", error=f"{type(error).__name__}: {error}")
     failed = any(request.operation == "instruments" for request in source.requests)
