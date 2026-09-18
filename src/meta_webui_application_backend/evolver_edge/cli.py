@@ -7,6 +7,7 @@ import os
 import sys
 from dataclasses import dataclass
 from enum import Enum
+from http import HTTPStatus
 from pathlib import Path
 from typing import Any
 
@@ -71,6 +72,14 @@ _COMMAND_REGISTRY: dict[str, CommandSpec] = {
     "update.status": CommandSpec(CommandMode.MAINTENANCE, "delegated", "controller-service"),
     "update.check": CommandSpec(CommandMode.MAINTENANCE, "delegated", "controller-service"),
     "update.apply": CommandSpec(CommandMode.MAINTENANCE, "delegated", "controller-service"),
+    "runtime.status": CommandSpec(CommandMode.MAINTENANCE, "delegated", "host-runtime-adapter"),
+    "runtime.up": CommandSpec(CommandMode.MAINTENANCE, "delegated", "host-runtime-adapter"),
+    "runtime.stop": CommandSpec(CommandMode.MAINTENANCE, "delegated", "host-runtime-adapter"),
+    "runtime.down": CommandSpec(CommandMode.MAINTENANCE, "delegated", "host-runtime-adapter"),
+    "runtime.restart": CommandSpec(CommandMode.MAINTENANCE, "delegated", "host-runtime-adapter"),
+    "runtime.logs": CommandSpec(CommandMode.MAINTENANCE, "delegated", "host-runtime-adapter"),
+    "runtime.upgrade": CommandSpec(CommandMode.MAINTENANCE, "delegated", "controller-service"),
+    "upgrade": CommandSpec(CommandMode.MAINTENANCE, "delegated", "controller-service"),
     "enroll": CommandSpec(CommandMode.LOCAL),
     "lifecycle-plan": CommandSpec(CommandMode.LOCAL),
     "record-installed-release": CommandSpec(CommandMode.MAINTENANCE, "rejected"),
@@ -239,6 +248,11 @@ def _compatibility_argv(argv: list[str]) -> list[str]:
         (("release", "status"), ("update", "status")),
         (("release", "check"), ("update", "check")),
         (("release", "apply"), ("update", "apply")),
+        (("up",), ("runtime", "up")),
+        (("down",), ("runtime", "down")),
+        (("restart",), ("runtime", "restart")),
+        (("logs",), ("runtime", "logs")),
+        (("upgrade",), ("runtime", "upgrade")),
         (("diagnostics",), ("doctor",)),
         (("diagnostic",), ("doctor",)),
         (("read-only", "diagnostics"), ("doctor",)),
@@ -329,6 +343,11 @@ def build_parser() -> argparse.ArgumentParser:
     update_sub.add_parser("status")
     check = update_sub.add_parser("check"); check.add_argument("release")
     apply = update_sub.add_parser("apply"); apply.add_argument("release")
+    commands.add_parser("upgrade", help=argparse.SUPPRESS)
+    runtime = commands.add_parser("runtime", help="delegate fixed edge lifecycle operations to the host adapter")
+    runtime_sub = runtime.add_subparsers(dest="runtime_command", required=True)
+    for name in ("status", "up", "stop", "down", "restart", "logs", "upgrade"):
+        runtime_sub.add_parser(name)
     simulator = commands.add_parser("simulator"); sim_sub = simulator.add_subparsers(dest="simulator_command", required=True)
     start = sim_sub.add_parser("start"); start.add_argument("--instruments", type=int, default=1)
     create = sim_sub.add_parser("create-run", help="create a safe simulated run from a declarative plan")
@@ -431,7 +450,12 @@ def main(argv: list[str] | None = None) -> int:
         except (KeyError, OSError, TypeError, ValueError, OperatorError, json.JSONDecodeError) as error:
             print(f"workflow_error: {error}", file=sys.stderr)
             return 2
-    live_request = None if args.offline else _live_request(args)
+    if args.command == "runtime" and args.runtime_command != "upgrade":
+        _emit({"operation": f"runtime.{args.runtime_command}", "target": "edge",
+               "services": ["evolver-controller", "evolver-hardware"],
+               "disposition": "delegated", "delegate": "host-runtime-adapter", "executed": False})
+        return 0
+    live_request = None if args.offline or args.command in {"runtime", "upgrade"} else _live_request(args)
     if live_request is not None:
         operation, params = live_request
         try:
@@ -459,12 +483,14 @@ def main(argv: list[str] | None = None) -> int:
         command_key = f"calibration.{args.calibration_command}"
     elif args.command == "update":
         command_key = f"update.{args.update_command}"
+    elif args.command == "runtime":
+        command_key = f"runtime.{args.runtime_command}"
     elif args.command == "hardware":
         command_key = f"hardware.{args.hardware_command}"
         if args.hardware_command == "lease":
             command_key = f"hardware.lease.{args.lease_command}"
     spec = command_spec(command_key)
-    if spec.mode is CommandMode.MAINTENANCE and not (
+    if spec.mode is CommandMode.MAINTENANCE and args.command not in {"runtime", "upgrade"} and not (
             args.command == "hardware" and args.hardware_command in {"discover", "protocol-test", "safe-stop", "actuate"}):
         _emit(maintenance_disposition(command_key))
         return 2 if spec.disposition == "rejected" else 0
@@ -609,6 +635,8 @@ def main(argv: list[str] | None = None) -> int:
                 _emit(manager.request(args.release, explicit=True).__dict__); return 0
             except Exception as error:
                 _emit({"error": str(error)}); return 2
+        if args.command in {"runtime", "upgrade"}:
+            return _governed_upgrade(store)
         if args.command == "recovery": _emit(store.recovery_manifest()); return 0
         if args.command == "export-state":
             from .recovery import export_state
@@ -738,6 +766,48 @@ def _update_policy() -> UpdatePolicy:
 
 def _update_backend():
     return ComposeUpdateBackend(compose_file=os.environ.get("EVOLVER_COMPOSE_FILE"))
+
+
+def _recommended_release(state_root: Path) -> str | None:
+    """Return the configured catalog selection, never an inferred latest release."""
+    status, catalog = evolver_controller.configured_release_catalog(state_root=state_root)
+    if status is not HTTPStatus.OK:
+        raise EdgeStoreError("recommended release discovery is unavailable")
+    selected = catalog.get("selected_release")
+    if selected is None:
+        return None
+    if not isinstance(selected, str) or not any(item.get("release") == selected
+                                               for item in catalog.get("releases", [])):
+        raise EdgeStoreError("configured recommended release is not a validated catalog entry")
+    return selected
+
+
+def _governed_upgrade(store: EdgeStore) -> int:
+    old_release = store.meta("controller_software_release")
+    try:
+        release = _recommended_release(store.root)
+        if release is None:
+            _emit({"operation": "upgrade", "mode": "governed_release", "old_release": old_release,
+                   "final_state": "unavailable",
+                   "error": "no authoritative recommended release is selected"})
+            return 2
+        manager = UpdateManager(store, _update_backend(), policy=_update_policy())
+        decision = manager.plan(release)
+        if decision.action == "deferred":
+            _emit({"operation": "upgrade", "mode": "governed_release", "requested_release": release,
+                   "old_release": old_release, "policy": manager.policy.value, "backend": manager.backend.name,
+                   "final_state": "deferred", "reason": decision.reason})
+            return 0
+        result = manager.request(release)
+        _emit({"operation": "upgrade", "mode": "governed_release", "requested_release": release,
+               "old_release": old_release, "new_release": store.meta("controller_software_release"),
+               "policy": manager.policy.value, "backend": manager.backend.name,
+               "final_state": result.action})
+        return 0
+    except Exception as error:
+        _emit({"operation": "upgrade", "mode": "governed_release", "requested_release": locals().get("release"),
+               "old_release": old_release, "final_state": "failed", "error": str(error)})
+        return 2
 
 
 if __name__ == "__main__":  # pragma: no cover - module entry point

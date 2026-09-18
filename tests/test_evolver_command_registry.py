@@ -107,3 +107,24 @@ def test_maintenance_operations_report_explicit_delegation(monkeypatch: pytest.M
     monkeypatch.setattr(cli, "operator_request", lambda *_args, **_kwargs: pytest.fail("maintenance must not be implicit LIVE"))
     result = cli.maintenance_disposition("update.apply")
     assert result == {"mode": "MAINTENANCE", "disposition": "delegated", "delegate": "controller-service"}
+
+
+def test_runtime_and_upgrade_commands_are_maintenance_boundaries() -> None:
+    expected = {
+        "runtime.status", "runtime.up", "runtime.stop", "runtime.down",
+        "runtime.restart", "runtime.logs", "runtime.upgrade", "upgrade",
+    }
+    assert all(cli.command_spec(command).mode is CommandMode.MAINTENANCE for command in expected)
+
+
+def test_runtime_parser_and_short_aliases_remain_disjoint_from_update() -> None:
+    parser = cli.build_parser()
+    assert parser.parse_args(["runtime", "status"]).runtime_command == "status"
+    assert parser.parse_args(["runtime", "logs"]).runtime_command == "logs"
+    assert parser.parse_args(["upgrade"]).command == "upgrade"
+    assert cli._compatibility_argv(["up"]) == ["runtime", "up"]
+    assert cli._compatibility_argv(["down"]) == ["runtime", "down"]
+    assert cli._compatibility_argv(["restart"]) == ["runtime", "restart"]
+    assert cli._compatibility_argv(["logs"]) == ["runtime", "logs"]
+    assert cli._compatibility_argv(["upgrade"]) == ["runtime", "upgrade"]
+    assert cli._compatibility_argv(["update", "apply", "release-a"]) == ["update", "apply", "release-a"]
