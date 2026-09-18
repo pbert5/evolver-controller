@@ -5,17 +5,172 @@ import argparse
 import json
 import os
 import sys
+from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
 from .bundle import resolve_bundle
+from .domain import plan_calibrated_dispense, validate_bounded_operation
 from .store import EdgeStore, EdgeStoreError, canonical_digest
 from .sync import SyncClient
-from .install import (detect_backend, inspect_installation, repair_installation, status_json, systemd_unit,
-                      uninstall_installation)
+from .install import inspect_installation
 from .lifecycle import plan_lifecycle
-from .update import NativePackageBackend, NixUpdateBackend, OCIUpdateBackend, UpdateManager, UpdatePolicy, record_installed_release
+from .update import ComposeUpdateBackend, UpdateManager, UpdatePolicy, record_installed_release
 from .doctor import doctor_report
+from .operator import (DEFAULT_SOCKET as DEFAULT_OPERATOR_SOCKET, OperatorClient,
+                       OperatorError, OperatorProtocolError, OperatorUnavailable,
+                       request as operator_request)
+from .workflow_cli import WorkflowCLI, ScenarioRegistry, parse_parameters, production_host, ScenarioHost
+from .workflow_host import HostContext
+
+
+class CommandRegistryError(ValueError):
+    """The CLI command is not part of the frozen controller contract."""
+
+
+class CommandMode(str, Enum):
+    LIVE = "LIVE"
+    LOCAL = "LOCAL"
+    MAINTENANCE = "MAINTENANCE"
+
+
+@dataclass(frozen=True)
+class CommandSpec:
+    mode: CommandMode
+    disposition: str = "execute"
+    delegate: str | None = None
+
+
+_COMMAND_REGISTRY: dict[str, CommandSpec] = {
+    "status": CommandSpec(CommandMode.LIVE),
+    "binding": CommandSpec(CommandMode.LIVE),
+    "doctor": CommandSpec(CommandMode.LIVE),
+    "runs": CommandSpec(CommandMode.LIVE),
+    "controllers": CommandSpec(CommandMode.LIVE),
+    "instruments": CommandSpec(CommandMode.LIVE),
+    "instrument.show": CommandSpec(CommandMode.LIVE),
+    "run.show": CommandSpec(CommandMode.LIVE),
+    "run.events": CommandSpec(CommandMode.LIVE),
+    "run.telemetry": CommandSpec(CommandMode.LIVE),
+    "run.pause": CommandSpec(CommandMode.LIVE),
+    "run.resume": CommandSpec(CommandMode.LIVE),
+    "run.stop": CommandSpec(CommandMode.LIVE),
+    "calibration.artifacts": CommandSpec(CommandMode.LIVE),
+    "calibration.preflight": CommandSpec(CommandMode.LIVE),
+    "hardware.lease.acquire": CommandSpec(CommandMode.LIVE),
+    "hardware.lease.status": CommandSpec(CommandMode.LIVE),
+    "hardware.lease.release": CommandSpec(CommandMode.LIVE),
+    "hardware.layout": CommandSpec(CommandMode.LIVE),
+    "hardware.provision-identity": CommandSpec(CommandMode.LIVE),
+    "hardware.discover": CommandSpec(CommandMode.LIVE),
+    "hardware.protocol-test": CommandSpec(CommandMode.LIVE),
+    "hardware.safe-stop": CommandSpec(CommandMode.LIVE),
+    "hardware.actuate": CommandSpec(CommandMode.LIVE),
+    "hardware.quarantine-command": CommandSpec(CommandMode.MAINTENANCE, "rejected"),
+    "update.status": CommandSpec(CommandMode.MAINTENANCE, "delegated", "controller-service"),
+    "update.check": CommandSpec(CommandMode.MAINTENANCE, "delegated", "controller-service"),
+    "update.apply": CommandSpec(CommandMode.MAINTENANCE, "delegated", "controller-service"),
+    "enroll": CommandSpec(CommandMode.LOCAL),
+    "lifecycle-plan": CommandSpec(CommandMode.LOCAL),
+    "record-installed-release": CommandSpec(CommandMode.MAINTENANCE, "rejected"),
+    "export-state": CommandSpec(CommandMode.LOCAL),
+    "import-state": CommandSpec(CommandMode.LOCAL),
+    "recovery": CommandSpec(CommandMode.LOCAL),
+    "sync": CommandSpec(CommandMode.LOCAL),
+    "tui": CommandSpec(CommandMode.LOCAL),
+    "simulator": CommandSpec(CommandMode.LOCAL),
+    "firmware": CommandSpec(CommandMode.MAINTENANCE, "delegated", "hardware-service"),
+    "validation": CommandSpec(CommandMode.LOCAL),
+    "dispense": CommandSpec(CommandMode.LOCAL),
+}
+
+
+def command_spec(command: str) -> CommandSpec:
+    try:
+        return _COMMAND_REGISTRY[command]
+    except KeyError as error:
+        raise CommandRegistryError(f"command is not in the frozen registry: {command}") from error
+
+
+def maintenance_disposition(command: str) -> dict[str, str]:
+    spec = command_spec(command)
+    if spec.mode is not CommandMode.MAINTENANCE:
+        raise CommandRegistryError(f"command is not maintenance: {command}")
+    result = {"mode": spec.mode.value, "disposition": spec.disposition}
+    if spec.delegate is not None:
+        result["delegate"] = spec.delegate
+    return result
+
+
+def _live_request(args: argparse.Namespace) -> tuple[str, dict[str, Any]] | None:
+    """Translate a frozen LIVE CLI spelling into one typed operator request."""
+    key = args.command
+    if args.command == "run":
+        key = f"run.{args.run_command}"
+    elif args.command == "instrument":
+        key = "instrument.show"
+    elif args.command == "calibration":
+        key = f"calibration.{args.calibration_command}"
+    elif args.command == "hardware":
+        key = f"hardware.{args.hardware_command}"
+        if args.hardware_command == "lease":
+            key = f"hardware.lease.{args.lease_command}"
+    elif args.command == "update":
+        key = f"update.{args.update_command}"
+    spec = command_spec(key)
+    if spec.mode is not CommandMode.LIVE:
+        return None
+    if args.command in {"status", "binding", "runs", "instruments", "doctor"}:
+        return args.command, {}
+    if args.command == "controllers":
+        return "status", {"view": "controllers"}
+    if args.command == "instrument":
+        return "instrument", {"instrument_id": args.instrument_id}
+    if args.command == "calibration":
+        if args.calibration_command == "artifacts":
+            return "calibration", {"action": "artifacts", "instrument_id": args.instrument_id}
+        return "calibration", {"action": "preflight", "references": json.loads(args.references),
+                                "requirements": json.loads(args.requirements)}
+    if args.command == "run":
+        params: dict[str, Any] = {"action": args.run_command, "run_id": args.run_id}
+        if args.run_command in {"pause", "resume", "stop"}:
+            params["based_on_revision"] = args.based_on_revision
+        return "run", params
+    if args.command == "hardware":
+        if args.hardware_command == "lease":
+            params = {"action": args.lease_command, "operator": getattr(args, "operator", None)}
+            if args.lease_command == "acquire":
+                params["ttl_seconds"] = args.ttl_seconds
+            return "hardware_lease", params
+        if args.hardware_command == "layout":
+            return "hardware_layout", {"target_identity": args.target, "operator": args.operator,
+                                        "positions": {str(args.channel): {"physical_side": args.physical_side,
+                                                                            "method": args.method}}}
+        if args.hardware_command == "provision-identity":
+            return "hardware_provision_identity", {"device_id": args.device_id, "owner_id": args.owner_id,
+                                                     "operator": args.operator, "physical": args.physical}
+        if args.hardware_command == "discover":
+            return "hardware", {"operation": "discover"}
+        if args.hardware_command == "protocol-test":
+            return "hardware", {"operation": "protocol_test"}
+        if args.hardware_command == "safe-stop":
+            return "hardware", {"operation": "safe_stop", "physical": args.physical,
+                                 "operator": args.operator}
+        if args.hardware_command == "actuate":
+            parameters = {"channel": args.channel}
+            if args.operation == "set_output":
+                parameters.update(output="od_led", level=args.level)
+            elif args.operation == "pulse_pump":
+                parameters.update(duration_ms=args.duration_ms)
+            else:
+                parameters.update(duration_ms=args.duration_ms, level=args.level)
+            return "hardware", {"operation": "hardware_command", "operation_name": args.operation,
+                                 "target_identity": args.target, "parameters": parameters,
+                                 "physical": args.physical, "operator": args.operator,
+                                 "lease_token": args.lease_token, "lease_owner": args.operator,
+                                 "controller_generation": args.controller_generation}
+    raise CommandRegistryError(f"LIVE command has no operator translation: {key}")
 
 
 def _root(value: str | None) -> Path:
@@ -41,6 +196,17 @@ def _emit(value: Any) -> None:
     print(json.dumps(_redact(value), indent=2, sort_keys=True, default=str))
 
 
+def _operator_exit_code(error: Exception) -> int:
+    return 69 if isinstance(error, OperatorUnavailable) else 64
+
+
+def _offline_state_path(state_root: Path) -> Path:
+    database = state_root / "edge.sqlite3"
+    if not database.is_file():
+        raise EdgeStoreError(f"offline state is missing at {database}; provide a valid --state-root")
+    return database
+
+
 def _compatibility_argv(argv: list[str]) -> list[str]:
     """Translate grouped operator spellings to the existing local actions.
 
@@ -51,10 +217,13 @@ def _compatibility_argv(argv: list[str]) -> list[str]:
     """
     aliases: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
         (("local", "run", "list"), ("runs",)),
+        (("local", "instrument", "list"), ("instruments",)),
+        (("local", "instrument", "show"), ("instrument", "show")),
         (("local", "runs"), ("runs",)),
         (("local", "run"), ("run",)),
         (("local", "diagnostics"), ("doctor",)),
         (("local", "diagnostic"), ("doctor",)),
+        (("control",), ("hardware",)),
         (("local", "status"), ("status",)),
         (("local", "server"), ("status",)),
         (("local", "binding"), ("binding",)),
@@ -83,8 +252,12 @@ def _compatibility_argv(argv: list[str]) -> list[str]:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="evolverctl", description="eVOLVER controller local operator CLI")
+    parser = argparse.ArgumentParser(prog="evoctl", description="eVOLVER controller local operator CLI")
     parser.add_argument("--state-root", help="persistent controller state directory")
+    parser.add_argument("--offline", action="store_true",
+                        help="read directly from the durable store without contacting the operator service")
+    parser.add_argument("--operator-socket", default=os.environ.get("EVOLVER_OPERATOR_SOCKET", DEFAULT_OPERATOR_SOCKET),
+                        help="private Unix socket for the local read-only operator service")
     commands = parser.add_subparsers(dest="command", required=True)
     enroll = commands.add_parser("enroll"); enroll.add_argument("--server", required=True); enroll.add_argument("--token", required=True)
     enroll.add_argument("--mode", choices=("repair", "live_handoff", "forced_adoption"),
@@ -114,22 +287,48 @@ def build_parser() -> argparse.ArgumentParser:
     # Inventory is durable edge-domain data; simulator and hardware adapters
     # merely populate the same contract.
     commands.add_parser("controllers"); commands.add_parser("instruments")
+    workflow = commands.add_parser("workflow", help="browse and run trusted workflows")
+    workflow_sub = workflow.add_subparsers(dest="workflow_command", required=True)
+    workflow_list = workflow_sub.add_parser("list")
+    workflow_list.add_argument("--search", default="")
+    workflow_show = workflow_sub.add_parser("show")
+    workflow_show.add_argument("workflow_id")
+    for name in ("preflight", "run"):
+        item = workflow_sub.add_parser(name)
+        item.add_argument("workflow_id")
+        item.add_argument("--parameter", action="append", default=[], metavar="NAME=VALUE")
+        item.add_argument("--target", default="scenario-1")
+        item.add_argument("--simulator", action="store_true")
+        item.add_argument("--jsonl", action="store_true")
+        item.add_argument("--scenario", choices=ScenarioRegistry().names())
+        item.add_argument("--operator")
+        item.add_argument("--lease-token")
+        item.add_argument("--physical", action="store_true")
     instrument = commands.add_parser("instrument"); instrument_sub = instrument.add_subparsers(dest="instrument_command", required=True)
     show = instrument_sub.add_parser("show"); show.add_argument("instrument_id")
-    tui = commands.add_parser("tui", help="run the local configured Textual operator UI")
-    tui.add_argument("--page", choices=("overview", "controllers", "instruments", "runs", "recovery", "maintenance"), default="overview")
-    install = commands.add_parser("install-status"); install.add_argument("--unit", action="store_true")
+    calibration = commands.add_parser("calibration", help="inspect stored calibration evidence")
+    calibration_sub = calibration.add_subparsers(dest="calibration_command", required=True)
+    artifacts = calibration_sub.add_parser("artifacts")
+    artifacts.add_argument("--instrument-id")
+    preflight = calibration_sub.add_parser("preflight")
+    preflight.add_argument("references", help="JSON calibration references")
+    preflight.add_argument("--requirements", default="[]", help="JSON calibration requirements")
+    dispense = commands.add_parser("dispense", help="plan a calibrated dispense without actuating hardware")
+    dispense.add_argument("--artifact", required=True, type=Path, help="JSON pump calibration artifact")
+    dispense.add_argument("--volume-ul", required=True, type=float)
+    dispense.add_argument("--channel", required=True, type=int)
+    dispense.add_argument("--maximum-duration-ms", type=int, default=1000)
+    validation = commands.add_parser("validation", help="validate a bounded operator operation")
+    validation.add_argument("operation", choices=("safe_stop", "pulse_pump", "set_stir", "pulse_heater"))
+    validation.add_argument("--parameters", default="{}", help="JSON operation parameters")
+    tui = commands.add_parser("tui", help="run the controller-native Textual operator UI")
+    tui.add_argument("--page", choices=("overview", "controllers", "instruments", "runs", "recovery", "maintenance", "workflows"), default="overview")
+    tui.add_argument("--workflow", action="store_true", help="open Workflows in the same native app")
     update = commands.add_parser("update", help="inspect or apply a local controller software release")
     update_sub = update.add_subparsers(dest="update_command", required=True)
     update_sub.add_parser("status")
     check = update_sub.add_parser("check"); check.add_argument("release")
     apply = update_sub.add_parser("apply"); apply.add_argument("release")
-    uninstall = commands.add_parser("uninstall", help="remove eVOLVER software while preserving state")
-    uninstall.add_argument("--purge", action="store_true", help="also delete local controller state (destructive)")
-    uninstall.add_argument("--yes", action="store_true", help="confirm destructive maintenance in automation")
-    uninstall.add_argument("--force-active", action="store_true", help="explicitly override active-run protection")
-    uninstall.add_argument("--operator", help="operator attribution for the lifecycle audit")
-    commands.add_parser("repair", help="restore owned services and links from the current release")
     simulator = commands.add_parser("simulator"); sim_sub = simulator.add_subparsers(dest="simulator_command", required=True)
     start = sim_sub.add_parser("start"); start.add_argument("--instruments", type=int, default=1)
     create = sim_sub.add_parser("create-run", help="create a safe simulated run from a declarative plan")
@@ -162,7 +361,7 @@ def build_parser() -> argparse.ArgumentParser:
     provision.add_argument("--device-id", required=True); provision.add_argument("--owner-id", required=True)
     provision.add_argument("--operator", required=True); provision.add_argument("--physical", action="store_true")
     actuator = hardware_sub.add_parser("actuate", help="one bounded maintenance command; physical opt-in required")
-    actuator.add_argument("operation", choices=("set_output", "pulse_pump", "set_stir", "pulse_heater", "safe_stop"))
+    actuator.add_argument("operation", choices=("set_output", "pulse_pump", "set_stir", "pulse_heater"))
     actuator.add_argument("--target", required=True)
     actuator.add_argument("--channel", type=int, default=0)
     actuator.add_argument("--duration-ms", type=int)
@@ -170,6 +369,11 @@ def build_parser() -> argparse.ArgumentParser:
     actuator.add_argument("--physical", action="store_true")
     actuator.add_argument("--operator", help="audited operator attribution")
     actuator.add_argument("--lease-token")
+    actuator.add_argument("--controller-generation", type=int,
+                          help="controller generation asserted by the active lease")
+    safe_stop = hardware_sub.add_parser("safe-stop", help="stop all registered physical outputs")
+    safe_stop.add_argument("--physical", action="store_true", required=True)
+    safe_stop.add_argument("--operator", required=True, help="audited operator attribution")
     lease = hardware_sub.add_parser("lease", help="bounded local commissioning lease")
     lease_sub = lease.add_subparsers(dest="lease_command", required=True)
     acquire = lease_sub.add_parser("acquire"); acquire.add_argument("--operator", required=True); acquire.add_argument("--ttl-seconds", type=int, default=900)
@@ -190,23 +394,129 @@ def main(argv: list[str] | None = None) -> int:
     # Normalize only the command portion so ``--state-root PATH server`` is
     # equivalent to ``server --state-root PATH`` without changing parsing.
     prefix: list[str] = []
-    while raw_arguments and raw_arguments[0] == "--state-root":
-        prefix.extend(raw_arguments[:2])
-        raw_arguments = raw_arguments[2:]
+    while raw_arguments:
+        if raw_arguments[0] == "--offline":
+            prefix.append(raw_arguments.pop(0))
+        elif raw_arguments[0] in {"--state-root", "--operator-socket"} and len(raw_arguments) > 1:
+            prefix.extend(raw_arguments[:2])
+            raw_arguments = raw_arguments[2:]
+        else:
+            break
     arguments = [*prefix, *_compatibility_argv(raw_arguments)]
     args = build_parser().parse_args(arguments)
-    if args.command == "uninstall":
+    if args.command == "workflow":
         try:
-            _emit(uninstall_installation(_root(args.state_root), purge=args.purge, confirm=args.yes,
-                                         force_active=args.force_active, operator=args.operator))
+            parameters = parse_parameters(args.parameter) if args.workflow_command in {"preflight", "run"} else {}
+            if args.workflow_command == "list" or args.workflow_command == "show":
+                # Metadata commands intentionally require no operator socket.
+                root = Path(__file__).resolve().parents[5]
+                from evolver_procedure_runtime import WorkflowLibrary
+                library = WorkflowLibrary.from_directories([root / "workflows" / "calibration"])
+                host = ScenarioHost(tuple(library.list()))
+                if args.workflow_command == "list" and args.search:
+                    host.workflows = WorkflowLibrary(host.search_workflows(args.search))
+                renderer = WorkflowCLI(host, output=sys.stdout)
+                return renderer.list_workflows() if args.workflow_command == "list" else renderer.show_workflow(args.workflow_id)
+            if args.scenario:
+                host = ScenarioRegistry().host(args.scenario)
+            else:
+                context = HostContext(operator=args.operator, lease_token=args.lease_token, lease_owner=args.operator,
+                                      physical=args.physical, target_identity=args.target)
+                host = production_host(OperatorClient(args.operator_socket), target=args.target,
+                                        simulator=args.simulator, context=context)
+            cli = WorkflowCLI(host, output=sys.stdout, jsonl=args.jsonl)
+            if args.workflow_command == "preflight":
+                return cli.preflight(args.workflow_id, parameters)
+            return cli.run(args.workflow_id, parameters)
+        except (KeyError, OSError, TypeError, ValueError, OperatorError, json.JSONDecodeError) as error:
+            print(f"workflow_error: {error}", file=sys.stderr)
+            return 2
+    live_request = None if args.offline else _live_request(args)
+    if live_request is not None:
+        operation, params = live_request
+        try:
+            result = operator_request(operation, args.operator_socket, params=params)
+            if args.command == "controllers":
+                result = [{**result["controller"], "binding": result["binding"],
+                           "inventory": operator_request("instruments", args.operator_socket, params={})}]
+            _emit(result)
+            if (args.command == "hardware" and args.hardware_command == "safe-stop"
+                    and isinstance(result, dict) and result.get("request_accepted") is False):
+                return 2
             return 0
-        except (RuntimeError, ValueError, OSError) as error:
-            _emit({"error": str(error)}); return 2
-    if args.command == "repair":
+        except (OperatorUnavailable, OperatorProtocolError, EdgeStoreError, ValueError, TypeError, json.JSONDecodeError) as error:
+            print(f"{getattr(error, 'kind', 'operator_error')}: {error}", file=sys.stderr)
+            return _operator_exit_code(error) if isinstance(error, OperatorError) else 64
+    # Every non-LIVE operation must declare its local or maintenance behavior
+    # before the local store context is entered.  This prevents new commands
+    # from silently inheriting the old EdgeStore fallback.
+    command_key = args.command
+    if args.command == "run":
+        command_key = f"run.{args.run_command}"
+    elif args.command == "instrument":
+        command_key = "instrument.show"
+    elif args.command == "calibration":
+        command_key = f"calibration.{args.calibration_command}"
+    elif args.command == "update":
+        command_key = f"update.{args.update_command}"
+    elif args.command == "hardware":
+        command_key = f"hardware.{args.hardware_command}"
+        if args.hardware_command == "lease":
+            command_key = f"hardware.lease.{args.lease_command}"
+    spec = command_spec(command_key)
+    if spec.mode is CommandMode.MAINTENANCE and not (
+            args.command == "hardware" and args.hardware_command in {"discover", "protocol-test", "safe-stop", "actuate"}):
+        _emit(maintenance_disposition(command_key))
+        return 2 if spec.disposition == "rejected" else 0
+    live_operations = {"status", "binding", "runs", "instruments", "doctor"}
+    offline_read = args.offline
+    # Live read models have one control plane. A failed socket is reported to
+    # the operator; it is never converted into a direct SQLite read.
+    if not args.offline and args.command in live_operations:
         try:
-            _emit(repair_installation(_root(args.state_root))); return 0
-        except (RuntimeError, ValueError, OSError) as error:
-            _emit({"error": str(error)}); return 2
+            result = operator_request(args.command, args.operator_socket, params={})
+            _emit(result)
+            if args.command == "doctor" and result.get("summary", {}).get("FAIL"):
+                return 2
+            return 0
+        except (OperatorUnavailable, OperatorProtocolError) as error:
+            print(f"{error.kind}: {error}", file=sys.stderr)
+            return _operator_exit_code(error)
+    if not args.offline and args.command == "hardware":
+        if args.hardware_command == "discover":
+            params = {"operation": "discover"}
+        elif args.hardware_command == "protocol-test":
+            params = {"operation": "protocol_test"}
+        elif args.hardware_command == "safe-stop":
+            params = {"operation": "safe_stop", "physical": args.physical,
+                      "operator": args.operator}
+        elif args.hardware_command == "actuate":
+            parameters = {"channel": args.channel}
+            if args.operation == "set_output":
+                parameters.update(output="od_led", level=args.level)
+            elif args.operation == "pulse_pump":
+                parameters.update(duration_ms=args.duration_ms)
+            else:
+                parameters.update(duration_ms=args.duration_ms, level=args.level)
+            params = {"operation": "hardware_command", "operation_name": args.operation,
+                      "target_identity": args.target, "parameters": parameters,
+                      "physical": args.physical, "operator": args.operator,
+                      "lease_token": args.lease_token, "lease_owner": args.operator,
+                      "controller_generation": args.controller_generation}
+        else:
+            params = {"operation": args.hardware_command}
+        try:
+            _emit(operator_request("hardware", args.operator_socket, params=params))
+            return 0
+        except (OperatorUnavailable, OperatorProtocolError) as error:
+            print(f"{error.kind}: {error}", file=sys.stderr)
+            return _operator_exit_code(error)
+    if args.offline and args.command in live_operations:
+        try:
+            _offline_state_path(_root(args.state_root))
+        except EdgeStoreError as error:
+            print(f"offline state unavailable: {error}; --offline requires existing controller state", file=sys.stderr)
+            return 66
     if args.command == "lifecycle-plan":
         if args.current_state is not None:
             snapshot = json.loads(args.current_state.read_text(encoding="utf-8"))
@@ -229,6 +539,31 @@ def main(argv: list[str] | None = None) -> int:
                               durable_state_present=durable_state_present)
         _emit(plan.__dict__)
         return 2 if plan.blocked_reasons else 0
+    if args.command == "dispense":
+        try:
+            artifact = json.loads(args.artifact.read_text(encoding="utf-8"))
+            _emit(plan_calibrated_dispense(artifact=artifact, volume_ul=args.volume_ul,
+                                           channel=args.channel, maximum_duration_ms=args.maximum_duration_ms))
+            return 0
+        except (EdgeStoreError, OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+            _emit({"error": str(error)}); return 2
+    if args.command == "validation":
+        try:
+            _emit({"operation": args.operation,
+                   "parameters": validate_bounded_operation(args.operation, json.loads(args.parameters))})
+            return 0
+        except (EdgeStoreError, TypeError, ValueError, json.JSONDecodeError) as error:
+            _emit({"error": str(error)}); return 2
+    if args.command == "tui" and not args.offline:
+        from .tui import TUIUnavailableError, run
+        try:
+            return run(OperatorClient(args.operator_socket), page=args.page, workflow=args.workflow)
+        except TUIUnavailableError as error:
+            print(str(error), file=sys.stderr)
+            return 2
+        except OperatorUnavailable as error:
+            print(f"{error}; use --offline tui for local durable state", file=sys.stderr)
+            return 69
     with EdgeStore(_root(args.state_root)) as store:
         if args.command == "record-installed-release":
             try:
@@ -250,13 +585,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "status":
             _emit({"controller": store.identity(), "binding": store.binding(), "runs": store.list_runs()}); return 0
         if args.command == "doctor":
-            report = doctor_report(store)
+            central_health = (lambda _url: (False, "offline mode; central health not probed")) if offline_read else None
+            report = doctor_report(store, **({"central_health": central_health} if central_health else {}))
             _emit(report)
             return 2 if report["summary"]["FAIL"] else 0
         if args.command == "runs": _emit(store.list_runs()); return 0
         if args.command == "binding": _emit(store.binding()); return 0
         if args.command == "install-status":
-            _emit(systemd_unit() if args.unit else status_json(store.root)); return 0
+            _emit(status_json(store.root)); return 0
         if args.command == "update":
             manager = UpdateManager(store, _update_backend(), policy=_update_policy())
             if args.update_command == "status":
@@ -268,7 +604,7 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 if args.update_command == "check":
                     _emit(manager.plan(args.release).__dict__); return 0
-                # Applying from evolverctl is a local, explicit maintenance
+                # Applying from evoctl is a local, explicit maintenance
                 # action.  The manager still records the release durably.
                 _emit(manager.request(args.release, explicit=True).__dict__); return 0
             except Exception as error:
@@ -290,14 +626,27 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "controllers": _emit([store.identity()]); return 0
         if args.command == "instruments": _emit(store.list_instruments()); return 0
+        if args.command == "calibration":
+            try:
+                if args.calibration_command == "artifacts":
+                    _emit(store.calibration_artifacts(instrument_id=args.instrument_id)); return 0
+                references = json.loads(args.references)
+                requirements = json.loads(args.requirements)
+                _emit(store.calibration_preflight(references, requirements=requirements)); return 0
+            except (EdgeStoreError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+                _emit({"error": str(error)}); return 2
         if args.command == "instrument":
             try:
                 _emit(store.instrument(args.instrument_id)); return 0
             except KeyError:
                 _emit({"id": args.instrument_id, "error": "instrument not found"}); return 1
         if args.command == "tui":
-            from .tui import run as run_tui
-            return run_tui(store, page=args.page)
+            from .tui import TUIUnavailableError, run_offline
+            try:
+                return run_offline(store, page="workflows" if args.workflow else args.page)
+            except TUIUnavailableError as error:
+                print(str(error), file=sys.stderr)
+                return 2
         if args.command == "simulator":
             # Simulator support is part of this distribution.  Constructing it
             # also derives stable inventory from the durable controller id, so
@@ -348,7 +697,11 @@ def main(argv: list[str] | None = None) -> int:
                                             "owner_id": args.owner_id, "operator": args.operator,
                                             "physical": args.physical}, args.timeout)); return 0
             if args.hardware_command == "lease":
-                if args.lease_command == "acquire": payload = {"operation": "lease_acquire", "operator": args.operator, "ttl_seconds": args.ttl_seconds}
+                if args.lease_command == "acquire":
+                    binding = store.binding() or {}
+                    payload = {"operation": "lease_acquire", "operator": args.operator,
+                               "ttl_seconds": args.ttl_seconds,
+                               "controller_generation": int(binding.get("generation", 0))}
                 elif args.lease_command == "status": payload = {"operation": "lease_status"}
                 else: payload = {"operation": "lease_release", "operator": args.operator}
                 _emit(request(socket_path, payload, args.timeout)); return 0
@@ -384,14 +737,7 @@ def _update_policy() -> UpdatePolicy:
 
 
 def _update_backend():
-    backend = detect_backend()
-    if backend == "nix" and os.environ.get("EVOLVER_DEVELOPER_MODE") == "true" and os.environ.get("EVOLVER_NIX_FLAKE"):
-        return NixUpdateBackend(flake=os.environ["EVOLVER_NIX_FLAKE"])
-    if backend == "oci":
-        return OCIUpdateBackend(image=os.environ.get("EVOLVER_OCI_IMAGE", "ghcr.io/pbert5/evolver-controller"),
-                                runtime="podman" if os.environ.get("EVOLVER_OCI_RUNTIME") is None else os.environ["EVOLVER_OCI_RUNTIME"])
-    return NativePackageBackend(package=os.environ.get("EVOLVER_NATIVE_PACKAGE", "evolver-controller"),
-                                manager=os.environ.get("EVOLVER_NATIVE_PACKAGE_MANAGER", "apt-get"))
+    return ComposeUpdateBackend(compose_file=os.environ.get("EVOLVER_COMPOSE_FILE"))
 
 
 if __name__ == "__main__":  # pragma: no cover - module entry point
