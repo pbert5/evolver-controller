@@ -20,6 +20,12 @@ def test_clean_controller_image_imports_yaml_and_live_operator_path() -> None:
             capture_output=True,
             text=True,
         )
+        subprocess.run(
+            ["docker", "run", "--rm", "--entrypoint", "evoctl", image, "--help"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
         smoke = subprocess.run(
             [
                 "docker",
@@ -31,6 +37,7 @@ def test_clean_controller_image_imports_yaml_and_live_operator_path() -> None:
                 "-c",
                 (
                     "import yaml; "
+                    "import evolver_procedure_runtime; "
                     "import meta_webui_application_backend.evolver_edge.service"
                 ),
             ],
@@ -64,10 +71,12 @@ def test_dependency_manifest_matches_runtime_project_dependencies() -> None:
         "zstandard==0.25.0",
         "psycopg[binary]>=3.1",
         "PyYAML>=6",
+        "evolver-procedure-runtime @ https://github.com/pbert5/evolver-procedure-runtime/archive/e82b2a2a54004540e5de6418e07670b8e8b5b30c.tar.gz",
     )
     assert tuple(requirements) == dependencies
-    for dependency in dependencies:
+    for dependency in dependencies[:-1]:
         assert dependency in project
+    assert "evolver-procedure-runtime==0.1.0" in project
 
 
 def test_dockerignore_keeps_packaging_inputs_and_excludes_non_runtime_files() -> None:
