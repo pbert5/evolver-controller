@@ -8,6 +8,7 @@ from meta_webui_application_backend.evolver_edge.cli import _update_backend
 from meta_webui_application_backend.evolver_edge.install import detect_backend, installer_script
 from meta_webui_application_backend.evolver_edge.store import EdgeStoreError
 from meta_webui_application_backend.evolver_edge.update import ComposeUpdateBackend
+from meta_webui_application_backend.evolver_edge.cli import build_parser
 
 
 ROOT = Path(__file__).parents[3]
@@ -48,3 +49,11 @@ def test_installer_script_does_not_silently_select_a_native_backend():
     # must not use environment-controlled Nix/native selection.
     assert "EVOLVER_NIX_INSTALL_REF" not in script
     assert "EVOLVER_NATIVE_PACKAGE" not in script
+
+
+def test_runtime_parser_has_no_arbitrary_host_authority_arguments():
+    parser = build_parser()
+    args = parser.parse_args(["runtime", "up"])
+    assert args.runtime_command == "up"
+    with pytest.raises(SystemExit):
+        parser.parse_args(["runtime", "up", "--project", "other"])

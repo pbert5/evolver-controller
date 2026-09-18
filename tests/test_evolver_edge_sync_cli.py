@@ -191,6 +191,67 @@ def test_cli_control_mapping_reuses_hardware_command_parser():
         "hardware", "actuate", "pulse_pump"]
 
 
+def test_runtime_lifecycle_is_a_fixed_host_adapter_delegation(monkeypatch, capsys):
+    import meta_webui_application_backend.evolver_edge.cli as cli_module
+
+    monkeypatch.setattr(cli_module, "operator_request", lambda *_args, **_kwargs: pytest.fail(
+        "runtime lifecycle must not use the controller operator socket"))
+    monkeypatch.setattr(cli_module, "EdgeStore", lambda *_args, **_kwargs: pytest.fail(
+        "runtime lifecycle must not open the controller store"))
+
+    assert cli_module.main(["up"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result == {
+        "operation": "runtime.up", "target": "edge",
+        "services": ["evolver-controller", "evolver-hardware"],
+        "disposition": "delegated", "delegate": "host-runtime-adapter", "executed": False,
+    }
+
+
+def test_upgrade_requires_authoritative_recommended_release(monkeypatch, capsys, tmp_path):
+    import meta_webui_application_backend.evolver_edge.cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_recommended_release", lambda _root: None)
+    assert cli_module.main(["--state-root", str(tmp_path), "upgrade"]) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["operation"] == "upgrade"
+    assert result["final_state"] == "unavailable"
+    assert "recommended release" in result["error"]
+
+
+def test_upgrade_defers_for_active_runs_and_reports_old_release(monkeypatch, capsys, tmp_path):
+    import meta_webui_application_backend.evolver_edge.cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_recommended_release", lambda _root: "release-b")
+    with cli_module.EdgeStore(tmp_path) as store:
+        store.set_meta("controller_software_release", "release-a")
+        bundle = {"id": "bundle", "purpose": "research", "execution_mode": "declarative_state_machine"}
+        bundle["digest"] = cli_module.canonical_digest(bundle)
+        store.put_bundle(bundle)
+        store.create_run(run_id="run", bundle_id="bundle", instrument_ids=["instrument"], state="running")
+
+    assert cli_module.main(["--state-root", str(tmp_path), "upgrade"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["requested_release"] == "release-b"
+    assert result["old_release"] == "release-a"
+    assert result["final_state"] == "deferred"
+    assert result["reason"] == "active runs present"
+
+
+def test_upgrade_failure_cannot_report_success(monkeypatch, capsys, tmp_path):
+    import meta_webui_application_backend.evolver_edge.cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_recommended_release", lambda _root: "release-b")
+    monkeypatch.setattr(cli_module, "_update_backend", lambda: type(
+        "Backend", (), {"name": "compose", "install": lambda _self, _release: (_ for _ in ()).throw(
+            RuntimeError("activation health check failed"))})())
+
+    assert cli_module.main(["--state-root", str(tmp_path), "upgrade"]) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["final_state"] == "failed"
+    assert "activation health check failed" in result["error"]
+
+
 def test_cli_safe_stop_is_first_class_and_has_no_lease_or_target():
     from meta_webui_application_backend.evolver_edge.cli import _live_request, build_parser
 

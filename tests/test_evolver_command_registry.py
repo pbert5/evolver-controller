@@ -182,3 +182,24 @@ def test_controller_trusted_action_projection_matches_authoritative_schema() -> 
     schema_path = Path(__file__).resolve().parents[2] / "evolver-schemas" / "registry" / "trusted_actions.yaml"
     schema = yaml.safe_load(schema_path.read_text(encoding="utf-8"))
     assert tuple(schema["actions"]) == cli.TRUSTED_ACTIONS
+
+
+def test_runtime_and_upgrade_commands_are_maintenance_boundaries() -> None:
+    expected = {
+        "runtime.status", "runtime.up", "runtime.stop", "runtime.down",
+        "runtime.restart", "runtime.logs", "runtime.upgrade", "upgrade",
+    }
+    assert all(cli.command_spec(command).mode is CommandMode.MAINTENANCE for command in expected)
+
+
+def test_runtime_parser_and_short_aliases_remain_disjoint_from_update() -> None:
+    parser = cli.build_parser()
+    assert parser.parse_args(["runtime", "status"]).runtime_command == "status"
+    assert parser.parse_args(["runtime", "logs"]).runtime_command == "logs"
+    assert parser.parse_args(["upgrade"]).command == "upgrade"
+    assert cli._compatibility_argv(["up"]) == ["runtime", "up"]
+    assert cli._compatibility_argv(["down"]) == ["runtime", "down"]
+    assert cli._compatibility_argv(["restart"]) == ["runtime", "restart"]
+    assert cli._compatibility_argv(["logs"]) == ["runtime", "logs"]
+    assert cli._compatibility_argv(["upgrade"]) == ["runtime", "upgrade"]
+    assert cli._compatibility_argv(["update", "apply", "release-a"]) == ["update", "apply", "release-a"]
