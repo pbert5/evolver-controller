@@ -28,6 +28,10 @@ class FakeOperator:
         self.requests.append((operation, params or {}))
         return self.responses.get(operation, {})
 
+    def safe_stop(self, *, operator, physical, command_id):
+        return self.request("hardware", {"operation": "safe_stop", "operator": operator,
+                                           "physical": physical, "command_id": command_id})
+
 
 def target(*, kind=TargetKind.PHYSICAL, capabilities=None):
     return TargetProjection("MEV-1", kind, {"id": "controller-1", "generation": 7},
