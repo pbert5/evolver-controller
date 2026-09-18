@@ -90,6 +90,18 @@ def test_calibration_descriptor_safety_contracts():
     assert report["metadata"]["fitting_supported"] is False
     assert not any("fit" in step.get("action", {}).get("id", "") for step in report["steps"])
 
+    point_by_id = {document["id"]: document for document in documents}
+    temperature_capture = next(step for step in point_by_id["calibration.temperature.point"]["steps"]
+                               if step["id"] == "capture")
+    pump_observation = next(step for step in point_by_id["calibration.pump-flow.point"]["steps"]
+                            if step["id"] == "record-volume")
+    for step in (temperature_capture, pump_observation):
+        assert step["correction"] == {"mode": "replaceable", "kind": "observation", "invalidates": []}
+    for document in documents:
+        for step in document["steps"]:
+            if step["kind"] == "action":
+                assert step.get("correction", {}).get("kind") != "input"
+
 
 def test_calibration_descriptors_have_no_execution_surfaces_or_unsafe_hardware_literals():
     text = "\n".join(path.read_text() for path in DESCRIPTORS).lower()

@@ -16,6 +16,7 @@ steps:
   - id: record-volume
     kind: action
     action: {type: action, id: request_observation, version: 1}
+    correction: {mode: replaceable, kind: observation, invalidates: []}
     parameters:
       metric: delivered_volume_ul
       delivered_volume_ul: {parameter_ref: delivered_volume_ul}
