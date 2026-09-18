@@ -1,0 +1,28 @@
+id: calibration.optical-density.growth-curve
+name: OD Growth Curve Calibration
+version: 1
+category: calibration
+description: Start a growth-curve observation and capture one or more named samples.
+parameters:
+  od_led_intensity: {type: integer, minimum: 0, maximum: 255}
+  interval_s: {type: number, unit: second, minimum: 1, maximum: 86400}
+requirements:
+  capabilities: [optical_density_observation]
+  equipment: [od_reference_samples]
+stages:
+  - id: setup
+    procedure: {id: calibration.optical-density.growth-curve.start, version: 1}
+    cardinality: once
+    bindings:
+      od_led_intensity: {workflow_parameter: od_led_intensity}
+      interval_s: {workflow_parameter: interval_s}
+  - id: samples
+    procedure: {id: calibration.optical-density.growth-curve.sample, version: 1}
+    cardinality: repeatable
+    bindings:
+      sample_id: {instance_parameter: sample_id}
+      od_led_intensity: {workflow_parameter: od_led_intensity}
+metadata:
+  tags: [optical-density, growth-curve, calibration]
+  source: meta_bal.workflows.calibration
+  operator_notes: Add one sample instance for each named reference sample.

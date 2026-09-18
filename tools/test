@@ -3,7 +3,7 @@ set -euo pipefail
 
 readonly SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 readonly ROOT_DIR=$(cd -- "$SCRIPT_DIR/.." && pwd)
-readonly COMPONENTS=(root controller hardware server metactl)
+readonly COMPONENTS=(root controller hardware server metactl procedure-runtime)
 
 die() {
   echo "tools/test: $*" >&2
@@ -23,6 +23,7 @@ component_pythonpath() {
     hardware) printf '%s\n' evolver/evolver-hardware/src ;;
     server) printf '%s\n' evolver/evolver-server/src ;;
     metactl) printf '%s\n' metactl ;;
+    procedure-runtime) printf '%s\n' evolver/evolver-procedure-runtime ;;
     *) die "unknown component: $1" ;;
   esac
 }
@@ -34,6 +35,7 @@ component_tests() {
     hardware) printf '%s\n' evolver/evolver-hardware/tests ;;
     server) printf '%s\n' evolver/evolver-server/tests ;;
     metactl) printf '%s\n' metactl/tests ;;
+    procedure-runtime) printf '%s\n' evolver/evolver-procedure-runtime/tests ;;
     *) die "unknown component: $1" ;;
   esac
 }
@@ -137,8 +139,8 @@ usage:
   tools/test integration [pytest args...]
   tools/test simulator [pytest args...]
   tools/test coverage [pytest args...]
-  tools/test component <root|controller|hardware|server|metactl> [pytest args...]
-  tools/test evidence <root|controller|hardware|server|metactl> <pytest node IDs...>
+  tools/test component <root|controller|hardware|server|metactl|procedure-runtime> [pytest args...]
+  tools/test evidence <root|controller|hardware|server|metactl|procedure-runtime> <pytest node IDs...>
 
 PYTEST_WORKERS controls xdist workers for parallel lanes: auto (default) or a
 non-negative integer. Serial and coverage lanes run component processes in order.

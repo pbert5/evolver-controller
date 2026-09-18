@@ -11,6 +11,7 @@ def test_parent_submodule_urls_are_exact_relative_sibling_repositories():
     expected = {
         "evolver/evolver-controller": "../evolver-controller.git",
         "evolver/evolver-hardware": "../evolver-hardware.git",
+        "evolver/evolver-procedure-runtime": "../evolver-procedure-runtime.git",
         "evolver/evolver-server": "../evolver-server.git",
         "metactl": "../metactl.git",
     }
