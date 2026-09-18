@@ -95,11 +95,20 @@ def test_operator_safe_stop_is_authenticated_physical_and_lease_free(tmp_path: P
             denied = _wire(path, {"operation": "hardware", "params": {
                 "operation": "safe_stop", "physical": False, "operator": "alice"}})
             assert denied["error"]["kind"] == "unsafe"
+            assert store.command_acknowledgements()[-1]["request_accepted"] is True
 
     assert calls and calls[0]["operator"] == "alice"
     assert calls[0]["controller_generation"] == 7
     assert "lease_token" not in calls[0]
     assert "target_identity" in calls[0]
+def test_operator_safe_stop_requires_hardware_permission(tmp_path: Path) -> None:
+    path = tmp_path / "operator.sock"
+    operator = OperatorIdentity("alice", "local_operator", frozenset())
+    with EdgeStore(tmp_path / "state") as store, OperatorServer(store, path, operator=operator,
+                                                                  hardware_broker=HardwareBroker(store)):
+        denied = _wire(path, {"operation": "hardware", "params": {
+            "operation": "safe_stop", "physical": True, "operator": "alice"}})
+        assert denied["error"]["kind"] == "forbidden"
 
 
 def test_operator_calibration_run_is_authenticated_typed_and_transport_neutral(tmp_path: Path) -> None:

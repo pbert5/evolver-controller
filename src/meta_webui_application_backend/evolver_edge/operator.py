@@ -7,6 +7,7 @@ import socket
 import socketserver
 import stat
 import threading
+from uuid import uuid4
 from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -110,13 +111,21 @@ def _dispatch(store: EdgeStore, operation: str, params: dict[str, Any], *,
             raise OperatorProtocolError("authenticated operator attribution is required", kind="unauthorized")
         body = _hardware_request(params, operator.subject)
         if hardware_operation == "safe_stop":
+            if "hardware_maintenance" not in operator.permissions:
+                raise OperatorProtocolError("hardware_maintenance permission is required", kind="forbidden")
             if hardware_broker is None:
                 raise OperatorProtocolError("safe-stop must be delegated to the hardware service",
                                             kind="maintenance_delegated")
+            command_id = body.get("command_id") or f"safe-stop-{uuid4()}"
+            command = {"command_id": command_id,
+                       "controller_generation": store.binding().get("generation"),
+                       "operation": "safe_stop", "operator": operator.subject}
             try:
-                return hardware_broker.safe_stop(operator=operator.subject,
-                                                 physical=body.get("physical", False),
-                                                 command_id=body.get("command_id"))
+                return store.execute_command(
+                    command,
+                    lambda: hardware_broker.safe_stop(operator=operator.subject,
+                                                      physical=body.get("physical", False),
+                                                      command_id=command_id))
             except Exception as error:
                 raise OperatorProtocolError(str(error),
                                             kind=getattr(error, "kind", "hardware_error")) from error
