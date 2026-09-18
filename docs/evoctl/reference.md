@@ -59,7 +59,7 @@ guide; this file answers which parser spellings exist at the reviewed head.
 | `evoctl simulator tick [-h] [--ticks TICKS] [--instruments INSTRUMENTS] run_id` | `local` | execute |
 | `evoctl status [-h]` | `live` | execute |
 | `evoctl sync [-h] [--loop] [--interval INTERVAL]` | `local` | execute |
-| `evoctl tui [-h] [--page {overview,controllers,instruments,runs,recovery,maintenance}] [--workflow]` | `local` | execute |
+| `evoctl tui [-h] [--page {overview,controllers,instruments,runs,recovery,maintenance}]` | `local` | execute |
 | `evoctl update apply [-h] release` | `maintenance` | delegated |
 | `evoctl update check [-h] release` | `maintenance` | delegated |
 | `evoctl update status [-h]` | `maintenance` | delegated |
