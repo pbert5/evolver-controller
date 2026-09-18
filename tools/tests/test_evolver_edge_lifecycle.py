@@ -121,3 +121,15 @@ def test_unhealthy_final_state_is_not_reported_as_success(tmp_path: Path) -> Non
 
     assert result.returncode == 1
     assert "unhealthy" in result.stderr
+
+
+def test_restart_and_logs_use_only_the_canonical_service_name(tmp_path: Path) -> None:
+    restart = run_adapter(tmp_path / "restart", "restart", "hardware")
+    logs = run_adapter(tmp_path / "logs", "logs", "controller")
+
+    assert restart.returncode == 0, restart.stderr
+    assert logs.returncode == 0, logs.stderr
+    restart_command = next(call for call in restart.calls if "restart" in call)
+    logs_command = next(call for call in logs.calls if "logs" in call)
+    assert restart_command[-2:] == ["restart", "evolver-hardware"]
+    assert logs_command[-2:] == ["-f", "evolver-controller"]
