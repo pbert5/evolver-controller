@@ -300,6 +300,7 @@ def build_parser() -> argparse.ArgumentParser:
     validation.add_argument("--parameters", default="{}", help="JSON operation parameters")
     tui = commands.add_parser("tui", help="run the local configured Textual operator UI")
     tui.add_argument("--page", choices=("overview", "controllers", "instruments", "runs", "recovery", "maintenance"), default="overview")
+    tui.add_argument("--workflow", action="store_true", help="open the multi-tab Workflow workspace")
     update = commands.add_parser("update", help="inspect or apply a local controller software release")
     update_sub = update.add_subparsers(dest="update_command", required=True)
     update_sub.add_parser("status")
@@ -497,7 +498,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "tui" and not args.offline:
         from .tui import TUIUnavailableError, run
         try:
-            return run(OperatorClient(args.operator_socket), page=args.page)
+            return run(OperatorClient(args.operator_socket), page=args.page, workflow=args.workflow)
         except TUIUnavailableError as error:
             print(str(error), file=sys.stderr)
             return 2
