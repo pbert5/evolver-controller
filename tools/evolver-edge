@@ -29,7 +29,7 @@ service_name() {
 
 require_host_runtime() {
   [[ "${EVOLVER_EDGE_HOST_RUNTIME:-1}" != 0 ]] || die 'host runtime is denied'
-  if [[ "${EVOLVER_EDGE_HOST_RUNTIME:-}" != 1 && ( -e /.dockerenv || -n "${container:-}" ) ]]; then
+  if [[ ( -e /.dockerenv || -n "${container:-}" ) && ! -S /var/run/docker.sock ]]; then
     die 'host runtime is denied from inside a container'
   fi
   command -v docker >/dev/null 2>&1 || die 'host runtime requires docker'
@@ -57,11 +57,12 @@ require_running() {
   for service in "${targets[@]}"; do
     line=$(printf '%s\n' "$output" | awk -v service="$service" '$1 == service { print; exit }')
     [[ -n "$line" ]] || { echo "final state missing $service" >&2; return 1; }
-    if printf '%s\n' "$line" | grep -Eiq 'unhealthy|starting|exited|dead|created|stopped'; then
+    if [[ "$(printf '%s\n' "$line" | awk '{print tolower($2)}')" =~ ^(exited|dead|created|stopped|restarting|paused)$ ]]; then
       echo "final state for $service is not healthy: $line" >&2
       return 1
     fi
-    printf '%s\n' "$line" | grep -Eiq 'up|running' || {
+    [[ "$(printf '%s\n' "$line" | awk '{print tolower($2)}')" =~ ^(up|running)$ ]] &&
+      [[ "$(printf '%s\n' "$line" | awk '{print tolower($3)}')" == healthy ]] || {
       echo "final state for $service is not running: $line" >&2
       return 1
     }
@@ -76,7 +77,7 @@ require_stopped() {
   for service in "${targets[@]}"; do
     line=$(printf '%s\n' "$output" | awk -v service="$service" '$1 == service { print; exit }')
     [[ -z "$line" ]] && continue
-    if printf '%s\n' "$line" | grep -Eiq 'up|running'; then
+    if [[ "$(printf '%s\n' "$line" | awk '{print tolower($2)}')" =~ ^(up|running|restarting|created|paused)$ ]]; then
       echo "final state for $service is still running: $line" >&2
       return 1
     fi
@@ -95,7 +96,7 @@ final_state() {
   case "$mode" in
     running) require_running "$output" "$@" ;;
     stopped) require_stopped "$output" "$@" ;;
-    absent) ! printf '%s\n' "$output" | grep -Eiq 'up|running' ;;
+    absent) ! printf '%s\n' "$output" | grep -Eiq $'\t(up|running|restarting|created|paused)\t' ;;
   esac
 }
 

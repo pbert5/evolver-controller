@@ -9,7 +9,7 @@ ROOT = Path(__file__).parents[2]
 SCRIPT = ROOT / "tools/evolver-edge"
 
 
-def fake_runtime(tmp_path: Path, *, ps_output: str = "evolver-controller\tUp (healthy)\nevolver-hardware\tUp (healthy)\n") -> tuple[Path, Path]:
+def fake_runtime(tmp_path: Path, *, ps_output: str = "evolver-controller\tUp\thealthy\nevolver-hardware\tUp\thealthy\n") -> tuple[Path, Path]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(parents=True)
     calls = tmp_path / "calls.jsonl"
@@ -64,7 +64,7 @@ def test_stop_and_down_are_distinct_and_down_preserves_volumes(tmp_path: Path) -
     stop = run_adapter(
         tmp_path / "stop",
         "stop",
-        ps_output="evolver-controller\tExited (0)\nevolver-hardware\tExited (0)\n",
+        ps_output="evolver-controller\tExited\tnone\nevolver-hardware\tExited\tnone\n",
     )
     down = run_adapter(tmp_path / "down", "down", ps_output="")
 
@@ -82,7 +82,7 @@ def test_stop_can_target_one_allowlisted_service_without_stopping_the_other(tmp_
         tmp_path,
         "stop",
         "controller",
-        ps_output="evolver-controller\tExited (0)\nevolver-hardware\tUp (healthy)\n",
+        ps_output="evolver-controller\tExited\tnone\nevolver-hardware\tUp\thealthy\n",
     )
 
     assert result.returncode == 0, result.stderr
@@ -116,11 +116,43 @@ def test_unhealthy_final_state_is_not_reported_as_success(tmp_path: Path) -> Non
     result = run_adapter(
         tmp_path,
         "up",
-        ps_output="evolver-controller\tUp (unhealthy)\nevolver-hardware\tUp (healthy)\n",
+        ps_output="evolver-controller\tUp\tunhealthy\nevolver-hardware\tUp\thealthy\n",
     )
 
     assert result.returncode == 1
     assert "unhealthy" in result.stderr
+
+
+def test_running_without_explicit_healthy_health_is_not_success(tmp_path: Path) -> None:
+    result = run_adapter(
+        tmp_path,
+        "up",
+        ps_output="evolver-controller\tUp\nevolver-hardware\tUp\thealthy\n",
+    )
+
+    assert result.returncode == 1
+    assert "not running" in result.stderr
+
+
+def test_stop_does_not_accept_a_transitional_restarting_state(tmp_path: Path) -> None:
+    result = run_adapter(
+        tmp_path,
+        "stop",
+        ps_output="evolver-controller\trestarting\tnone\nevolver-hardware\tExited\tnone\n",
+    )
+
+    assert result.returncode == 1
+    assert "still running" in result.stderr
+
+
+def test_down_does_not_report_success_while_a_service_is_restarting(tmp_path: Path) -> None:
+    result = run_adapter(
+        tmp_path,
+        "down",
+        ps_output="evolver-controller\trestarting\tnone\n",
+    )
+
+    assert result.returncode == 1
 
 
 def test_restart_and_logs_use_only_the_canonical_service_name(tmp_path: Path) -> None:
