@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+exec uv run --all-packages --all-extras python "$ROOT/tools/tui_test.py" "$@"

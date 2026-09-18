@@ -188,9 +188,13 @@ tui = [
     { name = "jsonschema" },
     { name = "textual" },
 ]
+workflow = [
+    { name = "evolver-procedure-runtime" },
+]
 
 [package.metadata]
 requires-dist = [
+    { name = "evolver-procedure-runtime", marker = "extra == 'workflow'", editable = "evolver/evolver-procedure-runtime" },
     { name = "jsonschema", marker = "extra == 'tui'", specifier = ">=4.18,<5" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
     { name = "pyserial", specifier = "==3.5" },
@@ -201,7 +205,7 @@ requires-dist = [
     { name = "textual", marker = "extra == 'tui'", specifier = ">=0.89,<2" },
     { name = "zstandard", specifier = "==0.25.0" },
 ]
-provides-extras = ["dev", "tui"]
+provides-extras = ["dev", "tui", "workflow"]
 
 [[package]]
 name = "evolver-hardware"
