@@ -16,6 +16,7 @@ steps:
   - id: capture
     kind: action
     action: {type: action, id: capture_measurement, version: 1}
+    correction: {mode: replaceable, kind: observation, invalidates: []}
     parameters:
       metric: thermistor_raw
       reference_temperature_c: {parameter_ref: reference_temperature_c}

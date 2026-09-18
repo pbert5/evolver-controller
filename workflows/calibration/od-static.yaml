@@ -1,0 +1,29 @@
+id: calibration.optical-density.static
+name: Static OD Calibration
+version: 1
+category: calibration
+description: Configure static optical-density sensing, capture reference points, and report evidence.
+parameters:
+  od_led_intensity: {type: integer, minimum: 0, maximum: 255}
+requirements:
+  capabilities: [optical_density_observation]
+  equipment: [od_reference_samples]
+stages:
+  - id: setup
+    procedure: {id: calibration.optical-density.static.start, version: 1}
+    cardinality: once
+    bindings:
+      od_led_intensity: {workflow_parameter: od_led_intensity}
+  - id: points
+    procedure: {id: calibration.optical-density.static.point, version: 1}
+    cardinality: repeatable
+    bindings:
+      od_led_intensity: {workflow_parameter: od_led_intensity}
+      reference_od: {instance_parameter: reference_od}
+  - id: review
+    procedure: {id: calibration.optical-density.review-reporting, version: 1}
+    cardinality: once
+metadata:
+  tags: [optical-density, static, calibration]
+  source: meta_bal.workflows.calibration
+  operator_notes: Static OD fitting is unavailable; review reports the evidence only.
