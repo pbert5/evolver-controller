@@ -39,3 +39,10 @@ def test_firmware_provenance_and_evidence_contract_are_frozen() -> None:
     assert "protocol ACK" in contract
     assert "thermal success" in contract
     assert "1..65535" in contract
+
+
+def test_workflow_host_prose_matches_reviewed_controller_consumer() -> None:
+    workflow_host = (ROOT / "docs/workflow-host-contract.md").read_text()
+    assert "integrated reviewed" in workflow_host
+    assert "consumer accepts the physical sink" in workflow_host
+    assert "still rejects the physical sink" not in workflow_host
