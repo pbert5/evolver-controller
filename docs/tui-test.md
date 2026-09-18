@@ -49,7 +49,13 @@ sleeps are not used.
    `./tools/tui-test list --json`, `./tools/tui-test smoke`, and
    `./tools/tui-test smoke --json`.
 3. Run one interactive check for every native page and one trusted scenario:
-   `./tools/tui-test shell --page overview` and
+   `./tools/tui-test shell --page overview`,
+   `./tools/tui-test shell --page controllers`,
+   `./tools/tui-test shell --page instruments`,
+   `./tools/tui-test shell --page runs`,
+   `./tools/tui-test shell --page recovery`,
+   `./tools/tui-test shell --page maintenance`,
+   `./tools/tui-test shell --page workflows`, and
    `./tools/tui-test workflow --scenario <scenario>`.
 4. Confirm no controller gitlink, hardware behavior, safe-stop semantics,
    credentials, deployment state, or protected branch was changed by #132.

@@ -47,6 +47,19 @@ def test_aggregate_keeps_success_and_failure_records() -> None:
     assert json.loads(result.to_json())["results"][1]["error"] == "boom"
 
 
+def test_json_aggregation_bounds_records_and_nested_evidence() -> None:
+    result = tui_test.aggregate_results(
+        tui_test.SurfaceResult(str(index), "action", "PASS", evidence={"payload": "x" * 1000})
+        for index in range(tui_test.MAX_JSON_RESULTS + 4)
+    )
+
+    payload = json.loads(result.to_json())
+    assert payload["record_count"] == tui_test.MAX_JSON_RESULTS + 4
+    assert payload["omitted_records"] == 4
+    assert len(payload["results"]) == tui_test.MAX_JSON_RESULTS
+    assert len(payload["results"][0]["evidence"]["payload"]) <= tui_test.MAX_JSON_TEXT + 1
+
+
 def test_injected_exception_is_not_converted_to_pass() -> None:
     def broken(_: object) -> None:
         raise RuntimeError("renderer exploded")

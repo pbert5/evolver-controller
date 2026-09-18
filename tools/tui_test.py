@@ -53,6 +53,9 @@ WORKFLOW_MODULES = (
     "meta_webui_application_backend.evolver_edge.evoctl_tui",
     "meta_webui_application_backend.evolver_edge.workflow_cli",
 )
+MAX_JSON_RESULTS = 128
+MAX_JSON_TEXT = 512
+MAX_JSON_COLLECTION = 32
 
 
 class SurfaceUnavailable(RuntimeError):
@@ -79,7 +82,8 @@ class SurfaceResult:
 
     def as_dict(self) -> dict[str, Any]:
         value = asdict(self)
-        value["evidence"] = dict(self.evidence or {})
+        value["error"] = _bound_value(self.error)
+        value["evidence"] = _bound_value(dict(self.evidence or {}))
         return value
 
 
@@ -92,14 +96,34 @@ class AggregateResult:
         return 0 if all(item.status == "PASS" for item in self.results) else 1
 
     def as_dict(self) -> dict[str, Any]:
+        records = self.results[:MAX_JSON_RESULTS]
         return {
             "schema_version": 2,
             "status": "PASS" if self.exit_code == 0 else "FAIL",
-            "results": [item.as_dict() for item in self.results],
+            "record_count": len(self.results),
+            "results": [item.as_dict() for item in records],
+            "omitted_records": max(0, len(self.results) - len(records)),
         }
 
     def to_json(self) -> str:
         return json.dumps(self.as_dict(), sort_keys=True, separators=(",", ":")) + "\n"
+
+
+def _bound_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return value if len(value) <= MAX_JSON_TEXT else value[:MAX_JSON_TEXT] + "…"
+    if isinstance(value, Mapping):
+        items = list(value.items())[:MAX_JSON_COLLECTION]
+        bounded = {str(key): _bound_value(item) for key, item in items}
+        if len(value) > len(items):
+            bounded["_omitted_keys"] = len(value) - len(items)
+        return bounded
+    if isinstance(value, (list, tuple)):
+        values = [_bound_value(item) for item in value[:MAX_JSON_COLLECTION]]
+        if len(value) > len(values):
+            values.append(f"… {len(value) - len(values)} items omitted")
+        return values
+    return value
 
 
 class FakeTuiSource:
@@ -297,45 +321,62 @@ def _run_pilot(app: Any, exercise: Callable[[Any, Any], Mapping[str, Any]]) -> M
     return result
 
 
-async def _native_interaction(app: Any, pilot: Any) -> Mapping[str, Any]:
+def _active_view(app: Any) -> str:
+    for attribute in ("current_view", "active_view", "view"):
+        value = getattr(app, attribute, None)
+        if isinstance(value, str):
+            return value.lower()
+    raise AssertionError("native app exposes no observable current_view/active_view/view")
+
+
+async def _native_interaction(app: Any, pilot: Any, expected_view: str, source: FakeTuiSource) -> Mapping[str, Any]:
+    if _active_view(app) != expected_view:
+        raise AssertionError(f"initial view is {_active_view(app)!r}, expected {expected_view!r}")
     for _ in range(len(VIEWS) + 2):
         await pilot.press("ctrl+right")
         await pilot.pause()
+    if _active_view(app) != expected_view:
+        raise AssertionError("top-level navigation did not cycle back to the initial view")
     await pilot.press("r")
     await pilot.pause()
+    operation = {"overview": "status", "controllers": "controllers", "instruments": "instruments", "runs": "runs", "recovery": "recovery", "maintenance": "maintenance", "workflows": "status"}[expected_view]
+    if not any(request.operation == operation for request in source.requests):
+        raise AssertionError(f"refresh did not request {operation}")
     await pilot.press("ctrl+left")
     await pilot.pause()
-    return {"renderer": type(app).__name__, "views": list(VIEWS), "settled": True}
+    return {"renderer": type(app).__name__, "view": expected_view, "refresh": operation, "settled": True}
 
 
 async def _workflow_interaction(app: Any, pilot: Any) -> Mapping[str, Any]:
+    if _active_view(app) != "workflows":
+        raise AssertionError("workflow mode did not open the native Workflows view")
     await pilot.press("ctrl+n")
+    await pilot.pause()
+    search = app.query_one("#workflow-search")
+    search.value = "temperature"
     await pilot.pause()
     await pilot.press(*tuple("temperature"))
     await pilot.pause()
     await pilot.press("enter")
     await pilot.pause()
     workspace = getattr(app, "workspace", None)
+    if workspace is None:
+        raise AssertionError("native Workflows view exposes no shared workflow workspace")
     current = getattr(workspace, "current", None)
     snapshot = getattr(current, "snapshot", None)
-    if snapshot is not None:
-        representations = set(getattr(snapshot, "representations", {}) or {})
-        drawer = set(getattr(snapshot, "drawer", {}) or {})
-        if representations and not {"Step", "Action", "API", "CLI", "Raw"}.issubset(representations):
-            raise AssertionError("workflow inspector projections are incomplete")
-        if drawer and not {"Info", "Inputs", "Safety", "Evidence", "Outputs", "Events"}.issubset(drawer):
-            raise AssertionError("workflow drawer projections are incomplete")
+    if snapshot is None:
+        raise AssertionError("workflow draft has no snapshot")
+    representations = set(getattr(snapshot, "representations", {}) or {})
+    drawer = set(getattr(snapshot, "drawer", {}) or {})
+    if not {"Step", "Action", "API", "CLI", "Raw"}.issubset(representations):
+        raise AssertionError("workflow inspector projections are incomplete")
+    if not {"Info", "Inputs", "Safety", "Evidence", "Outputs", "Events"}.issubset(drawer):
+        raise AssertionError("workflow drawer projections are incomplete")
     for mode in ("step", "action", "api", "cli", "raw"):
-        try:
-            app.query_one("#representations").active = f"representation-{mode}"
-        except Exception:
-            pass
+        app.query_one("#representations").active = f"representation-{mode}"
         await pilot.pause()
     for view in ("info", "inputs", "safety", "evidence", "outputs", "events"):
-        try:
-            app.query_one("#drawer-tabs").active = f"drawer-{view}"
-        except Exception:
-            pass
+        app.query_one("#drawer-tabs").active = f"drawer-{view}"
         await pilot.pause()
     for key in ("i", "escape", "a", "escape"):
         await pilot.press(key)
@@ -352,7 +393,7 @@ def _native_smoke_for_view(view: str) -> SurfaceResult:
     source = FakeTuiSource()
     try:
         app = create_native_app(source=source, initial_view=view)
-        evidence = _run_pilot(app, _native_interaction)
+        evidence = _run_pilot(app, lambda a, p: _native_interaction(a, p, view, source))
     except Exception as error:
         return SurfaceResult(f"native:{view}", "pilot", "FAIL", error=f"{type(error).__name__}: {error}")
     if source.mutation_requests:
@@ -365,17 +406,28 @@ def _source_error_smoke() -> SurfaceResult:
     source.fail_next("instruments")
     try:
         app = create_native_app(source=source, initial_view="instruments")
-        evidence = _run_pilot(app, _native_interaction)
+        evidence = _run_pilot(app, lambda a, p: _native_interaction(a, p, "instruments", source))
     except Exception as error:
         return SurfaceResult("native:source-error", "pilot", "FAIL", error=f"{type(error).__name__}: {error}")
     failed = any(request.operation == "instruments" for request in source.requests)
+    visible_error = any(token in _rendered_text(app).lower() for token in ("error", "failure"))
     return SurfaceResult(
         "native:source-error",
         "error-preservation",
-        "PASS" if failed else "FAIL",
-        error=None if failed else "injected source operation was not requested",
+        "PASS" if failed and visible_error else "FAIL",
+        error=None if failed and visible_error else "injected failure was not visible in the native app",
         evidence=evidence,
     )
+
+
+def _rendered_text(app: Any) -> str:
+    values = [str(getattr(app, attribute, "")) for attribute in ("last_error", "error", "status_message")]
+    for widget in getattr(app, "query", lambda *_: ())("*"):
+        try:
+            values.append(str(widget.render()))
+        except Exception:
+            continue
+    return "\n".join(values)
 
 
 def _workflow_smoke() -> list[SurfaceResult]:
