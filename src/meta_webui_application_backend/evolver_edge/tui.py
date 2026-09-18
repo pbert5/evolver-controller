@@ -81,9 +81,37 @@ def _run(*, page: str, source_resolver, offline: bool) -> int:
     return 0
 
 
-def run(client: OperatorClient, *, page: str = "overview") -> int:
+def run(client: OperatorClient, *, page: str = "overview", workflow: bool = False) -> int:
     """Run live TUI data through the shared local operator client."""
+    if workflow:
+        from .workflow_tui import run_textual
+        return run_textual(_workflow_host(client))
     return _run(page=page, source_resolver=_operator_source(client), offline=False)
+
+
+def _workflow_host(client: OperatorClient):
+    """Build the #55 production host from side-effect-free local projections."""
+    import os
+    from pathlib import Path
+    import yaml
+    from evolver_procedure_runtime import WorkflowLibrary, compile_procedure
+    from .workflow_host import HostContext, WorkflowHost, operator_safe_stop_authority, resolve_target
+
+    root = Path(os.environ.get("EVOLVER_WORKFLOW_ROOT", "workflows/calibration"))
+    descriptor_root = Path(os.environ.get("EVOLVER_PROCEDURE_ROOT", "workflows/examples"))
+    library = WorkflowLibrary.from_directories([root]) if root.is_dir() else WorkflowLibrary([])
+    procedures = {}
+    if descriptor_root.is_dir():
+        for path in sorted(descriptor_root.glob("*.yaml")):
+            document = yaml.safe_load(path.read_text(encoding="utf-8"))
+            procedures[(document["id"], document["version"])] = compile_procedure(document)
+    instruments = client.request("instruments")
+    identity = instruments[0].get("id", "controller") if instruments else "controller"
+    target = resolve_target(client, identity)
+    context = HostContext(target_identity=identity, controller_generation=target.generation)
+    return WorkflowHost(client, target=target, workflows=library, procedures=procedures,
+                        context=context,
+                        safe_stop_authority=operator_safe_stop_authority(client))
 
 
 def run_offline(store, *, page: str = "overview") -> int:
