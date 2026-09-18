@@ -127,7 +127,7 @@ def plan_calibrated_temperature(*, artifact: Mapping[str, Any], target_temperatu
     if len(matches) != 1:
         raise EdgeStoreError("temperature vial position is missing or ambiguous")
     position = matches[0].get("position_index")
-    if isinstance(position, bool) or not isinstance(position, int) or not 0 <= position <= 5:
+    if isinstance(position, bool) or not isinstance(position, int) or not 0 <= position <= 1:
         raise EdgeStoreError("temperature vial position has no bounded channel")
     coefficients = artifact.get("coefficients")
     calibration_range = artifact.get("calibration_range")
@@ -162,6 +162,7 @@ def plan_calibrated_temperature(*, artifact: Mapping[str, Any], target_temperatu
             "raw_target_adc": raw_target}, "calibration": {
                 "artifact_id": artifact["id"], "artifact_digest": artifact["artifact_digest"],
                 "calibration_fingerprint": artifact["artifact_digest"],
+                "hardware_fingerprint": artifact.get("hardware_fingerprint"),
                 "instrument_id": artifact["instrument_id"],
                 "vial_position_id": artifact["vial_position_id"],
                 "calibration_type": artifact["calibration_type"],

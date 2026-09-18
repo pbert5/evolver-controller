@@ -159,7 +159,33 @@ class HardwareIPCServer:
             target = request.get("target_identity")
             operator = request.get("operator")
             if not isinstance(target, str) or not isinstance(operator, str) or not operator: raise ValueError("operator and target_identity are required")
-            return self.service.command(operation, target, request.get("parameters") or {}, command_id=request.get("command_id", str(uuid4())),
+            parameters = dict(request.get("parameters") or {})
+            if operation == "set_temperature":
+                from .domain import plan_calibrated_temperature
+                calibration = parameters.get("calibration")
+                if not isinstance(calibration, dict):
+                    raise EdgeStoreError("temperature calibration provenance is required")
+                artifacts = [item for item in self.store.calibration_artifacts()
+                             if item.get("id") == calibration.get("artifact_id")]
+                if len(artifacts) != 1:
+                    raise EdgeStoreError("temperature calibration artifact is unavailable locally")
+                artifact = artifacts[0]
+                if (calibration.get("artifact_digest") != artifact.get("artifact_digest")
+                        or calibration.get("hardware_fingerprint") != artifact.get("hardware_fingerprint")):
+                    raise EdgeStoreError("temperature calibration artifact fingerprint mismatch")
+                instrument = self.store.instrument(artifact["instrument_id"])
+                if instrument.get("device_identity") != target:
+                    raise EdgeStoreError("temperature artifact instrument identity does not match target")
+                plan = plan_calibrated_temperature(artifact=artifact,
+                                                   target_temperature_c=calibration.get("requested_temperature_c"),
+                                                   instrument=instrument,
+                                                   vial_position_id=artifact["vial_position_id"])
+                if (parameters.get("channel") != plan["parameters"]["channel"]
+                        or parameters.get("raw_target_adc") != plan["parameters"]["raw_target_adc"]):
+                    raise EdgeStoreError("temperature target does not match immutable local artifact")
+                parameters = {**plan["parameters"], "temperature_c": plan["calibration"]["requested_temperature_c"],
+                              "calibration": plan["calibration"]}
+            return self.service.command(operation, target, parameters, command_id=request.get("command_id", str(uuid4())),
                                         operator=operator, lease_token=request.get("lease_token"), lease_owner=operator,
                                         require_lease=operation != "safe_stop",
                                         controller_generation=int(request.get("controller_generation", 0))).as_json()

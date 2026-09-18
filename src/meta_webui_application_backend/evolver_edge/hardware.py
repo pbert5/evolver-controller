@@ -702,6 +702,7 @@ class HardwareService(ReadOnlyHardwareService):
                 supported_channels = list(range(count)) if isinstance(count, int) and not isinstance(count, bool) and count >= 0 else None
             if (not isinstance(supported_channels, (list, tuple, set))
                     or any(isinstance(item, bool) or not isinstance(item, int) for item in supported_channels)
+                    or any(item < 0 or item > 1 for item in supported_channels)
                     or channel not in supported_channels):
                 raise ValueError("temperature channel is not supported by firmware capability")
             raw = p.get("raw_target_adc")
@@ -717,6 +718,8 @@ class HardwareService(ReadOnlyHardwareService):
                 for field in ("instrument_id", "vial_position_id", "calibration_type", "method", "method_version"):
                     if not isinstance(calibration[field], str) or not calibration[field]:
                         raise ValueError("temperature calibration identity is incomplete")
+                if not isinstance(calibration["hardware_fingerprint"], Mapping) or not calibration["hardware_fingerprint"]:
+                    raise ValueError("temperature hardware fingerprint is required")
                 reference_min, reference_max = float(calibration["reference_min"]), float(calibration["reference_max"])
                 raw_min, raw_max = int(calibration["raw_min"]), int(calibration["raw_max"])
             except (KeyError, TypeError, ValueError) as error:
