@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Mapping, Protocol
+import re
 
 
 STATUS_GLYPHS = {
@@ -17,6 +18,8 @@ STATUS_GLYPHS = {
     "PENDING": "○",
     "PAUSED": "⏸",
     "WAITING": "⏸",
+    "WAITING_ACTION": "⏸",
+    "WAITING_CONDITION": "⏸",
     "SUCCEEDED": "■✓",
     "COMPLETED": "■✓",
     "FAILED": "■F",
@@ -32,6 +35,10 @@ def _field(value: Any, name: str, default: Any = None) -> Any:
     if isinstance(value, Mapping):
         return value.get(name, default)
     return getattr(value, name, default)
+
+
+def _safe_dom_id(value: Any) -> str:
+    return re.sub(r"[^A-Za-z0-9_-]", "-", str(value))
 
 
 def semantic_status(status: str, *, attention: tuple[str, ...] = (), domain: str | None = None,
@@ -114,15 +121,18 @@ class WorkflowSessionLike(Protocol):
     def provide_parameter(self, name: str, value: Any) -> Any: ...
     def advance(self) -> Any: ...
     def abort(self, reason: str) -> Any: ...
+    def preflight(self, parameters: Mapping[str, Any] | None = None) -> Any: ...
 
 
 class RuntimeSessionAdapter:
     """Project a frozen runtime session into the renderer's read-only shape."""
 
-    def __init__(self, session: Any, workflow: Any):
-        self._session, self._workflow = session, workflow
+    def __init__(self, session: Any, workflow: Any, host: Any = None):
+        self._session, self._workflow, self._host = session, workflow, host
 
     def snapshot_for_ui(self) -> WorkflowSnapshot:
+        if self._host is not None and hasattr(self._host, "project_session_for_ui"):
+            return WorkflowSnapshot.from_mapping(self._host.project_session_for_ui(self._session))
         state = getattr(getattr(self._session, "state", None), "value", None) or getattr(self._session, "state", "READY")
         workflow_id = _field(self._workflow, "id", "workflow")
         title = _field(self._workflow, "title", workflow_id)
@@ -131,7 +141,17 @@ class RuntimeSessionAdapter:
                                 metadata={"source": "frozen-runtime"})
 
     def provide_parameter(self, name: str, value: Any) -> Any:
+        state = str(getattr(getattr(self._session, "state", None), "value", "")).lower()
+        if state == "created":
+            return self._session.provide_parameter(name, value)
+        if self._session.active_stage_id and self._session.active_instance_id:
+            instance = next(item for item in self._session.instances[self._session.active_stage_id]
+                            if item.id == self._session.active_instance_id)
+            return self._session.engine.provide_parameter(instance.procedure_session, name, value)
         return self._session.provide_parameter(name, value)
+
+    def preflight(self, parameters: Mapping[str, Any] | None = None) -> Any:
+        return self._session.preflight(parameters)
 
     def advance(self) -> Any:
         return self._session.advance()
@@ -201,7 +221,7 @@ class WorkflowWorkspace:
         # Constructing a session is side-effect free in the frozen runtime;
         # execution still requires the explicit Confirm + Continue/advance path.
         session = self.host.new_session(workflow)
-        session = session if hasattr(session, "snapshot_for_ui") else RuntimeSessionAdapter(session, workflow)
+        session = session if hasattr(session, "snapshot_for_ui") else RuntimeSessionAdapter(session, workflow, self.host)
         tab = WorkflowTab(tab_id, workflow, session=session, draft=True)
         self.tabs.append(tab)
         self.active_index = len(self.tabs) - 1
@@ -213,7 +233,7 @@ class WorkflowWorkspace:
             raise ValueError("the library is not a workflow session")
         if tab.session is None:
             session = self.host.new_session(tab.workflow)
-            tab.session = session if hasattr(session, "snapshot_for_ui") else RuntimeSessionAdapter(session, tab.workflow)
+            tab.session = session if hasattr(session, "snapshot_for_ui") else RuntimeSessionAdapter(session, tab.workflow, self.host)
             tab.draft = False
         return tab
 
@@ -229,15 +249,21 @@ class WorkflowWorkspace:
         tab = self._tab(tab_id)
         if tab.session is None:
             session = self.host.new_session(tab.workflow)
-            tab.session = session if hasattr(session, "snapshot_for_ui") else RuntimeSessionAdapter(session, tab.workflow)
+            tab.session = session if hasattr(session, "snapshot_for_ui") else RuntimeSessionAdapter(session, tab.workflow, self.host)
         assert tab.session is not None
         for name, value in values.items():
+            coerce = getattr(self.host, "coerce_session_input", None)
+            if callable(coerce) and hasattr(tab.session, "_session"):
+                value = coerce(tab.session._session, name, value)
             tab.session.provide_parameter(name, value)
 
     def confirm_inputs(self, tab_id: str) -> Any:
         tab = self._tab(tab_id)
         if tab.session is None:
             raise ValueError("session has not been started")
+        raw = getattr(tab.session, "_session", tab.session)
+        if str(getattr(getattr(raw, "state", None), "value", "")).lower() == "created":
+            tab.session.preflight()
         return tab.session.advance()
 
     def close_current(self, *, abort: bool = False) -> CloseDecision:
@@ -245,10 +271,21 @@ class WorkflowWorkspace:
         if tab.tab_id == "library":
             return CloseDecision.UNSUPPORTED
         snapshot = tab.snapshot
-        if snapshot.status.upper() in {"RUNNING", "WAITING", "PAUSED"} and not abort:
+        live = snapshot.status.upper() in {"RUNNING", "WAITING", "WAITING_INPUT", "WAITING_ACTION",
+                                           "WAITING_CONDITION", "PAUSED", "READY", "PREFLIGHTED"}
+        if live and not abort:
             return CloseDecision.RETURN
         if abort and tab.session is not None:
-            tab.session.abort("operator closed workflow tab")
+            can_abort = getattr(self.host, "can_abort", None)
+            raw = getattr(tab.session, "_session", tab.session)
+            if callable(can_abort) and not can_abort(raw):
+                return CloseDecision.RETURN
+            try:
+                result = tab.session.abort("operator closed workflow tab")
+            except Exception:
+                return CloseDecision.RETURN
+            if live and getattr(raw, "state", None) is not None and str(getattr(raw.state, "value", raw.state)).lower() != "aborted":
+                return CloseDecision.RETURN
         self.tabs.pop(self.active_index)
         self.active_index = min(self.active_index, len(self.tabs) - 1)
         return CloseDecision.CLOSED
@@ -279,12 +316,20 @@ class WorkflowWorkspace:
         tab = self._tab(tab_id)
         if tab.session is None:
             raise ValueError("session has not been started")
+        coerce = getattr(self.host, "coerce_input", None)
+        project = getattr(self.host, "project_stage_instances", None)
+        if callable(coerce) and callable(project) and hasattr(tab.session, "_session"):
+            stage_projection = project(tab.session._session, stage_id)
+            schemas = {item.name: item.schema for item in stage_projection.parameters}
+            values = {name: coerce(value, schemas[name]) if name in schemas else value
+                      for name, value in values.items()}
         add = getattr(self.host, "add_stage_instance", None)
         if add is None:
             add = getattr(tab.session, "add_instance", None)
         if add is None:
             raise ValueError("stage instances are unavailable")
-        return add(tab.session, stage_id, values) if callable(getattr(self.host, "add_stage_instance", None)) else add(stage_id, values)
+        active_session = getattr(tab.session, "_session", tab.session)
+        return add(active_session, stage_id, values) if callable(getattr(self.host, "add_stage_instance", None)) else add(stage_id, values)
 
     def input_schema(self) -> tuple[Mapping[str, Any], ...]:
         """Return the session-projected fields without interpreting them."""
@@ -344,7 +389,7 @@ def create_textual_app(host: WorkflowHostLike):
             await choices.remove_children()
             for item in self.workspace.workflows(self.query_one("#workflow-search", Input).value if self.is_mounted else ""):
                 ident = str(_field(item, "id", ""))
-                choices.append(ListItem(Label(str(_field(item, "title", ident))), id=f"choice-{ident}"))
+                choices.append(ListItem(Label(str(_field(item, "title", ident))), id=f"choice-{_safe_dom_id(ident)}"))
 
         async def on_input_changed(self, event: Input.Changed) -> None:
             if event.input.id == "workflow-search":
@@ -359,7 +404,10 @@ def create_textual_app(host: WorkflowHostLike):
             choices = self.query_one("#workflow-choices", ListView)
             item = choices.highlighted_child or (choices.children[0] if choices.children else None)
             if item is not None:
-                self.dismiss((item.id or "").removeprefix("choice-"))
+                safe_id = (item.id or "").removeprefix("choice-")
+                workflow = next((candidate for candidate in self.workspace.workflows()
+                                 if _safe_dom_id(_field(candidate, "id", "")) == safe_id), None)
+                self.dismiss(_field(workflow, "id", safe_id))
 
         def on_key(self, event: Any) -> None:
             if event.key == "enter":
@@ -367,7 +415,10 @@ def create_textual_app(host: WorkflowHostLike):
                 event.stop()
 
         def on_list_view_selected(self, event: ListView.Selected) -> None:
-            ident = (event.item.id or "").removeprefix("choice-")
+            safe_id = (event.item.id or "").removeprefix("choice-")
+            workflow = next((candidate for candidate in self.workspace.workflows()
+                             if _safe_dom_id(_field(candidate, "id", "")) == safe_id), None)
+            ident = _field(workflow, "id", safe_id)
             if ident:
                 self.dismiss(ident)
 
@@ -375,7 +426,10 @@ def create_textual_app(host: WorkflowHostLike):
             choices = self.query_one("#workflow-choices", ListView)
             item = choices.highlighted_child or (choices.children[0] if choices.children else None)
             if item is not None:
-                self.dismiss((item.id or "").removeprefix("choice-"))
+                safe_id = (item.id or "").removeprefix("choice-")
+                workflow = next((candidate for candidate in self.workspace.workflows()
+                                 if _safe_dom_id(_field(candidate, "id", "")) == safe_id), None)
+                self.dismiss(_field(workflow, "id", safe_id))
 
         def key_escape(self) -> None:
             self.dismiss(None)
@@ -509,7 +563,7 @@ def create_textual_app(host: WorkflowHostLike):
             if tab.tab_id == "library":
                 for item in self.workspace.workflows():
                     workflow_id = _field(item, "id", "")
-                    library.append(ListItem(Label(f"○ {_field(item, 'title', workflow_id)}"), id=f"workflow-{workflow_id}"))
+                    library.append(ListItem(Label(f"○ {_field(item, 'title', workflow_id)}"), id=f"workflow-{_safe_dom_id(workflow_id)}"))
             else:
                 library.append(ListItem(Label(f"{tab.snapshot.status_glyph} {tab.snapshot.title}")))
             procedure = self.query_one("#procedure", Tree)
@@ -520,8 +574,14 @@ def create_textual_app(host: WorkflowHostLike):
                 procedure.root.add("⚙ Initial Parameters", data={"id": "initial-parameters"})
                 for procedure_data in tab.snapshot.procedures:
                     node = procedure.root.add(f"{procedure_data.get('status', '○')} {procedure_data.get('title', procedure_data.get('id', 'Procedure'))}", data=procedure_data)
-                    for step in procedure_data.get("steps", ()):
-                        node.add(f"  {step.get('status', '○')} {step.get('title', step.get('id', 'Step'))}", data=step)
+                    instances = procedure_data.get("instances", ())
+                    for instance in instances:
+                        instance_node = node.add(f"{instance.get('status', '○')} {instance.get('title', instance.get('id', 'Instance'))}", data=instance)
+                        for step in instance.get("steps", ()):
+                            instance_node.add(f"{step.get('status', '○')} {step.get('title', step.get('id', 'Step'))}", data=step)
+                    if not instances:
+                        for step in procedure_data.get("steps", ()):
+                            node.add(f"  {step.get('status', '○')} {step.get('title', step.get('id', 'Step'))}", data=step)
             correction = semantic_copy(tab.snapshot.correction) if tab.snapshot.correction else "none"
             history = tab.snapshot.metadata.get("history", "session-local")
             self.query_one("#session", Static).update(
@@ -553,11 +613,14 @@ def create_textual_app(host: WorkflowHostLike):
         def on_list_view_selected(self, event: Any) -> None:
             item_id = getattr(event.item, "id", "") or ""
             if item_id.startswith("workflow-"):
-                self.workspace.open_workflow(item_id.removeprefix("workflow-"))
+                safe_id = item_id.removeprefix("workflow-")
+                workflow = next((candidate for candidate in self.workspace.workflows()
+                                 if _safe_dom_id(_field(candidate, "id", "")) == safe_id), None)
+                self.workspace.open_workflow(_field(workflow, "id", safe_id))
                 self.refresh_view()
 
         def action_close_workflow(self) -> None:
-            if self.workspace.current.snapshot.status.upper() in {"RUNNING", "WAITING", "PAUSED"}:
+            if self.workspace.current.snapshot.status.upper() in {"RUNNING", "WAITING", "WAITING_INPUT", "WAITING_ACTION", "WAITING_CONDITION", "PAUSED", "READY", "PREFLIGHTED"}:
                 self.push_screen(CloseModal(), self._close_decision)
             else:
                 self.workspace.close_current()
