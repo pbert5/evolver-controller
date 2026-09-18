@@ -25,6 +25,7 @@ STATUS_GLYPHS = {
 }
 ATTENTION_GLYPHS = {"input": "!📝", "choice": "!📝", "observation": "!🔎", "physical": "!👤"}
 DOMAIN_GLYPHS = {"temperature": "🌡", "calibration": "⚖"}
+CONNECTIVITY_GLYPHS = {"connected": "↔", "online": "↔", "degraded": "⚠", "offline": "×"}
 
 
 def _field(value: Any, name: str, default: Any = None) -> Any:
@@ -34,7 +35,8 @@ def _field(value: Any, name: str, default: Any = None) -> Any:
 
 
 def semantic_status(status: str, *, attention: tuple[str, ...] = (), domain: str | None = None,
-                    abort_kind: str | None = None, saved: bool = False, dirty: bool = False) -> str:
+                    abort_kind: str | None = None, saved: bool = False, dirty: bool = False,
+                    connectivity: str | None = None) -> str:
     """Render semantic state; color is intentionally not part of this contract."""
     state = status.upper()
     if state in {"ABORTED", "CANCELLED"} and abort_kind == "operator":
@@ -45,6 +47,8 @@ def semantic_status(status: str, *, attention: tuple[str, ...] = (), domain: str
     parts.extend(ATTENTION_GLYPHS[item] for item in attention if item in ATTENTION_GLYPHS)
     if domain in DOMAIN_GLYPHS:
         parts.append(DOMAIN_GLYPHS[domain])
+    if connectivity in CONNECTIVITY_GLYPHS:
+        parts.append(CONNECTIVITY_GLYPHS[connectivity])
     if saved:
         parts.append("💾")
     if dirty:
@@ -96,7 +100,7 @@ class WorkflowSnapshot:
     def status_glyph(self) -> str:
         return semantic_status(self.status, attention=self.attention, domain=self.metadata.get("domain"),
                                 abort_kind=self.metadata.get("abort_kind"), saved=self.metadata.get("saved", False),
-                                dirty=self.metadata.get("dirty", False))
+                                dirty=self.metadata.get("dirty", False), connectivity=self.metadata.get("connectivity"))
 
 
 class CloseDecision(str, Enum):
@@ -518,7 +522,14 @@ def create_textual_app(host: WorkflowHostLike):
                     node = procedure.root.add(f"{procedure_data.get('status', '○')} {procedure_data.get('title', procedure_data.get('id', 'Procedure'))}", data=procedure_data)
                     for step in procedure_data.get("steps", ()):
                         node.add(f"  {step.get('status', '○')} {step.get('title', step.get('id', 'Step'))}", data=step)
-            self.query_one("#session", Static).update(f"{tab.snapshot.status_glyph} {tab.snapshot.title}\nTarget: {tab.snapshot.metadata.get('target', 'unknown')}  {tab.snapshot.progress}  lease={tab.snapshot.lease}")
+            correction = semantic_copy(tab.snapshot.correction) if tab.snapshot.correction else "none"
+            history = tab.snapshot.metadata.get("history", "session-local")
+            self.query_one("#session", Static).update(
+                f"{tab.snapshot.status_glyph} {tab.snapshot.title}\n"
+                f"Target: {tab.snapshot.metadata.get('target', 'unknown')}  "
+                f"connectivity={tab.snapshot.metadata.get('connectivity', 'unknown')}  "
+                f"{tab.snapshot.progress}  lease={tab.snapshot.lease}\n"
+                f"Correction/retry: {correction}  history: {history}")
             for mode in ("Step", "Action", "API", "CLI", "Raw"):
                 self.query_one(f"#representation-value-{mode.lower()}", Static).update(semantic_copy(tab.snapshot.representations.get(mode, "Not available")))
             for view in ("Info", "Inputs", "Safety", "Evidence", "Outputs", "Events"):
