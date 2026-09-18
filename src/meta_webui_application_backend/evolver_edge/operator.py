@@ -10,7 +10,7 @@ import threading
 from uuid import uuid4
 from http import HTTPStatus
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Mapping
 
 from ..evolver_control.actions import dispatch as central_dispatch
 from .doctor import doctor_report
@@ -153,7 +153,44 @@ def _dispatch(store: EdgeStore, operation: str, params: dict[str, Any], *,
     if operation == "doctor":
         return doctor_report(store)
     if operation == "instrument":
-        _only(params, {"instrument_id"}, operation)
+        _only(params, {"action", "instrument_id", "sensor", "channel", "target_identity", "limit"}, operation)
+        action = params.get("action")
+        if action in {"status", "sensor_read"}:
+            if operator is None:
+                raise OperatorProtocolError("authenticated operator attribution is required", kind="unauthorized")
+            if "hardware_maintenance" not in operator.permissions:
+                raise OperatorProtocolError("hardware_maintenance permission is required", kind="forbidden")
+            if hardware_broker is None:
+                raise OperatorProtocolError("instrument read must be delegated to the hardware service",
+                                            kind="maintenance_delegated")
+            instrument = _instrument(store, params)
+            target_identity = params.get("target_identity") or instrument.get("device_identity")
+            if not isinstance(target_identity, str) or not target_identity:
+                raise OperatorProtocolError("instrument has no provisioned device identity", kind="not_found")
+            try:
+                if action == "status":
+                    return hardware_broker.status(operator=operator.subject, target_identity=target_identity)
+                sensor = _required_string(params, "sensor")
+                channel = params.get("channel")
+                if isinstance(channel, bool) or not isinstance(channel, int):
+                    raise OperatorProtocolError("channel must be an integer", kind="invalid_request")
+                return hardware_broker.read_sensor(operator=operator.subject, target_identity=target_identity,
+                                                  sensor=sensor, channel=channel)
+            except OperatorProtocolError:
+                raise
+            except Exception as error:
+                raise OperatorProtocolError(str(error), kind=getattr(error, "kind", "hardware_error")) from error
+        if action in {"telemetry_latest", "telemetry_list"}:
+            instrument = _instrument(store, params)
+            records = _cached_telemetry(store, instrument["id"])
+            if action == "telemetry_latest":
+                return records[-1] if records else None
+            limit = params.get("limit", 100)
+            if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+                raise OperatorProtocolError("limit must be an integer between 1 and 1000", kind="invalid_request")
+            return records[-limit:]
+        if action is not None:
+            raise OperatorProtocolError("instrument action is unsupported", kind="unsupported_operation")
         try:
             return store.instrument(_required_string(params, "instrument_id"))
         except KeyError as error:
@@ -271,6 +308,57 @@ def _required_string(params: dict[str, Any], name: str) -> str:
     if not isinstance(value, str) or not value:
         raise OperatorProtocolError(f"{name} must be a non-empty string", kind="invalid_request")
     return value
+
+
+def _instrument(store: EdgeStore, params: dict[str, Any]) -> dict[str, Any]:
+    instrument_id = params.get("instrument_id")
+    if instrument_id is not None and (not isinstance(instrument_id, str) or not instrument_id):
+        raise OperatorProtocolError("instrument_id must be a non-empty string", kind="invalid_request")
+    try:
+        if instrument_id is not None:
+            return store.instrument(instrument_id)
+        target = params.get("target_identity")
+        if isinstance(target, str) and target:
+            return next(item for item in store.list_instruments() if item.get("device_identity") == target)
+    except (KeyError, StopIteration) as error:
+        raise OperatorProtocolError("instrument not found", kind="not_found") from error
+    raise OperatorProtocolError("instrument_id or target_identity is required", kind="invalid_request")
+
+
+def _cached_telemetry(store: EdgeStore, instrument_id: str) -> list[dict[str, Any]]:
+    prefix = f"instrument:{instrument_id}:"
+    records = []
+    for stream in store.telemetry_streams():
+        for record in store.telemetry_after(stream):
+            payload = record.get("payload") if isinstance(record.get("payload"), Mapping) else {}
+            if stream.startswith(prefix) or payload.get("instrument_id") == instrument_id:
+                observations = []
+                vial_ids = payload.get("vial_position_ids") if isinstance(payload.get("vial_position_ids"), list) else []
+                for channel in range(len(vial_ids) or 1):
+                    vial_id = vial_ids[channel] if channel < len(vial_ids) and isinstance(vial_ids[channel], str) else None
+                    for key, metric in ((f"photodiode_adc_{channel}", "photodiode_raw"),
+                                        (f"thermistor_adc_{channel}", "thermistor_raw")):
+                        if isinstance(payload.get(key), (int, float)) and not isinstance(payload.get(key), bool):
+                            observations.append({"instrument_id": instrument_id,
+                                                  "controller_id": store.identity()["id"],
+                                                  "vial_position_id": vial_id, "channel": channel,
+                                                  "raw_metric": metric, "raw_value": payload[key],
+                                                  "derived_value": None, "unit": "ADC",
+                                                  "captured_at": record.get("captured_at"),
+                                                  "freshness": "cached", "source": "telemetry_store",
+                                                  "calibration": {"state": "not_calibrated",
+                                                                  "artifact_id": None, "artifact_digest": None},
+                                                  "evidence_level": "recorded"})
+                calibration_details = payload.get("calibration") if isinstance(payload.get("calibration"), Mapping) else {}
+                records.append({**record, "instrument_id": instrument_id,
+                                "controller_id": store.identity()["id"], "freshness": "cached",
+                                "source": "telemetry_store", "evidence_level": "recorded",
+                                "calibration": {"state": payload.get("calibration_state", "not_calibrated"),
+                                                "artifact_id": payload.get("calibration_artifact_id"),
+                                                "artifact_digest": payload.get("calibration_artifact_digest"),
+                                                "details": dict(calibration_details)},
+                                "observations": observations})
+    return sorted(records, key=lambda item: (item.get("captured_at") or "", item.get("sequence", 0)))
 
 
 def _operator_subject(operator: "OperatorIdentity | None") -> str:
