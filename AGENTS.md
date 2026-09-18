@@ -5,13 +5,33 @@
 The repository `.codex/config.toml` is the source of truth for workspace agent
 spawning. Keep `agents.enabled = true`, `agents.max_depth = 2`,
 `features.multi_agent = true`, and `agents.max_concurrent_threads_per_session =
-8`; preserve every named role in `.codex/agents/`. Use named stream-router roles
-for bounded hierarchical dispatch; `agents.max_depth` permits root -> router ->
-leaf while preventing deeper recursion. Use `features.hooks` for lifecycle
-hooks. `features.codex_hooks` is deprecated and must not be reintroduced. The
-`test-architect` role is read-only and may use shell tools for harmless
-repository reconnaissance; it must not edit, commit, push, or mutate runtime
-state.
+8`; preserve every named role in `.codex/agents/`. The normal hierarchy is one
+bookkeeping-only `primary-executor`, isolated first-order `workstream-owner`
+agents, and optional depth-2 specialists. A workstream owner may implement
+directly and becomes a local dispatcher only when decomposition is useful.
+`prompt-loader` keeps issue archaeology out of the executor context, while an
+independent completion checker treats owner output as a claim rather than proof.
+Use `features.hooks` for lifecycle hooks. `features.codex_hooks` is deprecated
+and must not be reintroduced. The `test-architect` role is read-only and may
+use shell tools for harmless repository reconnaissance; it must not edit,
+commit, push, or mutate runtime state.
+
+The primary executor must reserve capacity for each active owner's depth-2
+specialist and any required checker/auditor; never fill all eight session slots
+with owners that are waiting for children. Supervision is passive and
+infrequent: inspect lifecycle/output and wait with backoff, but do not send
+routine status-ping messages. Send input only for a changed constraint,
+owner-requested clarification, safety/resource conflict, or explicit unblock.
+
+Every owner exit posts a durable GitHub Session handoff and returns a compact
+terminal packet containing status, issue/branch/worktree/HEAD/PR, completed
+contract, claimed validation, handoff reference, blockers/follow-ups, and a
+Trust audit (confidence band, least-trusted claims, untested behavior,
+possible conflicts, and the next evidence that would reduce uncertainty).
+Independent verification is authoritative; confidence is not an acceptance
+criterion. PROMPT_READY reversible work does not require another design
+approval ceremony. Runtime/tooling defects are recorded as GitHub issues with
+the repository's canonical bug label when one is needed.
 
 # Repository agent guidance
 
