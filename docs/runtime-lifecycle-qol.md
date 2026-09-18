@@ -106,7 +106,7 @@ metactl server up
 metactl server stop
 metactl server down
 metactl server restart [SERVICE]
-metactl server logs [SERVICE]
+metactl server logs SERVICE
 metactl server upgrade
 ```
 
