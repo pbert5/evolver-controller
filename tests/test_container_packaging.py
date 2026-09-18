@@ -1,6 +1,7 @@
 from pathlib import Path
 import shutil
 import subprocess
+import tomllib
 
 import pytest
 
@@ -77,6 +78,17 @@ def test_dependency_manifest_matches_runtime_project_dependencies() -> None:
     for dependency in dependencies[:-1]:
         assert dependency in project
     assert "evolver-procedure-runtime==0.1.0" in project
+
+
+def test_tui_extra_declares_immutable_standalone_webui_packages() -> None:
+    metadata = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+
+    assert metadata["project"]["optional-dependencies"]["tui"] == [
+        "textual>=0.89,<2",
+        "jsonschema>=4.18,<5",
+        "meta-webui-config-compiler @ git+https://github.com/pbert5/meta-webui-config-compiler.git@f72b70fe227857a2b0584ed54204446f47f4c894",
+        "meta-webui-ui-runtime-textual @ git+https://github.com/pbert5/meta-webui-ui-runtime-textual.git@d5c4119371db927f3db823caa4ed8d9823edd372",
+    ]
 
 
 def test_dockerignore_keeps_packaging_inputs_and_excludes_non_runtime_files() -> None:

@@ -8,7 +8,12 @@ requires-python = ">=3.10"
 dependencies = ["pyserial==3.5", "zstandard==0.25.0", "psycopg[binary]>=3.1", "PyYAML>=6"]
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-xdist>=3.8", "pytest-cov>=6"]
-tui = ["textual>=0.89,<2", "jsonschema>=4.18,<5"]
+tui = [
+    "textual>=0.89,<2",
+    "jsonschema>=4.18,<5",
+    "meta-webui-config-compiler @ git+https://github.com/pbert5/meta-webui-config-compiler.git@f72b70fe227857a2b0584ed54204446f47f4c894",
+    "meta-webui-ui-runtime-textual @ git+https://github.com/pbert5/meta-webui-ui-runtime-textual.git@d5c4119371db927f3db823caa4ed8d9823edd372",
+]
 workflow = ["evolver-procedure-runtime==0.1.0"]
 [project.scripts]
 evoctl = "meta_webui_application_backend.evolver_edge.cli:main"
