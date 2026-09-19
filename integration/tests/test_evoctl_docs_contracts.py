@@ -83,7 +83,7 @@ def test_help_surface_keeps_operator_namespaces_visible():
     assert "--offline" in help_text
 
 
-def test_pending_lifecycle_inventory_is_explicit_and_attributed():
+def test_integrated_lifecycle_inventory_is_explicit_and_attributed():
     reference = REFERENCE.read_text(encoding="utf-8")
     for command in (
         "evoctl runtime status", "evoctl runtime up", "evoctl runtime stop",
@@ -92,8 +92,8 @@ def test_pending_lifecycle_inventory_is_explicit_and_attributed():
         "evoctl logs", "evoctl upgrade",
     ):
         assert f"`{command}`" in reference
-    assert "pending #114 / #112" in reference
-    assert "evoctl runtime status" not in {
+    assert "implemented #114 / #112" in reference
+    assert "evoctl runtime status" in {
         "evoctl " + " ".join(path) for path in _leaf_paths(_cli().build_parser())
     }
 

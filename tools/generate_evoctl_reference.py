@@ -24,27 +24,26 @@ guide; this file answers which parser spellings exist at the reviewed head.
 | --- | --- | --- |
 """
 LIFECYCLE_PENDING = """
-## Pending lifecycle integration inventory
+## Lifecycle integration inventory
 
-The following spellings are the #112/#114 coordination contract. They are
-intentionally marked pending because the reviewed #106 parser head does not
-implement them. The #108 integration owner must regenerate this section from
-the integrated lifecycle parser and preserve the existing `update` commands.
+The following spellings are the accepted #112/#114 lifecycle contract. They
+are implemented by the reviewed controller composite and remain distinct from
+the explicit `update` commands.
 
 | Command | Classification | Parser status |
 | --- | --- | --- |
-| `evoctl runtime status` | `live` | pending #114 / #112 |
-| `evoctl runtime up` | `maintenance` | pending #114 / #112 |
-| `evoctl runtime stop` | `maintenance` | pending #114 / #112 |
-| `evoctl runtime down` | `maintenance` | pending #114 / #112 |
-| `evoctl runtime restart` | `maintenance` | pending #114 / #112 |
-| `evoctl runtime logs` | `maintenance` | pending #114 / #112 |
-| `evoctl runtime upgrade` | `maintenance` | pending #114 / #112 |
-| `evoctl up` | `maintenance` | pending #114 / #112 |
-| `evoctl down` | `maintenance` | pending #114 / #112 |
-| `evoctl restart` | `maintenance` | pending #114 / #112 |
-| `evoctl logs` | `maintenance` | pending #114 / #112 |
-| `evoctl upgrade` | `maintenance` | pending #114 / #112 |
+| `evoctl runtime status` | `maintenance` | implemented #114 / #112 |
+| `evoctl runtime up` | `maintenance` | implemented #114 / #112 |
+| `evoctl runtime stop` | `maintenance` | implemented #114 / #112 |
+| `evoctl runtime down` | `maintenance` | implemented #114 / #112 |
+| `evoctl runtime restart` | `maintenance` | implemented #114 / #112 |
+| `evoctl runtime logs` | `maintenance` | implemented #114 / #112 |
+| `evoctl runtime upgrade` | `maintenance` | implemented #114 / #112 |
+| `evoctl up` | `maintenance` | implemented #114 / #112 |
+| `evoctl down` | `maintenance` | implemented #114 / #112 |
+| `evoctl restart` | `maintenance` | implemented #114 / #112 |
+| `evoctl logs` | `maintenance` | implemented #114 / #112 |
+| `evoctl upgrade` | `maintenance` | implemented #114 / #112 |
 """
 
 

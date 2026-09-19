@@ -54,39 +54,46 @@ guide; this file answers which parser spellings exist at the reviewed head.
 | `evoctl run stop [-h] [--based-on-revision BASED_ON_REVISION] run_id` | `live` | execute |
 | `evoctl run telemetry [-h] run_id` | `live` | execute |
 | `evoctl runs [-h]` | `live` | execute |
+| `evoctl runtime down [-h]` | `maintenance` | delegated |
+| `evoctl runtime logs [-h]` | `maintenance` | delegated |
+| `evoctl runtime restart [-h]` | `maintenance` | delegated |
+| `evoctl runtime status [-h]` | `maintenance` | delegated |
+| `evoctl runtime stop [-h]` | `maintenance` | delegated |
+| `evoctl runtime up [-h]` | `maintenance` | delegated |
+| `evoctl runtime upgrade [-h]` | `maintenance` | delegated |
 | `evoctl simulator create-run [-h] --bundle-id BUNDLE_ID --execution-plan EXECUTION_PLAN [--instruments INSTRUMENTS] run_id` | `local` | execute |
 | `evoctl simulator start [-h] [--instruments INSTRUMENTS]` | `local` | execute |
 | `evoctl simulator tick [-h] [--ticks TICKS] [--instruments INSTRUMENTS] run_id` | `local` | execute |
 | `evoctl status [-h]` | `live` | execute |
 | `evoctl sync [-h] [--loop] [--interval INTERVAL]` | `local` | execute |
-| `evoctl tui [-h] [--page {overview,controllers,instruments,runs,recovery,maintenance}]` | `local` | execute |
+| `evoctl tui [-h] [--page {overview,controllers,instruments,runs,recovery,maintenance,workflows}] [--workflow]` | `local` | execute |
 | `evoctl update apply [-h] release` | `maintenance` | delegated |
 | `evoctl update check [-h] release` | `maintenance` | delegated |
 | `evoctl update status [-h]` | `maintenance` | delegated |
+| `evoctl upgrade [-h]` | `maintenance` | delegated |
 | `evoctl validation [-h] [--parameters PARAMETERS] {safe_stop,pulse_pump,set_stir,pulse_heater}` | `local` | execute |
 | `evoctl workflow list [-h] [--search SEARCH]` | `live` | implemented parser path |
 | `evoctl workflow preflight [-h] [--parameter NAME=VALUE] [--target TARGET] [--simulator] [--jsonl] [--scenario {bounded_poll,central_disconnected,concurrent_sessions,correction_retry_stale,failure_cleanup,instrument_disconnected,library_browsing,multiple_concurrent_sessions,observation_required,physical_intervention,repeatable_calibration,successful_completion,unsupported_temperature,waiting_for_input}] [--operator OPERATOR] [--lease-token LEASE_TOKEN] [--physical] workflow_id` | `live` | implemented parser path |
 | `evoctl workflow run [-h] [--parameter NAME=VALUE] [--target TARGET] [--simulator] [--jsonl] [--scenario {bounded_poll,central_disconnected,concurrent_sessions,correction_retry_stale,failure_cleanup,instrument_disconnected,library_browsing,multiple_concurrent_sessions,observation_required,physical_intervention,repeatable_calibration,successful_completion,unsupported_temperature,waiting_for_input}] [--operator OPERATOR] [--lease-token LEASE_TOKEN] [--physical] workflow_id` | `live` | implemented parser path |
 | `evoctl workflow show [-h] workflow_id` | `live` | implemented parser path |
-## Pending lifecycle integration inventory
+## Lifecycle integration inventory
 
-The following spellings are the #112/#114 coordination contract. They are
-intentionally marked pending because the reviewed #106 parser head does not
-implement them. The #108 integration owner must regenerate this section from
-the integrated lifecycle parser and preserve the existing `update` commands.
+The following spellings are the accepted #112/#114 lifecycle contract. They
+are implemented by the reviewed controller composite and remain distinct from
+the explicit `update` commands.
 
 | Command | Classification | Parser status |
 | --- | --- | --- |
-| `evoctl runtime status` | `live` | pending #114 / #112 |
-| `evoctl runtime up` | `maintenance` | pending #114 / #112 |
-| `evoctl runtime stop` | `maintenance` | pending #114 / #112 |
-| `evoctl runtime down` | `maintenance` | pending #114 / #112 |
-| `evoctl runtime restart` | `maintenance` | pending #114 / #112 |
-| `evoctl runtime logs` | `maintenance` | pending #114 / #112 |
-| `evoctl runtime upgrade` | `maintenance` | pending #114 / #112 |
-| `evoctl up` | `maintenance` | pending #114 / #112 |
-| `evoctl down` | `maintenance` | pending #114 / #112 |
-| `evoctl restart` | `maintenance` | pending #114 / #112 |
-| `evoctl logs` | `maintenance` | pending #114 / #112 |
-| `evoctl upgrade` | `maintenance` | pending #114 / #112 |
+| `evoctl runtime status` | `maintenance` | implemented #114 / #112 |
+| `evoctl runtime up` | `maintenance` | implemented #114 / #112 |
+| `evoctl runtime stop` | `maintenance` | implemented #114 / #112 |
+| `evoctl runtime down` | `maintenance` | implemented #114 / #112 |
+| `evoctl runtime restart` | `maintenance` | implemented #114 / #112 |
+| `evoctl runtime logs` | `maintenance` | implemented #114 / #112 |
+| `evoctl runtime upgrade` | `maintenance` | implemented #114 / #112 |
+| `evoctl up` | `maintenance` | implemented #114 / #112 |
+| `evoctl down` | `maintenance` | implemented #114 / #112 |
+| `evoctl restart` | `maintenance` | implemented #114 / #112 |
+| `evoctl logs` | `maintenance` | implemented #114 / #112 |
+| `evoctl upgrade` | `maintenance` | implemented #114 / #112 |
 
