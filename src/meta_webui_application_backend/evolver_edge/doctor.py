@@ -10,8 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
-import shutil
-import subprocess
+import socket
 from pathlib import Path
 from typing import Any, Callable
 from urllib.request import Request, urlopen
@@ -24,12 +23,18 @@ HealthProbe = Callable[[str], tuple[bool, str]]
 
 
 def _service_status(unit: str) -> tuple[int, str]:
-    """Return a compact systemd state without raising on non-systemd hosts."""
-    if not shutil.which("systemctl"):
-        return 3, "systemctl is not installed"
-    result = subprocess.run(["systemctl", "is-active", unit], check=False,
-                            capture_output=True, text=True, timeout=5)
-    return result.returncode, (result.stdout.strip() or result.stderr.strip() or "unknown")
+    """Check the local service boundary without assuming a host supervisor."""
+    socket_path = (os.environ.get("EVOLVER_OPERATOR_SOCKET") if "controller" in unit
+                   else os.environ.get("EVOLVER_HARDWARE_SOCKET"))
+    socket_path = socket_path or ("/run/evolver-controller/operator.sock" if "controller" in unit
+                                  else "/run/evolver-controller/hardware.sock")
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+            connection.settimeout(1)
+            connection.connect(socket_path)
+        return 0, f"socket reachable: {socket_path}"
+    except OSError as error:
+        return 3, f"socket unavailable: {socket_path}: {error}"
 
 
 def _central_health(server_url: str) -> tuple[bool, str]:
@@ -69,7 +74,7 @@ def doctor_report(
 
     connection = identity.get("connection_state", "unknown")
     if connection == "recovery_required":
-        checks.append(_check("recovery_state", "FAIL", "recovery_required; inspect evolverctl recovery before resuming"))
+        checks.append(_check("recovery_state", "FAIL", "recovery_required; inspect evoctl recovery before resuming"))
     elif connection == "orphaned":
         checks.append(_check("recovery_state", "WARN", "orphaned; local execution remains authoritative until reconciliation"))
     else:
@@ -103,16 +108,9 @@ def doctor_report(
     streams = store.telemetry_streams()
     checks.append(_check("telemetry_spool", "PASS", f"{len(streams)} stream(s), {store.telemetry_spool_path}"))
 
-    if application_root:
-        app_root = application_root
-    elif os.environ.get("META_WEBUI_APPLICATION_ROOT"):
-        app_root = Path(os.environ["META_WEBUI_APPLICATION_ROOT"])
-    else:
-        candidates = (Path.cwd() / "applications" / "deployment", Path("/etc/meta-webui/applications/deployment"))
-        app_root = next((candidate for candidate in candidates if (candidate / "app.yaml").is_file()), candidates[0])
     textual_available = importlib.util.find_spec("textual") is not None
-    tui_ok = textual_available and (app_root / "app.yaml").is_file()
-    detail = str(app_root) if tui_ok else "Textual or application configuration is unavailable"
+    tui_ok = textual_available
+    detail = "controller-native Textual app available" if tui_ok else "controller TUI extra is unavailable"
     checks.append(_check("tui_runtime", "PASS" if tui_ok else "WARN", detail))
 
     installed = store.meta("controller_software_release")

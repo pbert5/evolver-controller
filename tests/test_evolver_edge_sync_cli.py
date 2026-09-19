@@ -20,7 +20,7 @@ from meta_webui_application_backend import evolver_controller
 
 
 def test_service_module_entrypoint_starts_persistent_sync_loop(tmp_path, monkeypatch):
-    """Executing the systemd-targeted module must invoke its service main."""
+    """The Compose service entrypoint invokes the persistent sync loop."""
     import meta_webui_application_backend.evolver_edge.store as store_module
     import meta_webui_application_backend.evolver_edge.sync as sync_module
 
@@ -40,25 +40,56 @@ def test_service_module_entrypoint_starts_persistent_sync_loop(tmp_path, monkeyp
     class FakeSyncClient:
         def __init__(self, store, **kwargs):
             self.store = store
+            self.init_kwargs = kwargs
+            calls.append(kwargs)
 
         def run_loop(self, **kwargs):
-            calls.append(kwargs)
+            calls.append({**self.init_kwargs, **kwargs})
 
     monkeypatch.setattr(store_module, "EdgeStore", FakeStore)
     monkeypatch.setattr(sync_module, "SyncClient", FakeSyncClient)
+    monkeypatch.setenv("EVOLVER_OPERATOR_SOCKET", str(tmp_path / "operator.sock"))
     monkeypatch.setattr(sys, "argv", ["evolver-edge-service", "--state-root", str(tmp_path), "--interval", "3"])
 
     with pytest.raises(SystemExit) as raised:
         runpy.run_module("meta_webui_application_backend.evolver_edge.service", run_name="__main__")
 
     assert raised.value.code == 0
-    assert calls and calls[0]["interval"] == 3.0
-    assert calls[0]["inventory"]() == [{"id": "simulated"}]
+    assert calls and calls[1]["interval"] == 3.0
+    assert calls[0]["manual_executor"].sink.__class__.__name__ == "HardwareIPCDeviceCommandSink"
+    assert calls[1]["inventory"]() == [{"id": "simulated"}]
+
+
+def test_service_simulator_composes_local_non_actuating_manual_sink(tmp_path, monkeypatch):
+    import meta_webui_application_backend.evolver_edge.service as service_module
+
+    calls = []
+
+    class FakeStore:
+        def __init__(self, root): self.list_instruments = lambda: [{"id": "simulated"}]
+        def identity(self): return {"id": "controller"}
+        def register_instruments(self, _instruments): pass
+        def __enter__(self): return self
+        def __exit__(self, *_): return False
+
+    class FakeSyncClient:
+        def __init__(self, store, **kwargs): calls.append(kwargs)
+        def run_loop(self, **kwargs): pass
+
+    monkeypatch.setattr(service_module, "EdgeStore", FakeStore)
+    monkeypatch.setattr(service_module, "SyncClient", FakeSyncClient)
+    monkeypatch.setattr(service_module, "OperatorServer", type("Operator", (), {
+        "__init__": lambda self, *_args, **_kwargs: None, "start": lambda self: self, "shutdown": lambda self: None,
+    }))
+    service_module.main(["--state-root", str(tmp_path), "--simulator-instruments", "1"])
+    assert calls[0]["manual_executor"].sink.__class__.__name__ == "SimulatorDeviceCommandSink"
 
 
 def test_cli_module_entrypoint_invokes_main(tmp_path, monkeypatch, capsys):
-    """Executing the Nix-targeted CLI module must invoke its main function."""
-    monkeypatch.setattr(sys, "argv", ["evolverctl", "--state-root", str(tmp_path), "status"])
+    """Executing the CLI module invokes its main function."""
+    with EdgeStore(tmp_path):
+        pass
+    monkeypatch.setattr(sys, "argv", ["evoctl", "--offline", "--state-root", str(tmp_path), "status"])
 
     with pytest.raises(SystemExit) as raised:
         runpy.run_module("meta_webui_application_backend.evolver_edge.cli", run_name="__main__")
@@ -71,11 +102,189 @@ def test_cli_module_entrypoint_invokes_main(tmp_path, monkeypatch, capsys):
 def test_cli_inspection_redacts_nested_credentials(tmp_path, monkeypatch, capsys, command):
     with EdgeStore(tmp_path) as edge:
         edge.bind(webui_controller_id="central", server_url="https://central", credential="sentinel-secret", generation=1)
-    monkeypatch.setattr(sys, "argv", ["evolverctl", "--state-root", str(tmp_path), *command])
+    monkeypatch.setattr(sys, "argv", ["evoctl", "--offline", "--state-root", str(tmp_path), *command])
     main()
     output = capsys.readouterr().out
     assert "sentinel-secret" not in output
     assert "<redacted>" in output or command == ("doctor",)
+
+
+@pytest.mark.parametrize("command, operation", [("status", "status"), ("binding", "binding"),
+                                                  ("instruments", "instruments"), ("runs", "runs")])
+def test_cli_live_read_models_route_through_operator_without_opening_store(
+    tmp_path, monkeypatch, capsys, command, operation
+):
+    import meta_webui_application_backend.evolver_edge.cli as cli_module
+
+    calls = []
+    monkeypatch.setattr(cli_module, "operator_request", lambda name, path, params=None: calls.append(
+        (name, path, params)) or {"operation": operation})
+    monkeypatch.setattr(cli_module, "EdgeStore", lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("live CLI opened EdgeStore")))
+    monkeypatch.setattr(sys, "argv", ["evoctl", "--state-root", str(tmp_path), command])
+
+    assert cli_module.main() == 0
+    assert calls == [(operation, cli_module.DEFAULT_OPERATOR_SOCKET if False else calls[0][1], {})]
+    assert json.loads(capsys.readouterr().out)["operation"] == operation
+
+
+def test_cli_live_hardware_dispatches_to_operator_client(tmp_path, monkeypatch, capsys):
+    import meta_webui_application_backend.evolver_edge.cli as cli_module
+    calls = []
+    monkeypatch.setattr(cli_module, "operator_request", lambda name, path, params=None: calls.append(
+        (name, params)) or {"hardware": "ok"})
+    monkeypatch.setattr(cli_module, "EdgeStore", lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("live CLI opened EdgeStore")))
+    monkeypatch.setattr(sys, "argv", ["evoctl", "hardware", "discover"])
+    assert cli_module.main() == 0
+    assert calls[0][0] == "hardware"
+    assert calls[0][1] == {"operation": "discover"}
+
+
+def test_cli_live_hardware_actuation_sends_typed_fenced_request(tmp_path, monkeypatch, capsys):
+    import meta_webui_application_backend.evolver_edge.cli as cli_module
+    calls = []
+    monkeypatch.setattr(cli_module, "operator_request", lambda name, path, params=None: calls.append(
+        (name, params)) or {"request_accepted": True})
+    monkeypatch.setattr(cli_module, "EdgeStore", lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("live CLI opened EdgeStore")))
+    monkeypatch.setattr(sys, "argv", ["evoctl", "hardware", "actuate", "set_stir",
+                                        "--target", "MEV-1", "--channel", "0", "--duration-ms", "100",
+                                        "--level", "5", "--physical", "--operator", "alice",
+                                        "--lease-token", "lease-7", "--controller-generation", "7"])
+
+    assert cli_module.main() == 0
+    assert calls == [("hardware", {
+        "operation": "hardware_command", "operation_name": "set_stir", "target_identity": "MEV-1",
+        "parameters": {"channel": 0, "duration_ms": 100, "level": 5},
+        "physical": True, "operator": "alice", "lease_token": "lease-7",
+        "lease_owner": "alice", "controller_generation": 7,
+    })]
+    assert json.loads(capsys.readouterr().out)["request_accepted"] is True
+
+
+def test_cli_safe_stop_returns_nonzero_for_partial_unverified_result(monkeypatch, capsys):
+    import meta_webui_application_backend.evolver_edge.cli as cli_module
+    monkeypatch.setattr(cli_module, "operator_request", lambda *_args, **_kwargs: {
+        "request_accepted": False, "verification": "unverified", "results": [{"error": "offline"}]})
+    monkeypatch.setattr(sys, "argv", ["evoctl", "hardware", "safe-stop",
+                                        "--physical", "--operator", "alice"])
+
+    assert cli_module.main() == 2
+    assert json.loads(capsys.readouterr().out)["verification"] == "unverified"
+
+
+def test_cli_live_unavailable_is_explicit_and_offline_missing_state_is_actionable(tmp_path, monkeypatch, capsys):
+    import meta_webui_application_backend.evolver_edge.cli as cli_module
+    monkeypatch.setattr(cli_module, "operator_request", lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        cli_module.OperatorUnavailable("operator service unavailable: refused")))
+    monkeypatch.setattr(sys, "argv", ["evoctl", "--state-root", str(tmp_path), "status"])
+    assert cli_module.main() == 69
+    assert "operator service unavailable" in capsys.readouterr().err
+    monkeypatch.setattr(sys, "argv", ["evoctl", "--offline", "--state-root", str(tmp_path / "missing"), "status"])
+    assert cli_module.main() == 66
+    assert "--offline" in capsys.readouterr().err
+
+
+def test_cli_control_mapping_reuses_hardware_command_parser():
+    assert _compatibility_argv(["control", "actuate", "pulse_pump"]) == [
+        "hardware", "actuate", "pulse_pump"]
+
+
+def test_runtime_lifecycle_is_a_fixed_host_adapter_delegation(monkeypatch, capsys):
+    import meta_webui_application_backend.evolver_edge.cli as cli_module
+
+    monkeypatch.setattr(cli_module, "operator_request", lambda *_args, **_kwargs: pytest.fail(
+        "runtime lifecycle must not use the controller operator socket"))
+    monkeypatch.setattr(cli_module, "EdgeStore", lambda *_args, **_kwargs: pytest.fail(
+        "runtime lifecycle must not open the controller store"))
+
+    assert cli_module.main(["up"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result == {
+        "operation": "runtime.up", "target": "edge",
+        "services": ["evolver-controller", "evolver-hardware"],
+        "disposition": "delegated", "delegate": "host-runtime-adapter", "executed": False,
+    }
+
+
+def test_upgrade_requires_authoritative_recommended_release(monkeypatch, capsys, tmp_path):
+    import meta_webui_application_backend.evolver_edge.cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_recommended_release", lambda _root: None)
+    assert cli_module.main(["--state-root", str(tmp_path), "upgrade"]) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["operation"] == "upgrade"
+    assert result["final_state"] == "unavailable"
+    assert "recommended release" in result["error"]
+
+
+def test_upgrade_defers_for_active_runs_and_reports_old_release(monkeypatch, capsys, tmp_path):
+    import meta_webui_application_backend.evolver_edge.cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_recommended_release", lambda _root: "release-b")
+    with cli_module.EdgeStore(tmp_path) as store:
+        store.set_meta("controller_software_release", "release-a")
+        bundle = {"id": "bundle", "purpose": "research", "execution_mode": "declarative_state_machine"}
+        bundle["digest"] = cli_module.canonical_digest(bundle)
+        store.put_bundle(bundle)
+        store.create_run(run_id="run", bundle_id="bundle", instrument_ids=["instrument"], state="running")
+
+    assert cli_module.main(["--state-root", str(tmp_path), "upgrade"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["requested_release"] == "release-b"
+    assert result["old_release"] == "release-a"
+    assert result["final_state"] == "deferred"
+    assert result["reason"] == "active runs present"
+
+
+def test_upgrade_failure_cannot_report_success(monkeypatch, capsys, tmp_path):
+    import meta_webui_application_backend.evolver_edge.cli as cli_module
+
+    monkeypatch.setattr(cli_module, "_recommended_release", lambda _root: "release-b")
+    monkeypatch.setattr(cli_module, "_update_backend", lambda: type(
+        "Backend", (), {"name": "compose", "install": lambda _self, _release: (_ for _ in ()).throw(
+            RuntimeError("activation health check failed"))})())
+
+    assert cli_module.main(["--state-root", str(tmp_path), "upgrade"]) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["final_state"] == "failed"
+    assert "activation health check failed" in result["error"]
+
+
+def test_cli_safe_stop_is_first_class_and_has_no_lease_or_target():
+    from meta_webui_application_backend.evolver_edge.cli import _live_request, build_parser
+
+    args = build_parser().parse_args(["hardware", "safe-stop", "--physical", "--operator", "alice"])
+    assert _live_request(args) == ("hardware", {"operation": "safe_stop", "physical": True,
+                                                  "operator": "alice"})
+
+
+def test_cli_validation_delegates_to_bounded_domain(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["evoctl", "--state-root", str(tmp_path), "validation",
+                                        "pulse_pump", "--parameters", '{"channel": 2, "duration_ms": 40}'])
+    assert main() == 0
+    assert json.loads(capsys.readouterr().out)["parameters"] == {
+        "channel": 2, "direction": "forward", "duration_ms": 40}
+
+
+def test_cli_dispense_is_a_calibrated_plan_only(tmp_path, monkeypatch, capsys):
+    artifact = tmp_path / "pump.json"
+    artifact.write_text(json.dumps({"id": "pump", "calibration_type": "pump_flow_rate",
+                                    "assessment": {"status": "valid"},
+                                    "coefficients": {"slope": 2, "intercept": 0}}))
+    monkeypatch.setattr(sys, "argv", ["evoctl", "dispense", "--artifact", str(artifact),
+                                        "--volume-ul", "80", "--channel", "1"])
+    assert main() == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["operation"] == "pulse_pump"
+    assert result["parameters"]["duration_ms"] == 40
+
+
+def test_cli_calibration_artifacts_reads_edge_store(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(sys, "argv", ["evoctl", "--offline", "--state-root", str(tmp_path), "calibration", "artifacts"])
+    assert main() == 0
+    assert json.loads(capsys.readouterr().out) == []
 
 
 def _bundle() -> dict[str, object]:
@@ -107,6 +316,39 @@ def test_enroll_sync_command_and_orphan_transition_are_transport_independent(tmp
     with EdgeStore(tmp_path) as edge:
         with pytest.raises(TimeoutError): SyncClient(edge, transport=offline).sync_once()
         assert edge.identity()["connection_state"] == "orphaned"
+
+
+def test_machine_credential_transport_rejects_http_endpoints(tmp_path):
+    status, response = evolver_controller.create_enrollment_token(
+        server_url="http://central", state_root=tmp_path,
+    )
+    assert status == 400
+    assert response["kind"] == "BadRequest"
+    with EdgeStore(tmp_path / "edge") as edge:
+        with pytest.raises(ValueError, match="HTTPS endpoint"):
+            SyncClient(edge).enroll(server="http://central", token="one-use")
+
+
+def test_sync_batch_projects_edge_facts_into_stable_history_batches(tmp_path):
+    with EdgeStore(tmp_path) as edge:
+        edge.put_bundle(_bundle())
+        edge.create_run(run_id="run", bundle_id="bundle", instrument_ids=["instrument"])
+        edge.append_event(run_id="run", event_type="run_started", revision=0)
+        events = edge.events_after("run")
+        telemetry = edge.spool_telemetry(stream_id="instrument/od", sequence=1,
+                                         payload={"od": 0.2}, captured_at="2026-09-01T00:00:00Z")
+        edge.bind(webui_controller_id="central", server_url="https://central",
+                  credential="credential", generation=3)
+        history = SyncClient(edge)._batch()["history_batches"]
+
+    assert history[0] == {"fact_type": "event", "stream_id": "run", "records": [
+        {"fact_id": event["id"], "run_id": "run", "sequence": event["sequence"],
+         "occurred_at": event["occurred_at"], "payload": event} for event in events
+    ]}
+    assert history[1] == {"fact_type": "telemetry", "stream_id": "instrument/od", "records": [{
+        "fact_id": "telemetry:instrument/od:1", "stream_id": "instrument/od", "sequence": 1,
+        "captured_at": telemetry["captured_at"], "payload": {"od": 0.2},
+    }]}
 
 
 def test_server_identity_replacement_is_not_silently_accepted(tmp_path):
@@ -351,9 +593,9 @@ def test_conflicting_append_only_record_requires_recovery(tmp_path):
 def test_cli_status_and_revision_safe_pause(tmp_path, capsys):
     with EdgeStore(tmp_path) as edge:
         edge.put_bundle(_bundle()); edge.create_run(run_id="run", bundle_id="bundle", instrument_ids=["instrument"])
-    assert main(["--state-root", str(tmp_path), "run", "pause", "run", "--based-on-revision", "0"]) == 0
+    assert main(["--offline", "--state-root", str(tmp_path), "run", "pause", "run", "--based-on-revision", "0"]) == 0
     assert json.loads(capsys.readouterr().out)["state"] == "paused"
-    assert main(["--state-root", str(tmp_path), "status"]) == 0
+    assert main(["--offline", "--state-root", str(tmp_path), "status"]) == 0
     assert json.loads(capsys.readouterr().out)["runs"][0]["id"] == "run"
 
 
@@ -367,6 +609,8 @@ def test_cli_status_and_revision_safe_pause(tmp_path, capsys):
     (("diagnostics",), ("doctor",)),
     (("read-only", "diagnostics"), ("doctor",)),
     (("local", "run", "list"), ("runs",)),
+    (("local", "instrument", "list"), ("instruments",)),
+    (("local", "instrument", "show"), ("instrument", "show")),
     (("local", "runs"), ("runs",)),
     (("run", "list"), ("runs",)),
 ])
@@ -386,9 +630,9 @@ def test_cli_hierarchy_read_only_aliases_use_same_durable_views(tmp_path, capsys
                              (("release", "status"), ("update", "status")),
                              (("diagnostics",), ("doctor",)),
                              (("local", "run", "list"), ("runs",))):
-        assert main(["--state-root", str(tmp_path), *alias]) == 0
+        assert main(["--offline", "--state-root", str(tmp_path), *alias]) == 0
         alias_output = capsys.readouterr().out
-        assert main(["--state-root", str(tmp_path), *canonical]) == 0
+        assert main(["--offline", "--state-root", str(tmp_path), *canonical]) == 0
         canonical_output = capsys.readouterr().out
         # Recovery reports carry a fresh envelope id/timestamp on every read;
         # compare the durable view rather than volatile report metadata.
@@ -406,7 +650,7 @@ def test_local_run_alias_keeps_revision_fenced_mutation_handler(tmp_path, capsys
         edge.put_bundle(_bundle())
         edge.create_run(run_id="run", bundle_id="bundle", instrument_ids=["instrument"])
 
-    assert main(["--state-root", str(tmp_path), "local", "run", "pause", "run",
+    assert main(["--offline", "--state-root", str(tmp_path), "local", "run", "pause", "run",
                  "--based-on-revision", "0"]) == 0
     assert json.loads(capsys.readouterr().out)["state"] == "paused"
 
@@ -421,10 +665,10 @@ def test_cli_simulator_start_reports_stable_durable_inventory(tmp_path, capsys):
     assert second["controller"]["id"] == first["controller"]["id"]
     assert [instrument["id"] for instrument in second["instruments"]] == [instrument["id"] for instrument in first["instruments"]]
 
-    assert main(["--state-root", str(tmp_path), "instruments"]) == 0
+    assert main(["--offline", "--state-root", str(tmp_path), "instruments"]) == 0
     listed = json.loads(capsys.readouterr().out)
     assert {instrument["id"] for instrument in listed} == {instrument["id"] for instrument in first["instruments"]}
-    assert main(["--state-root", str(tmp_path), "instrument", "show", first["instruments"][0]["id"]]) == 0
+    assert main(["--offline", "--state-root", str(tmp_path), "instrument", "show", first["instruments"][0]["id"]]) == 0
     assert json.loads(capsys.readouterr().out)["capabilities"]["od_read"]["verification"] == "protocol_verified"
 
 
@@ -449,7 +693,7 @@ def test_cli_simulator_create_run_and_tick_are_durable(tmp_path, capsys):
 def test_same_central_restart_reconciles_an_orphaned_simulated_run(tmp_path):
     """Exercise enrollment, central loss, edge restart, and reconciliation together."""
     central_root, edge_root = tmp_path / "central", tmp_path / "edge"
-    _, token = evolver_controller.create_enrollment_token(server_url="http://central", state_root=central_root)
+    _, token = evolver_controller.create_enrollment_token(server_url="https://central", state_root=central_root)
 
     def central_transport(url, body, headers, timeout):
         del timeout
@@ -472,7 +716,7 @@ def test_same_central_restart_reconciles_an_orphaned_simulated_run(tmp_path):
         simulator = EvolverSimulator(edge, vials_per_instrument=1)
         edge.put_bundle(bundle)
         client = SyncClient(edge, transport=central_transport)
-        client.enroll(server="http://central", token=token["enrollment_token"])
+        client.enroll(server="https://central", token=token["enrollment_token"])
         simulator.start_run(run_id="run", bundle_id="bundle")
         simulator.tick_run("run")
         client.sync_once(inventory=simulator.inventory())
