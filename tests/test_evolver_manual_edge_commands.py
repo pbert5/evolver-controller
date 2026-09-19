@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from meta_webui_application_backend.evolver_edge import (
+from evolver_controller import (
     EdgeStore, HardwareIPCDeviceCommandSink, ManualCommandExecutor, SimulatorDeviceCommandSink, SyncClient,
 )
 

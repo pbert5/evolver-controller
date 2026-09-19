@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from meta_webui_application_backend.evolver_edge import (
+from evolver_controller import (
     CalibrationPreflightError,
     CommandInProgressError,
     EdgeStore,
@@ -12,8 +12,8 @@ from meta_webui_application_backend.evolver_edge import (
     calibration_artifact_digest,
     canonical_digest,
 )
-from meta_webui_application_backend.evolver_edge.store import EdgeStoreError
-from meta_webui_application_backend.evolver_edge.identity import (
+from evolver_controller.store import EdgeStoreError
+from evolver_controller.identity import (
     canonical_samd21_usb_serial, firmware_alias_for_usb_serial,
     samd21_hardware_fingerprint, validate_usb_match,
 )

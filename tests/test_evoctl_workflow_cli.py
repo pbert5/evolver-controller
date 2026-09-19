@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import json
 
-from meta_webui_application_backend.evolver_edge.workflow_cli import (
+from evolver_controller.workflow_cli import (
     SCENARIO_NAMES,
     ScenarioRegistry,
     WorkflowCLI,

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from meta_webui_application_backend.evolver_edge import EdgeStore, plan_calibrated_dispense
-from meta_webui_application_backend.evolver_edge.domain import validate_bounded_operation
-from meta_webui_application_backend.evolver_edge.store import EdgeStoreError
-from meta_webui_application_backend.evolver_edge.simulator import EvolverSimulator
+from evolver_controller import EdgeStore, plan_calibrated_dispense
+from evolver_controller.domain import validate_bounded_operation
+from evolver_controller.store import EdgeStoreError
+from evolver_controller.simulator import EvolverSimulator
 
 
 def test_measurements_and_activities_are_durable_and_idempotent(tmp_path):
@@ -45,7 +45,7 @@ def test_simulator_tick_projects_position_keyed_measurements(tmp_path):
                   "source": {"experiment_id": "e", "dataset_revision": "1", "created_at": "now"},
                   "resolved_definition": {"content": {}}, "execution_plan": {"content": {"states": {"run": {}}}},
                   "runtime_parameters": [], "source_metadata": []}
-        from meta_webui_application_backend.evolver_edge import canonical_digest
+        from evolver_controller import canonical_digest
         bundle["digest"] = canonical_digest(bundle)
         edge.put_bundle(bundle)
         run = simulator.start_run(run_id="r", bundle_id="b")
@@ -104,7 +104,7 @@ def test_calibrated_dispense_executes_with_provenance_or_rejects_without_actuati
                   "purpose": "test_fixture", "source": {"experiment_id": "e", "dataset_revision": "1", "created_at": "now"},
                   "resolved_definition": {"content": {}}, "execution_plan": {"content": {"states": {"run": {}}}},
                   "runtime_parameters": [], "source_metadata": [], "calibration_requirements": []}
-        from meta_webui_application_backend.evolver_edge import canonical_digest
+        from evolver_controller import canonical_digest
         bundle["digest"] = canonical_digest(bundle)
         edge.put_bundle(bundle)
         run = edge.create_run(run_id="dispense-run", bundle_id="dispense-b", instrument_ids=[instrument.id], state="running")

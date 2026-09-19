@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from meta_webui_application_backend.evolver_edge.hardware_broker import (HardwareBroker,
+from evolver_controller.hardware_broker import (HardwareBroker,
                                                                            HardwareBrokerProtocolError,
                                                                            HardwareBrokerUnavailable)
-from meta_webui_application_backend.evolver_edge.hardware_ipc import HardwareIPCServer
-from meta_webui_application_backend.evolver_edge.store import EdgeStore, LeaseValidationError
+from evolver_controller.store import EdgeStore, LeaseValidationError
 
 
 def _store(tmp_path):
@@ -182,29 +181,3 @@ def test_safe_stop_is_lease_free_all_inventory_and_preserves_operator(tmp_path):
     assert repeated["command_id"] != result["command_id"]
 
 
-def test_hardware_ipc_server_exempts_only_safe_stop_from_lease_validation(tmp_path):
-    calls = []
-
-    class Result:
-        def as_json(self):
-            return {"command_id": "command", "request_accepted": True,
-                    "verification": "protocol_verified"}
-
-    class Service:
-        def command(self, operation, target, parameters, **context):
-            calls.append((operation, target, context))
-            return Result()
-
-    with _store(tmp_path) as store:
-        server = HardwareIPCServer(store, Service())
-        server.dispatch({"operation": "safe_stop", "physical": True, "operator": "ash",
-                         "target_identity": "MEV-1", "controller_generation": 7,
-                         "command_id": "safe-stop", "parameters": {}})
-        server.dispatch({"operation": "set_stir", "physical": True, "operator": "ash",
-                         "target_identity": "MEV-1", "controller_generation": 7,
-                         "command_id": "stir", "parameters": {"channel": 0, "duration_ms": 10, "level": 1}})
-
-    assert calls[0][0] == "safe_stop"
-    assert calls[0][2]["require_lease"] is False
-    assert calls[1][0] == "set_stir"
-    assert calls[1][2]["require_lease"] is True

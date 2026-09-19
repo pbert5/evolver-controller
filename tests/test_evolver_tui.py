@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from meta_webui_application_backend.evolver_edge import EdgeStore
-from meta_webui_application_backend.evolver_edge.cli import build_parser
-from meta_webui_application_backend.evolver_edge.tui import (
+from evolver_controller import EdgeStore
+from evolver_controller.cli import build_parser
+from evolver_controller.tui import (
     LiveTuiSource,
     OfflineTuiSource,
     VIEW_NAMES,

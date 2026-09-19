@@ -4,7 +4,7 @@ import pytest
 
 from evolver_procedure_runtime import ActionRef, MutationOutcome, WorkflowLibrary
 
-from meta_webui_application_backend.evolver_edge.workflow_host import (
+from evolver_controller.workflow_host import (
     Availability,
     HostContext,
     ProcedureActionInvoker,
@@ -14,8 +14,8 @@ from meta_webui_application_backend.evolver_edge.workflow_host import (
     operator_safe_stop_authority,
     resolve_target,
 )
-from meta_webui_application_backend.evolver_edge.cli import build_parser
-from meta_webui_application_backend.evolver_edge.workflow_cli import ScenarioRegistry, production_host
+from evolver_controller.cli import build_parser
+from evolver_controller.workflow_cli import ScenarioRegistry, production_host
 
 
 class FakeOperator:
