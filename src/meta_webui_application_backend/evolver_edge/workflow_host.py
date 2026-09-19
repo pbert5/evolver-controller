@@ -194,6 +194,7 @@ _TRUSTED_ACTIONS = (
     "capture_measurement", "wait", "start_activity", "stop_activity",
     "request_observation", "evaluate_criteria", "emit_marker", "complete_run", "fail_run",
 )
+TRUSTED_ACTIONS = _TRUSTED_ACTIONS
 
 
 class ProcedureActionInvoker:
