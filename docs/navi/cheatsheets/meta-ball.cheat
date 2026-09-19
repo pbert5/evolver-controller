@@ -32,6 +32,22 @@ tools/dev-env evolver-edge up
 # Check the edge runtime status
 tools/dev-env evolver-edge exec evoctl status
 
+# Read the local operator CLI help
+tools/dev-env evolver-edge exec evoctl --help
+
+# Inspect instruments without actuating hardware
+tools/dev-env evolver-edge exec evoctl instrument list
+tools/dev-env evolver-edge exec evoctl instrument sensors read INSTRUMENT_ID temperature --channel 0
+tools/dev-env evolver-edge exec evoctl instrument telemetry latest INSTRUMENT_ID
+
+# Inspect trusted actions and run a read-only preflight
+tools/dev-env evolver-edge exec evoctl action list
+tools/dev-env evolver-edge exec evoctl action preflight capture_measurement --target INSTRUMENT_ID --parameters '{}'
+
+# Inspect workflows and run evidence-safe preflight
+tools/dev-env evolver-edge exec evoctl workflow list
+tools/dev-env evolver-edge exec evoctl workflow preflight WORKFLOW_ID --target INSTRUMENT_ID --parameter name=value
+
 # Show the repository worktree status
 git status --short --branch
 
