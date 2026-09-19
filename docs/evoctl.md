@@ -94,10 +94,10 @@ operator, confirmation, generation, lease, and physical-evidence checks.
 
 ## Runtime lifecycle QoL
 
-A first-class host-runtime convenience surface is planned in
+A first-class host-runtime convenience surface is documented in
 [Runtime Lifecycle QoL](runtime-lifecycle-qol.md) and tracked by issue #112.
 
-The planned `upgrade` command is deliberately distinct from the existing
+The governed `upgrade` command is deliberately distinct from the existing
 explicit release contract:
 
 ```text

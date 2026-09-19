@@ -28,12 +28,14 @@ The integrated pins are:
 | --- | --- | --- |
 | firmware source | `pbert5/evolver-arduino` PR #1 | `83483cda621a2e913ad778ae62294872084a507a` |
 | hardware | `pbert5/evolver-hardware` PR #2 | `78a17ebf90b64fea394a05a670ce6b58820fa377` |
-| controller | `pbert5/evolver-controller` PR #13 | `c9b1eb24e35a52f4f328793b3b4891a314b6ba25` |
+| controller historical #60 source | `pbert5/evolver-controller` PR #13 | `c9b1eb24e35a52f4f328793b3b4891a314b6ba25` |
 
 The final #103 native-TUI integration controller pin is
 `7ac90e4a2abb1dcf8b5065479a20d209a8a33171`; it is required to retain the
 temperature-setpoint head above and the reviewed native-TUI head
-`4f3b2205315d7f9bc3783d83a7ae26dc749cebf9` as ancestry.
+`4f3b2205315d7f9bc3783d83a7ae26dc749cebf9` as ancestry. The reviewed #151
+controller composite is `a915a733372c6682676c8c806b82a61200a4cb02`; the root
+integration pins that exact head after consuming accepted #108/#114 behavior.
 
 WorkflowHost availability must remain conservative: physical execution is
 available only for hardware protocol v2 plus a matching eligible calibration

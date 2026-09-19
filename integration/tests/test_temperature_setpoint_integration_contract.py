@@ -23,11 +23,12 @@ def test_reviewed_component_heads_and_final_lineage_are_pinned() -> None:
         ).strip()
     except subprocess.CalledProcessError:
         pytest.skip("container mount does not expose the worktree git metadata")
-    assert controller == "7ac90e4a2abb1dcf8b5065479a20d209a8a33171"
+    assert controller == "a915a733372c6682676c8c806b82a61200a4cb02"
     assert hardware == "78a17ebf90b64fea394a05a670ce6b58820fa377"
     for ancestor in (
         "c9b1eb24e35a52f4f328793b3b4891a314b6ba25",
         "4f3b2205315d7f9bc3783d83a7ae26dc749cebf9",
+        "7ac90e4a2abb1dcf8b5065479a20d209a8a33171",
     ):
         assert subprocess.run(
             ["git", "merge-base", "--is-ancestor", ancestor, controller],
