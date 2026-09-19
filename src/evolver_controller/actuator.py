@@ -12,7 +12,7 @@ import hashlib
 from typing import Any, Callable, Mapping, Protocol
 from uuid import NAMESPACE_URL, uuid5
 
-from .hardware import DEVICE_PROTOCOL_VERSION, HardwareService, validate_device_operation
+from .hardware_protocol import DEVICE_PROTOCOL_VERSION, validate_device_operation
 from .hardware_ipc import DEFAULT_SOCKET, request as hardware_ipc_request
 from .store import EdgeStore, EdgeStoreError, StaleGenerationError
 from .domain import plan_calibrated_dispense, plan_calibrated_temperature
@@ -451,12 +451,12 @@ class SimulatorDeviceCommandSink:
 
 
 class HardwareDeviceCommandSink:
-    """Adapter to the existing exclusive HardwareService boundary.
+    """Adapter to the separately packaged hardware service boundary.
 
     Meta owns no wire grammar here: the service performs protocol validation,
     lease fencing, frame construction, and transport dispatch.
     """
-    def __init__(self, store: EdgeStore, service: HardwareService) -> None:
+    def __init__(self, store: EdgeStore, service: Any) -> None:
         self.store, self.service = store, service
 
     def send(self, command: Mapping[str, Any]) -> Mapping[str, Any]:

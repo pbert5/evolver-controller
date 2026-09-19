@@ -8,17 +8,16 @@ import socketserver
 import stat
 import threading
 from uuid import uuid4
-from http import HTTPStatus
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping
 
-from ..evolver_control.actions import dispatch as central_dispatch
+
 from .doctor import doctor_report
 from .hardware_ipc import PROVISIONING_IPC_TIMEOUT_SECONDS
 from .store import EdgeStore
 
 if TYPE_CHECKING:
-    from ..evolver_controller import OperatorIdentity
+    from .operator_identity import OperatorIdentity
 
 DEFAULT_SOCKET = "/run/evolver-controller/operator.sock"
 PROTOCOL_VERSION = 1
@@ -131,14 +130,25 @@ def _dispatch(store: EdgeStore, operation: str, params: dict[str, Any], *,
                                             kind=getattr(error, "kind", "hardware_error")) from error
         if hardware_operation == "hardware_command":
             body["operation"] = params["operation_name"]
-        status, result = central_dispatch(
-            {"discover": "hardware_discover", "protocol_test": "hardware_protocol_test",
-             "hardware_command": "hardware_command"}[hardware_operation],
-            body, operator=operator, hardware_broker=hardware_broker, state_root=store.root)
-        if status is not HTTPStatus.OK:
-            raise OperatorProtocolError(result.get("error", "hardware operation failed"),
-                                        kind=result.get("kind", "hardware_error"))
-        return result
+        if hardware_broker is None:
+            raise OperatorProtocolError("hardware operation requires the controller broker", kind="hardware_error")
+        try:
+            if hardware_operation == "discover":
+                return hardware_broker.discover(operator=operator.subject)
+            if hardware_operation == "protocol_test":
+                return hardware_broker.protocol_test(operator=operator.subject,
+                                                     target_identity=body.get("target_identity"))
+            return hardware_broker.command(
+                body["operation_name"], operator=operator.subject,
+                target_identity=body["target_identity"], parameters=body["parameters"],
+                lease_token=body.get("lease_token"),
+                controller_generation=body.get("controller_generation"),
+                physical=body.get("physical", False), command_id=body.get("command_id"))
+        except Exception as error:
+            kind = getattr(error, "kind", "HardwareError")
+            if kind in {"hardware", "hardware_error"}:
+                kind = "HardwareError"
+            raise OperatorProtocolError(str(error), kind=kind) from error
     if operation == "capabilities":
         return {"protocol_version": PROTOCOL_VERSION, "operations": OPERATION_METADATA,
                 "read_only": False, "transport": "unix"}

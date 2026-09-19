@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any, Callable, Mapping
 from uuid import uuid4
 
-from .hardware import ACTUATOR_BOUNDS, validate_device_operation
+from .hardware_protocol import ACTUATOR_BOUNDS, validate_device_operation
 from .hardware_ipc import DEFAULT_IPC_TIMEOUT_SECONDS, request as ipc_request
 from .store import EdgeStore, EdgeStoreError
 

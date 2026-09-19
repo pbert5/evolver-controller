@@ -11,9 +11,9 @@ from http import HTTPStatus
 from pathlib import Path
 from typing import Any
 
-from .bundle import resolve_bundle
+from .bundle import canonical_digest, validate_bundle
 from .domain import plan_calibrated_dispense, validate_bounded_operation
-from .store import EdgeStore, EdgeStoreError, canonical_digest
+from .store import EdgeStore, EdgeStoreError
 from .sync import SyncClient
 from .install import inspect_installation
 from .lifecycle import plan_lifecycle
@@ -862,9 +862,11 @@ def main(argv: list[str] | None = None) -> int:
                     plan = json.loads(args.execution_plan)
                 except json.JSONDecodeError as error:
                     _emit({"error": f"execution plan must be JSON: {error}"}); return 2
-                bundle = resolve_bundle({"id": args.bundle_id, "purpose": "test_fixture",
-                                         "execution_mode": "declarative_state_machine", "execution_plan": plan,
-                                         "calibration_requirements": []}, [])
+                bundle = {"id": args.bundle_id, "purpose": "test_fixture",
+                          "execution_mode": "declarative_state_machine", "execution_plan": plan,
+                          "calibration_requirements": [], "calibration_references": []}
+                bundle["digest"] = canonical_digest(bundle)
+                validate_bundle(bundle)
                 store.put_bundle(bundle)
                 _emit(simulator.start_run(run_id=args.run_id, bundle_id=args.bundle_id)); return 0
             _emit({"run_id": args.run_id, "records": simulator.tick(run_ids=[args.run_id], ticks=args.ticks)})
@@ -943,17 +945,8 @@ def _update_backend():
 
 
 def _recommended_release(state_root: Path) -> str | None:
-    """Return the configured catalog selection, never an inferred latest release."""
-    status, catalog = evolver_controller.configured_release_catalog(state_root=state_root)
-    if status is not HTTPStatus.OK:
-        raise EdgeStoreError("recommended release discovery is unavailable")
-    selected = catalog.get("selected_release")
-    if selected is None:
-        return None
-    if not isinstance(selected, str) or not any(item.get("release") == selected
-                                               for item in catalog.get("releases", [])):
-        raise EdgeStoreError("configured recommended release is not a validated catalog entry")
-    return selected
+    """The central release catalog is not part of the controller package."""
+    return None
 
 
 def _governed_upgrade(store: EdgeStore) -> int:

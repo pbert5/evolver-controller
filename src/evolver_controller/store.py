@@ -26,7 +26,7 @@ SQLITE_BUSY_TIMEOUT_MILLISECONDS = int(SQLITE_BUSY_TIMEOUT_SECONDS * 1000)
 from .bundle import (BundleResolutionError, calibration_artifact_digest,
                      calibration_requirement_key, canonical_digest,
                      experiment_purpose, normalize_calibration_requirement,
-                     resolve_bundle)
+                     validate_bundle)
 
 
 class EdgeStoreError(RuntimeError):
@@ -670,7 +670,7 @@ class EdgeStore:
                                instrument_id: str, component_id: str | None = None,
                                vial_position_id: str | None = None) -> Json:
         """Create a calibration as a normal durable ExperimentRun."""
-        from ..evolver_calibration import calibration_run_definition, calibration_run_state
+        from .calibration import calibration_run_definition, calibration_run_state
         if calibration_type == "pump_flow_rate" and not component_id:
             raise EdgeStoreError("pump_flow_rate calibration requires component_id")
         bundle = calibration_run_definition(run_id=run_id, calibration_type=calibration_type,
@@ -686,7 +686,7 @@ class EdgeStore:
 
     def record_calibration_observation(self, *, run_id: str, observation: Mapping[str, Any]) -> Json:
         """Append calibration evidence to the run revision and event journal."""
-        from ..evolver_calibration import validate_observation
+        from .calibration import validate_observation
         run = self.run(run_id)
         state = run["effective_state"]
         if state.get("kind") != "calibration" or run.get("state") != "running":
@@ -705,7 +705,7 @@ class EdgeStore:
     def activate_calibration_artifact(self, *, artifact: Mapping[str, Any], run_id: str,
                                       activated_by: str, based_on_revision: int | None = None) -> Json:
         """Record activation as an append-only run fact with artifact provenance."""
-        from ..evolver_calibration import activation_record
+        from .calibration import activation_record
         run = self.run(run_id)
         if run["state"] not in {"running", "paused"}:
             raise EdgeStoreError("calibration activation requires an active ExperimentRun")

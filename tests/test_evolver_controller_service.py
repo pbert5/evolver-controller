@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from meta_webui_application_backend.evolver_edge import service
+from evolver_controller import service
 
 
 def test_service_construction_passes_explicit_hardware_socket(tmp_path):

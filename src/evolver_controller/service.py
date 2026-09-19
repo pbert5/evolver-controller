@@ -8,7 +8,7 @@ import threading
 from pathlib import Path
 
 from .actuator import HardwareIPCDeviceCommandSink, ManualCommandExecutor, SimulatorDeviceCommandSink
-from ..evolver_controller import OperatorIdentity
+from .operator_identity import OperatorIdentity
 from .hardware_broker import HardwareBroker
 from .operator import DEFAULT_SOCKET as DEFAULT_OPERATOR_SOCKET, OperatorServer
 from .store import EdgeStore

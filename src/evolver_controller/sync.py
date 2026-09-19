@@ -17,7 +17,7 @@ from urllib.request import Request, urlopen
 from urllib.parse import urlparse
 
 from .actuator import ManualCommandExecutor
-from .hardware import HardwareUnavailableError, ReadOnlyHardwareService
+from .hardware_protocol import HardwareUnavailableError
 from .hardware_ipc import DEFAULT_SOCKET, request as hardware_ipc_request
 from .store import EdgeStore, StaleGenerationError
 
@@ -74,7 +74,7 @@ class SyncClient:
 
     def __init__(self, store: EdgeStore, *, transport: Transport = _post, timeout: float = 10.0,
                  manual_executor: ManualCommandExecutor | None = None,
-                 hardware_service: ReadOnlyHardwareService | None = None,
+                 hardware_service: Any | None = None,
                  hardware_request: HardwareRequest | None = None,
                  hardware_socket: str | None = None):
         self.store, self.transport, self.timeout = store, transport, timeout

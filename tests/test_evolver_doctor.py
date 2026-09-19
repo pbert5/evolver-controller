@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from meta_webui_application_backend.evolver_edge import EdgeStore
-from meta_webui_application_backend.evolver_edge.cli import main
-from meta_webui_application_backend.evolver_edge.doctor import doctor_report
+from evolver_controller import EdgeStore
+from evolver_controller.cli import main
+from evolver_controller.doctor import doctor_report
 
 
 def test_doctor_is_read_only_and_reports_offline_operator_state(tmp_path: Path) -> None:
@@ -39,7 +39,7 @@ def test_doctor_warns_for_orphaned_sync_and_unprovisioned_physical_hardware(tmp_
 def test_cli_doctor_returns_nonzero_only_for_durable_recovery_failure(tmp_path: Path, capsys, monkeypatch) -> None:
     with EdgeStore(tmp_path):
         pass
-    monkeypatch.setattr("meta_webui_application_backend.evolver_edge.cli.doctor_report", lambda _store, **_kwargs: {
+    monkeypatch.setattr("evolver_controller.cli.doctor_report", lambda _store, **_kwargs: {
         "summary": {"PASS": 1, "WARN": 0, "FAIL": 1}, "checks": []
     })
     assert main(["--offline", "--state-root", str(tmp_path), "doctor"]) == 2

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from meta_webui_application_backend.evolver_edge.workflow_tui import (
+from evolver_controller.workflow_tui import (
     CloseDecision,
     FakeWorkflowHost,
     WorkflowSnapshot,
@@ -13,7 +13,7 @@ from meta_webui_application_backend.evolver_edge.workflow_tui import (
     create_textual_app,
     semantic_status,
 )
-from meta_webui_application_backend.evolver_edge.workflow_cli import ScenarioRegistry
+from evolver_controller.workflow_cli import ScenarioRegistry
 
 
 @dataclass

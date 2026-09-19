@@ -1,9 +1,4 @@
-"""Pure central-side resolution of immutable experiment bundles.
-
-This module has no filesystem, database, controller, or hardware dependency.
-The edge imports only its wire-level validation helpers; bundle construction
-remains a central Definition -> Bundle concern.
-"""
+"""Validation of immutable experiment bundles received by the controller."""
 from __future__ import annotations
 
 import hashlib
@@ -19,7 +14,7 @@ EXECUTION_MODES = frozenset({"declarative_state_machine"})
 
 
 class BundleResolutionError(ValueError):
-    """A definition-side bundle cannot be frozen from the supplied evidence."""
+    """A received bundle is malformed or fails an immutable-content check."""
 
 
 def canonical_digest(value: Any) -> str:
@@ -59,11 +54,16 @@ def calibration_requirement_key(value: Mapping[str, Any]) -> tuple[Any, ...]:
     return tuple(value.get(field) for field in ("capability", *CALIBRATION_TARGET_FIELDS))
 
 
-def resolve_bundle(bundle: Mapping[str, Any], calibration_artifacts: Any) -> Json:
-    """Freeze caller-selected calibration evidence into an immutable bundle."""
+def validate_bundle(bundle: Mapping[str, Any]) -> Json:
+    """Validate and return a received immutable bundle without constructing it."""
+    if not isinstance(bundle, Mapping):
+        raise BundleResolutionError("bundle must be an object")
     payload = dict(bundle)
-    if "digest" in payload:
-        raise BundleResolutionError("resolve a bundle before supplying its digest")
+    supplied_digest = payload.pop("digest", None)
+    if not isinstance(supplied_digest, str) or not supplied_digest:
+        raise BundleResolutionError("received bundle must contain a digest")
+    if canonical_digest(payload) != supplied_digest:
+        raise BundleResolutionError("bundle digest does not match canonical content")
     requirements = payload.get("calibration_requirements", [])
     if not isinstance(requirements, list):
         raise BundleResolutionError("calibration_requirements must be a list")
@@ -71,45 +71,18 @@ def resolve_bundle(bundle: Mapping[str, Any], calibration_artifacts: Any) -> Jso
     keys = [calibration_requirement_key(item) for item in normalized]
     if len(keys) != len(set(keys)):
         raise BundleResolutionError("calibration requirements must not duplicate a capability target")
-    if not isinstance(calibration_artifacts, (list, tuple)):
-        raise BundleResolutionError("calibration artifacts must be a finite selected list")
-    artifacts: list[Json] = []
-    ids: set[str] = set()
-    for index, value in enumerate(calibration_artifacts):
-        if not isinstance(value, Mapping):
-            raise BundleResolutionError(f"calibration artifact[{index}] is not an object")
-        artifact = dict(value)
-        if any(not isinstance(artifact.get(field), str) or not artifact[field]
-               for field in CALIBRATION_ARTIFACT_FIELDS if field != "component_id"):
-            raise BundleResolutionError(f"calibration artifact[{index}] lacks immutable identity")
-        component = artifact.get("component_id")
-        if component is not None and (not isinstance(component, str) or not component):
-            raise BundleResolutionError(f"calibration artifact[{index}] has an invalid component identity")
-        if artifact["id"] in ids:
-            raise BundleResolutionError(f"calibration artifact[{index}] duplicates {artifact['id']}")
-        ids.add(artifact["id"])
-        if artifact["artifact_digest"] != calibration_artifact_digest(artifact):
-            raise BundleResolutionError(f"calibration artifact[{index}] digest does not match canonical content")
-        artifacts.append(artifact)
-    references: list[Json] = []
-    for requirement in normalized:
-        matches = [artifact for artifact in artifacts
-                   if all(artifact.get(field) == requirement.get(field) for field in CALIBRATION_TARGET_FIELDS)]
-        if len(matches) > 1:
-            raise BundleResolutionError(f"calibration selection is ambiguous for {requirement['capability']}")
-        if not matches:
-            if requirement["required"]:
-                raise BundleResolutionError(f"required calibration is missing for {requirement['capability']}")
-            continue
-        artifact = matches[0]
-        references.append({"artifact_id": artifact["id"], "artifact_digest": artifact["artifact_digest"],
-                           "instrument_id": artifact["instrument_id"], "vial_position_id": artifact["vial_position_id"],
-                           "component_id": artifact.get("component_id"), "calibration_type": artifact["calibration_type"],
-                           "method": artifact["method"], "method_version": artifact["method_version"],
-                           "capability": requirement["capability"], "required": requirement["required"]})
+    references = payload.get("calibration_references", [])
+    if not isinstance(references, list):
+        raise BundleResolutionError("calibration_references must be a list")
+    for index, reference in enumerate(references):
+        if not isinstance(reference, Mapping):
+            raise BundleResolutionError(f"calibration reference[{index}] is not an object")
+        required = ("artifact_id", "artifact_digest", "instrument_id", "vial_position_id",
+                    "calibration_type", "method", "method_version")
+        if any(not isinstance(reference.get(field), str) or not reference[field] for field in required):
+            raise BundleResolutionError(f"calibration reference[{index}] lacks immutable identity")
     payload["calibration_requirements"] = normalized
-    payload["calibration_references"] = references
-    payload["digest"] = canonical_digest(payload)
+    payload["digest"] = supplied_digest
     return payload
 
 

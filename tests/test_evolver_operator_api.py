@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from meta_webui_application_backend.evolver_edge import EdgeStore
-from meta_webui_application_backend.evolver_edge.hardware_broker import HardwareBroker
-from meta_webui_application_backend.evolver_edge.hardware_ipc import PROVISIONING_IPC_TIMEOUT_SECONDS
-from meta_webui_application_backend.evolver_controller import OperatorIdentity
-from meta_webui_application_backend.evolver_edge.operator import (
+from evolver_controller import EdgeStore
+from evolver_controller.hardware_broker import HardwareBroker
+from evolver_controller.hardware_ipc import PROVISIONING_IPC_TIMEOUT_SECONDS
+from evolver_controller import OperatorIdentity
+from evolver_controller.operator import (
     OPERATION_METADATA,
     PROTOCOL_VERSION,
     OperatorProtocolError,

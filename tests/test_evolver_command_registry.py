@@ -5,9 +5,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from meta_webui_application_backend.evolver_edge import cli
-from meta_webui_application_backend.evolver_edge.cli import CommandMode, command_spec
-from meta_webui_application_backend.evolver_edge.operator import OperatorUnavailable
+from evolver_controller import cli
+from evolver_controller.cli import CommandMode, command_spec
+from evolver_controller.operator import OperatorUnavailable
 
 
 @pytest.mark.parametrize(

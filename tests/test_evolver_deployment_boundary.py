@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from meta_webui_application_backend.evolver_edge.cli import _update_backend
-from meta_webui_application_backend.evolver_edge.install import detect_backend, installer_script
-from meta_webui_application_backend.evolver_edge.store import EdgeStoreError
-from meta_webui_application_backend.evolver_edge.update import ComposeUpdateBackend
-from meta_webui_application_backend.evolver_edge.cli import build_parser
+from evolver_controller.cli import _update_backend
+from evolver_controller.install import detect_backend, installer_script
+from evolver_controller.store import EdgeStoreError
+from evolver_controller.update import ComposeUpdateBackend
+from evolver_controller.cli import build_parser
 
 
 ROOT = Path(__file__).parents[3]

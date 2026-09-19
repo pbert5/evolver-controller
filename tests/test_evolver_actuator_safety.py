@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import pytest
 
-from meta_webui_application_backend.evolver_edge.actuator import (
+from evolver_controller.actuator import (
     HardwareDeviceCommandSink,
     RunActuatorExecutor,
     SimulatorDeviceCommandSink,
     compile_device_command,
     compile_trusted_action,
 )
-from meta_webui_application_backend.evolver_edge.store import EdgeStoreError
+from evolver_controller.store import EdgeStoreError
 
 
 ACTION = {"kind": "device_command", "action_id": "dose", "operation": "pump_pulse",
