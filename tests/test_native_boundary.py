@@ -29,3 +29,9 @@ def test_controller_console_contract_excludes_hardware_daemon() -> None:
     assert "evolver-hardware" not in manifest
     assert "psycopg" not in manifest
     assert "pyserial" not in manifest
+
+
+def test_controller_installer_owns_only_controller_runtime() -> None:
+    installer = (SRC / "evolver_controller" / "install.py").read_text()
+    assert "evolver-hardware" not in installer
+    assert "hardware_systemd_unit" not in installer
