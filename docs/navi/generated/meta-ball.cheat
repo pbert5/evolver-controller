@@ -50,6 +50,17 @@ tools/dev-env evolver-edge exec evoctl action preflight capture_measurement --ta
 tools/dev-env evolver-edge exec evoctl workflow list
 tools/dev-env evolver-edge exec evoctl workflow preflight WORKFLOW_ID --target INSTRUMENT_ID --parameter name=value
 
+# Refresh a clean developer checkout and rebuild the edge runtime
+tools/evolver-edge upgrade
+
+# Inspect or operate the fixed edge runtime
+tools/evolver-edge status
+tools/evolver-edge up
+tools/evolver-edge stop
+tools/evolver-edge down
+tools/evolver-edge restart controller
+tools/evolver-edge logs controller
+
 # Show the repository worktree status
 git status --short --branch
 
@@ -235,6 +246,27 @@ metactl experiments run
 % Meta BAL path releases build [action_id=evolver.release.build]
 metactl releases build
 
+% Meta BAL path server status [action_id=evolver.server.status] [planned]
+metactl server status
+
+% Meta BAL path server up [action_id=evolver.server.up] [planned]
+metactl server up
+
+% Meta BAL path server stop [action_id=evolver.server.stop] [planned]
+metactl server stop <service>
+
+% Meta BAL path server down [action_id=evolver.server.down] [planned]
+metactl server down
+
+% Meta BAL path server restart [action_id=evolver.server.restart] [planned]
+metactl server restart <service>
+
+% Meta BAL path server logs [action_id=evolver.server.logs] [planned]
+metactl server logs <service>
+
+% Meta BAL path server upgrade [action_id=evolver.server.upgrade] [planned]
+metactl server upgrade
+
 % Meta BAL action core.access.status [action_id=core.access.status] [planned]
 metactl core.access.status
 
@@ -411,6 +443,27 @@ metactl evolver.run.pause
 
 % Meta BAL action evolver.run.stop [action_id=evolver.run.stop] [planned]
 metactl evolver.run.stop
+
+% Meta BAL action evolver.server.status [action_id=evolver.server.status] [planned]
+metactl evolver.server.status
+
+% Meta BAL action evolver.server.up [action_id=evolver.server.up] [planned]
+metactl evolver.server.up
+
+% Meta BAL action evolver.server.stop [action_id=evolver.server.stop] [planned]
+metactl evolver.server.stop
+
+% Meta BAL action evolver.server.down [action_id=evolver.server.down] [planned]
+metactl evolver.server.down
+
+% Meta BAL action evolver.server.restart [action_id=evolver.server.restart] [planned]
+metactl evolver.server.restart
+
+% Meta BAL action evolver.server.logs [action_id=evolver.server.logs] [planned]
+metactl evolver.server.logs
+
+% Meta BAL action evolver.server.upgrade [action_id=evolver.server.upgrade] [planned]
+metactl evolver.server.upgrade
 
 % Meta BAL action deployment.config.validate [action_id=deployment.config.validate] [planned]
 metactl deployment.config.validate

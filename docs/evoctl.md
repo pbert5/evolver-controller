@@ -27,6 +27,32 @@ evoctl instruments
 evoctl doctor
 ```
 
+Edge lifecycle operations use the fixed host-runtime adapter boundary:
+
+```text
+evoctl runtime status|up|stop|down|restart|logs
+evoctl up|down|restart|logs
+```
+
+These commands report a bounded delegation intent for the host-owned edge
+services; they do not accept Compose projects, paths, container IDs, shell
+fragments, or Docker/socket options from the controller runtime.
+
+Governed release updates remain distinct:
+
+```text
+evoctl update check RELEASE
+evoctl update apply RELEASE
+evoctl runtime upgrade
+evoctl upgrade
+```
+
+`update apply RELEASE` applies an explicitly named governed release. `upgrade`
+uses only the authoritative configured recommended release and is unavailable
+with a clear diagnostic when none is selected; active runs defer it. The
+developer-only `tools/evolver-edge upgrade` checkout-refresh contract is a
+separate operation and is not invoked by `evoctl`.
+
 `--offline` reads the durable controller store without contacting the local
 operator socket. It does not prove central state or physical hardware was
 observed. Recovery/planning commands include `recovery`, `export-state`,
@@ -66,6 +92,24 @@ not identity or command authority. Enrollment, handoff, forced adoption,
 release changes, uninstall, firmware upload, and actuation retain their
 operator, confirmation, generation, lease, and physical-evidence checks.
 
+## Runtime lifecycle QoL
+
+A first-class host-runtime convenience surface is planned in
+[Runtime Lifecycle QoL](runtime-lifecycle-qol.md) and tracked by issue #112.
+
+The planned `upgrade` command is deliberately distinct from the existing
+explicit release contract:
+
+```text
+evoctl update apply RELEASE   # explicit governed release
+evoctl upgrade                # latest/recommended governed release
+tools/evolver-edge upgrade    # developer checkout refresh/rebuild
+```
+
+The integrated lifecycle aliases are available on the `hardware-testing` line.
+Use `tools/evolver-edge upgrade` only for the developer checkout flow; use
+`evoctl update ...` and governed `evoctl upgrade` for release operations.
+
 ## Workflow CLI
 
 The workflow commands use the same trusted library, `WorkflowHost`, and
@@ -99,6 +143,7 @@ experiment enqueue/run and run-start remain planned.
 
 ## Related
 
+- [Runtime Lifecycle QoL](runtime-lifecycle-qol.md)
 - [Operator guide](operator.md) `[[Operator Guide]]`
 - [Central vs Edge](_concepts/central-vs-edge.md) `[[Central vs Edge]]`
 - [Command Disposition](_concepts/command-disposition.md) `[[Command Disposition]]`

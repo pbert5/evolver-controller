@@ -1,3 +1,54 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+
+ROOT=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+
+usage() {
+  echo 'usage: tools/metactl [server {status|up [--build]|stop [controller|hardware]|down|restart [controller|hardware]|logs controller|logs hardware|upgrade}] [metactl args...]' >&2
+}
+
+server_lifecycle() {
+  local operation=${1:-}
+  shift || true
+  case "$operation" in
+    status)
+      [[ $# -eq 0 ]] || { usage; return 2; }
+      ;;
+    up)
+      [[ $# -eq 0 || ( $# -eq 1 && $1 == --build ) ]] || { usage; return 2; }
+      ;;
+    stop)
+      [[ $# -eq 0 || ( $# -eq 1 && ( $1 == controller || $1 == hardware ) ) ]] || { usage; return 2; }
+      ;;
+    down)
+      [[ $# -eq 0 ]] || { usage; return 2; }
+      ;;
+    restart)
+      [[ $# -eq 0 || ( $# -eq 1 && ( $1 == controller || $1 == hardware ) ) ]] || { usage; return 2; }
+      ;;
+    logs)
+      [[ $# -eq 1 && ( $1 == controller || $1 == hardware ) ]] || { usage; return 2; }
+      ;;
+    upgrade)
+      [[ $# -eq 0 ]] || { usage; return 2; }
+      echo 'metactl server upgrade: unavailable; no governed production release selector is configured' >&2
+      return 2
+      ;;
+    *)
+      usage
+      return 2
+      ;;
+  esac
+  if [[ "$operation" == restart && $# -eq 0 ]]; then
+    "$ROOT/tools/evolver-edge" restart controller
+    exec "$ROOT/tools/evolver-edge" restart hardware
+  fi
+  exec "$ROOT/tools/evolver-edge" "$operation" "$@"
+}
+
+if [[ ${1:-} == server ]]; then
+  shift
+  server_lifecycle "$@"
+fi
+
 exec rtk tools/dev-env server exec metactl "$@"

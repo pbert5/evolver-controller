@@ -69,15 +69,13 @@ The edge overlay is a live operator client. The normal flow is
 The controller owns the operator API and brokers hardware requests; only the
 hardware daemon owns `/dev` and serial. A stopped or unreachable controller is
 reported as unavailable, and the launcher does not silently fall back to
-SQLite. Diagnose it with `tools/evolver-edge diagnose`, then use `status` and
-`logs controller` as needed.
+SQLite. Use `tools/evolver-edge status` and `tools/evolver-edge logs controller`
+as needed.
 
-Offline reads are deliberately separate from live operation. For recovery or
-maintenance while the controller is stopped, use the explicit
-`tools/evolver-edge rescue recovery` route. From inside the edge container,
-`evoctl rescue recovery` delegates to that helper; direct `evoctl --offline`
-is rejected. Do not use offline output as evidence of current central or
-physical-hardware state.
+Offline reads are deliberately separate from live operation and are outside
+the fixed lifecycle adapter. Direct `evoctl --offline` is rejected by the
+normal edge launcher. Do not use offline output as evidence of current central
+or physical-hardware state.
 
 The production-like edge stack has no PostgreSQL dependency. Durable SQLite
 state lives on the host at `/var/lib/evolver-controller`, while the hardware
@@ -88,6 +86,20 @@ Hardware availability is application state, so a disconnected instrument does
 not make the hardware daemon unhealthy. Firmware development remains a
 separate build/verify/explicit-physical-flash path with SHA verification,
 operator attribution, and serial ownership checks.
+
+### Developer checkout upgrade
+
+From the repository host, `tools/evolver-edge upgrade` is a developer-only
+checkout refresh. It requires a clean named branch with an upstream, fetches
+`origin`, applies only a fast-forward update, synchronizes recursive submodule
+URLs, updates submodules to the parent-pinned SHAs, and reports the old/new
+parent revisions. It then rebuilds the fixed Compose project and requires both
+services to report healthy before succeeding.
+
+The command never switches branches, resets or discards files, deletes volumes
+or durable state, or flashes firmware. It is distinct from governed
+`evoctl update apply RELEASE` and `evoctl upgrade`; those remain release
+operations rather than source-checkout refreshes.
 
 The standalone server entry point is `uv run --project evolver/evolver-server
 evolver-control`; its configuration uses `DATABASE_URL` and does not embed

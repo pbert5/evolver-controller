@@ -19,6 +19,7 @@ database, direct EdgeStore access, SSH transport, or duplicated domain logic.
 - [Troubleshooting](troubleshooting.md): connection, auth, drift, and command-state problems.
 - [API Workbench](../api-workbench.md): advanced API inspection, fixtures, drift, and evidence.
 - [evoctl](../evoctl.md): controller-local edge operation.
+- [Runtime Lifecycle QoL](../runtime-lifecycle-qol.md): implemented host-runtime lifecycle convenience, developer checkout upgrade, and the unavailable central production-upgrade boundary.
 
 ## Design rule
 
@@ -39,6 +40,30 @@ metactl tui
 
 An explicit target remains available for unusual deployments, but it is an
 override rather than the ordinary setup path.
+
+## Host-runtime lifecycle QoL
+
+Issue #112's lifecycle surface is available through the repository launcher:
+
+```text
+metactl server up
+metactl server stop
+metactl server down
+metactl server restart [SERVICE]
+metactl server logs SERVICE
+metactl server upgrade
+```
+
+The wrapper runs these operations from the external host-runtime process and
+delegates only to the canonical fixed adapter. `metactl server upgrade` is
+currently unavailable because no governed central release selector exists.
+The normal metactl toolbox/API context has no Docker socket, SSH authority, or
+arbitrary shell execution, and self-shutdown is not routed through the central
+HTTP service being terminated.
+
+See [Runtime Lifecycle QoL](../runtime-lifecycle-qol.md) for the full contract
+and the distinction between governed release upgrade and developer checkout
+refresh.
 
 ## Mental model
 

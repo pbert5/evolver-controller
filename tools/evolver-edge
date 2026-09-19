@@ -1,45 +1,195 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-ROOT=$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
-project="${EVOLVER_EDGE_PROJECT:-evolver-edge}"
-COMPOSE=(docker compose -f "$ROOT/deploy/evolver-edge/compose.yaml" -f "$ROOT/deploy/evolver-edge/compose.dev.yaml" -p "$project")
-usage() { echo 'usage: tools/evolver-edge {up [--build]|status|logs controller|logs hardware|restart controller|restart hardware|diagnose|rescue [evoctl args...]|down}'; }
-unavailable() {
-  cat >&2 <<'EOF'
-eVOLVER controller is unavailable or unreachable.
-  If the controller is stopped: tools/evolver-edge up
-  If it is running but the operator socket is unreachable:
-    tools/evolver-edge status
-    tools/evolver-edge logs controller
-  For intentional local recovery, use the explicit rescue route:
-    tools/evolver-edge rescue recovery
-EOF
+
+ROOT=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+readonly COMPOSE=(
+  docker compose
+  -f "$ROOT/deploy/evolver-edge/compose.yaml"
+  -f "$ROOT/deploy/evolver-edge/compose.dev.yaml"
+  -p evolver-edge
+)
+readonly SERVICES=(evolver-controller evolver-hardware)
+
+usage() {
+  echo 'usage: tools/evolver-edge {status|up [--build]|stop [controller|hardware]|down|restart controller|restart hardware|logs controller|logs hardware|upgrade}' >&2
 }
+
+die() {
+  echo "tools/evolver-edge: $*" >&2
+  exit 2
+}
+
+service_name() {
+  case "$1" in
+    controller) printf '%s\n' evolver-controller ;;
+    hardware) printf '%s\n' evolver-hardware ;;
+    *) die "unknown service '$1' (allowed: controller, hardware)" ;;
+  esac
+}
+
+require_host_runtime() {
+  [[ "${EVOLVER_EDGE_HOST_RUNTIME:-1}" != 0 ]] || die 'host runtime is denied'
+  if [[ ( -e /.dockerenv || -n "${container:-}" ) && ! -S /var/run/docker.sock ]]; then
+    die 'host runtime is denied from inside a container'
+  fi
+  command -v docker >/dev/null 2>&1 || die 'host runtime requires docker'
+  docker info >/dev/null 2>&1 || die 'host runtime cannot reach the Docker daemon'
+  docker compose version >/dev/null 2>&1 || die 'host runtime requires Docker Compose'
+}
+
 run_compose() {
   if "${COMPOSE[@]}" "$@"; then
     return 0
   fi
-  unavailable
+  echo 'host lifecycle operation failed; final runtime state is unknown' >&2
   return 1
 }
-status() {
-  local output
-  if ! output=$("${COMPOSE[@]}" ps --all); then
-    unavailable
-    return 1
-  fi
-  printf '%s\n' "$output"
-  if [[ "$output" =~ [Ee]xited|[Cc]reated|[Dd]ead|[Ss]topped ]]; then
-    echo 'Controller is stopped; run: tools/evolver-edge up' >&2
-  fi
+
+compose_ps() {
+  "${COMPOSE[@]}" ps --all --format '{{.Service}}\t{{.State}}\t{{.Health}}'
 }
-case "${1:-}" in
-  up) shift; run_compose up -d "$@" ;;
-  status) status ;;
-  logs) [[ "${2:-}" == controller ]] && service=evolver-controller || [[ "${2:-}" == hardware ]] && service=evolver-hardware || { usage >&2; exit 2; }; run_compose logs -f "$service" ;;
-  restart) [[ "${2:-}" == controller ]] && service=evolver-controller || [[ "${2:-}" == hardware ]] && service=evolver-hardware || { usage >&2; exit 2; }; run_compose restart "$service" ;;
-  diagnose) run_compose ps --all; echo 'Controller stopped? Run: tools/evolver-edge up'; echo 'Controller running but unreachable? Run: tools/evolver-edge status; tools/evolver-edge logs controller' ;;
-  rescue) shift; [[ "$#" -gt 0 ]] || set -- recovery; run_compose run --rm --no-deps --entrypoint evoctl evolver-controller --offline "$@" ;;
-  down) run_compose down ;;
-  *) usage >&2; exit 2 ;;
+
+require_running() {
+  local output=$1 service line state
+  shift
+  local -a targets=("${SERVICES[@]}")
+  [[ $# -gt 0 ]] && targets=("$@")
+  for service in "${targets[@]}"; do
+    line=$(printf '%s\n' "$output" | awk -v service="$service" '$1 == service { print; exit }')
+    [[ -n "$line" ]] || { echo "final state missing $service" >&2; return 1; }
+    if [[ "$(printf '%s\n' "$line" | awk '{print tolower($2)}')" =~ ^(exited|dead|created|stopped|restarting|paused)$ ]]; then
+      echo "final state for $service is not healthy: $line" >&2
+      return 1
+    fi
+    [[ "$(printf '%s\n' "$line" | awk '{print tolower($2)}')" =~ ^(up|running)$ ]] &&
+      [[ "$(printf '%s\n' "$line" | awk '{print tolower($3)}')" == healthy ]] || {
+      echo "final state for $service is not running: $line" >&2
+      return 1
+    }
+  done
+}
+
+require_stopped() {
+  local output=$1 service line state
+  shift
+  local -a targets=("${SERVICES[@]}")
+  [[ $# -gt 0 ]] && targets=("$@")
+  for service in "${targets[@]}"; do
+    line=$(printf '%s\n' "$output" | awk -v service="$service" '$1 == service { print; exit }')
+    [[ -z "$line" ]] && continue
+    state=$(printf '%s\n' "$line" | awk '{print tolower($2)}')
+    if [[ ! "$state" =~ ^(exited|dead|stopped)$ ]]; then
+      echo "final state for $service is not terminally stopped: $line" >&2
+      return 1
+    fi
+  done
+}
+
+final_state() {
+  local output
+  local mode=$1
+  shift
+  output=$(compose_ps) || {
+    echo 'unable to observe final runtime state' >&2
+    return 1
+  }
+  printf '%s\n' "$output"
+  case "$mode" in
+    running) require_running "$output" "$@" ;;
+    stopped) require_stopped "$output" "$@" ;;
+    absent)
+      if [[ -n "${output//[[:space:]]/}" ]] && ! printf '%s\n' "$output" | grep -Eiq '^no containers'; then
+        echo "final state still lists service containers: $output" >&2
+        return 1
+      fi
+      ;;
+  esac
+}
+
+upgrade() {
+  local old_sha new_sha branch upstream status_output
+  status_output=$(git -C "$ROOT" status --porcelain) || die 'upgrade cannot inspect checkout state'
+  [[ -z "$status_output" ]] || die 'upgrade requires a clean checkout'
+  branch=$(git -C "$ROOT" symbolic-ref --short HEAD) || die 'upgrade requires a named branch'
+  [[ -n "$branch" ]] || die 'upgrade requires a named branch'
+  old_sha=$(git -C "$ROOT" rev-parse HEAD) || die 'upgrade cannot read current revision'
+  upstream=$(git -C "$ROOT" rev-parse --abbrev-ref --symbolic-full-name '@{u}') ||
+    die 'upgrade requires an upstream branch'
+  [[ -n "$upstream" ]] || die 'upgrade requires an upstream branch'
+
+  git -C "$ROOT" fetch --prune origin || die 'upgrade fetch failed'
+  git -C "$ROOT" merge --ff-only "$upstream" ||
+    die 'upgrade requires a fast-forward-only update'
+  git -C "$ROOT" submodule sync --recursive || die 'upgrade submodule URL sync failed'
+  git -C "$ROOT" submodule update --init --recursive || die 'upgrade submodule update failed'
+
+  new_sha=$(git -C "$ROOT" rev-parse HEAD) || die 'upgrade cannot read updated revision'
+  printf 'developer checkout upgrade: %s -> %s (%s)\n' "$old_sha" "$new_sha" "$branch"
+  run_compose up -d --build || exit 1
+  final_state running || exit 1
+  printf 'developer checkout upgrade complete: %s is healthy\n' "$new_sha"
+}
+
+operation=${1:-}
+case "$operation" in
+  status)
+    [[ $# -eq 1 ]] || { usage; exit 2; }
+    ;;
+  up)
+    [[ $# -eq 1 || ( $# -eq 2 && $2 == --build ) ]] || { usage; exit 2; }
+    ;;
+  stop|down)
+    [[ $# -eq 1 || ( "$operation" == stop && $# -eq 2 ) ]] || { usage; exit 2; }
+    [[ $# -eq 1 ]] || service_name "$2" >/dev/null
+    ;;
+  restart|logs)
+    [[ $# -eq 2 ]] || { usage; exit 2; }
+    service=$(service_name "$2")
+    ;;
+  upgrade)
+    [[ $# -eq 1 ]] || { usage; exit 2; }
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac
+
+require_host_runtime
+
+case "$operation" in
+  status)
+    output=$(compose_ps) || { echo 'unable to read runtime status' >&2; exit 1; }
+    printf '%s\n' "$output"
+    ;;
+  up)
+    args=(-d)
+    [[ $# -eq 2 ]] && args+=(--build)
+    run_compose up "${args[@]}" || exit 1
+    final_state running || exit 1
+    ;;
+  stop)
+    args=()
+    [[ $# -eq 2 ]] && service=$(service_name "$2") && args+=("$service")
+    run_compose stop "${args[@]}" || exit 1
+    if [[ $# -eq 2 ]]; then
+      final_state stopped "$service" || exit 1
+    else
+      final_state stopped || exit 1
+    fi
+    ;;
+  down)
+    run_compose down || exit 1
+    final_state absent || exit 1
+    ;;
+  restart)
+    run_compose restart "$service" || exit 1
+    final_state running || exit 1
+    ;;
+  logs)
+    run_compose logs -f "$service" || exit 1
+    ;;
+  upgrade)
+    upgrade
+    ;;
 esac

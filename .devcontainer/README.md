@@ -17,11 +17,9 @@ The final live path is
 `evoctl -> operator.sock -> controller -> hardware.sock -> hardware -> serial`.
 Normal `evoctl` commands require that live operator path and do not silently
 fall back to a local database. If the controller is stopped or unreachable,
-run `tools/evolver-edge diagnose`, then `tools/evolver-edge up`, `status`, or
-`logs controller`. Offline access is an explicit rescue path only:
-`tools/evolver-edge rescue recovery`. Inside the edge container,
-`evoctl rescue ...` delegates to this helper and direct `evoctl --offline ...`
-is rejected with the canonical rescue guidance.
+run `tools/evolver-edge up`, `status`, or `logs controller`. Offline access is
+outside the fixed lifecycle adapter; direct `evoctl --offline ...` is rejected
+by the edge launcher.
 
 Zsh is the canonical interactive shell in both profiles. Use
 `tools/dev-env server shell` to enter it explicitly, or use the configured VS

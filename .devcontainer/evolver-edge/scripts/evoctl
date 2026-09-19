@@ -1,21 +1,18 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 socket_path="${EVOLVER_OPERATOR_SOCKET:-/run/evolver-controller/operator.sock}"
-helper_path="${EVOLVER_EDGE_HELPER:-/workspaces/meta_bal/tools/evolver-edge}"
 
 rescue_guidance() {
   cat >&2 <<'EOF'
-Rescue is unavailable from the edge container. Run the canonical host rescue route:
-  tools/evolver-edge rescue recovery
+Rescue is outside the fixed edge lifecycle adapter. Use the explicit offline
+maintenance tooling for recovery; the adapter supports only status, up, stop,
+down, restart, and logs.
 EOF
   exit 69
 }
 
 if [[ "${1:-}" == rescue ]]; then
-  shift
-  [[ "$#" -gt 0 ]] || set -- recovery
-  [[ -x "$helper_path" ]] || rescue_guidance
-  exec "$helper_path" rescue "$@"
+  rescue_guidance
 fi
 
 for argument in "$@"; do
