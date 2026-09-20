@@ -85,3 +85,32 @@ def test_dockerignore_keeps_packaging_inputs_and_excludes_non_runtime_files() ->
     assert "pyproject.toml" not in dockerignore
     assert "requirements.txt" not in dockerignore
     assert "src/" not in dockerignore
+
+
+def test_api_workbench_uses_declared_tui_extra_and_edge_operator_wrapper() -> None:
+    project = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    edge_wrapper = (ROOT.parents[1] / ".devcontainer/evolver-edge/scripts/evoctl").read_text(encoding="utf-8")
+    edge_bootstrap = (ROOT.parents[1] / ".devcontainer/evolver-edge/scripts/bootstrap-evolver-edge").read_text(encoding="utf-8")
+
+    assert 'tui = ["textual>=' in project
+    assert "uv sync --package evolver-controller --all-extras" in edge_bootstrap
+    assert 'EVOLVER_OPERATOR_SOCKET:-/run/evolver-controller/operator.sock' in edge_wrapper
+    assert "exec uv run --project /workspaces/meta_bal/evolver/evolver-controller evoctl \"$@\"" in edge_wrapper
+    assert "evolver-hardware" not in edge_wrapper
+    assert "/dev/" not in edge_wrapper
+
+
+def test_edge_evoctl_reports_missing_operator_socket_without_starting_a_stack() -> None:
+    wrapper = ROOT.parents[1] / ".devcontainer/evolver-edge/scripts/evoctl"
+    missing_socket = ROOT / ".pytest-missing-operator.sock"
+    result = subprocess.run(
+        [str(wrapper), "api", "tui"],
+        env={**__import__("os").environ, "EVOLVER_OPERATOR_SOCKET": str(missing_socket)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 69
+    assert "operator service is unavailable or unreachable" in result.stderr
+    assert "tools/evolver-edge up" in result.stderr

@@ -22,21 +22,101 @@ if TYPE_CHECKING:
 DEFAULT_SOCKET = "/run/evolver-controller/operator.sock"
 PROTOCOL_VERSION = 1
 MAX_MESSAGE_BYTES = 64 * 1024
-OPERATION_METADATA: dict[str, dict[str, str]] = {
-    "binding": {"access": "read", "mode": "live"},
-    "capabilities": {"access": "read", "mode": "live"},
-    "doctor": {"access": "read", "mode": "live"},
-    "instruments": {"access": "read", "mode": "live"},
-    "runs": {"access": "read", "mode": "live"},
-    "status": {"access": "read", "mode": "live"},
-    "hardware": {"access": "mutate", "mode": "live"},
-    "run": {"access": "mutate", "mode": "live"},
-    "instrument": {"access": "read", "mode": "live"},
-    "calibration": {"access": "read", "mode": "live"},
-    "calibration_run": {"access": "mutate", "mode": "live"},
-    "hardware_lease": {"access": "mutate", "mode": "live"},
-    "hardware_layout": {"access": "mutate", "mode": "live"},
-    "hardware_provision_identity": {"access": "mutate", "mode": "live"},
+def _field(name: str, kind: str, *, description: str, required: bool = False,
+           default: Any = None, enum: tuple[str, ...] = (), minimum: int | None = None,
+           maximum: int | None = None, required_for: tuple[str, ...] = (),
+           default_for: tuple[str, ...] = ()) -> dict[str, Any]:
+    result: dict[str, Any] = {"name": name, "type": kind, "description": description,
+                              "required": required}
+    if default is not None:
+        result["default"] = default
+    if enum:
+        result["enum"] = list(enum)
+    if minimum is not None:
+        result["minimum"] = minimum
+    if maximum is not None:
+        result["maximum"] = maximum
+    if required_for:
+        result["required_for"] = list(required_for)
+    if default_for:
+        result["default_for"] = list(default_for)
+    return result
+
+
+# This is descriptive metadata for the same allowlisted controller operations
+# dispatched below.  Clients may render it, but it is not a second router.
+OPERATION_METADATA: dict[str, dict[str, Any]] = {
+    "binding": {"access": "read", "mode": "live", "summary": "Read controller binding", "parameters": []},
+    "capabilities": {"access": "read", "mode": "live", "summary": "Read operator capabilities", "parameters": []},
+    "doctor": {"access": "read", "mode": "live", "summary": "Read controller health checks", "parameters": []},
+    "instruments": {"access": "read", "mode": "live", "summary": "List registered instruments", "parameters": []},
+    "runs": {"access": "read", "mode": "live", "summary": "List controller runs", "parameters": []},
+    "status": {"access": "read", "mode": "live", "summary": "Read controller status", "parameters": []},
+    "hardware": {"access": "mutate", "mode": "live", "summary": "Delegate a bounded hardware operation",
+                 "confirmation": "physical operations require explicit physical=true and controller authorization",
+                 "parameters": [
+                     _field("operation", "string", description="Hardware sub-operation", required=True,
+                            enum=("discover", "protocol_test", "hardware_command", "safe_stop")),
+                     _field("operation_name", "string", description="Controller-approved hardware command", required_for=("hardware_command",)),
+                     _field("target_identity", "string", description="Provisioned hardware identity", required_for=("hardware_command",)),
+                     _field("parameters", "object", description="Typed hardware command parameters", required_for=("hardware_command",)),
+                     _field("controller_generation", "integer", description="Generation fence", required_for=("hardware_command",)),
+                     _field("lease_token", "string", description="Active commissioning lease", required_for=("hardware_command",)),
+                     _field("physical", "boolean", description="Explicit physical-operation opt-in", required_for=("hardware_command", "safe_stop")),
+                     _field("operator", "string", description="Audited operator subject"),
+                 ]},
+    "run": {"access": "mutate", "mode": "live", "summary": "Inspect or transition a run", "parameters": [
+        _field("action", "string", description="Run action", required=True, enum=("show", "events", "telemetry", "pause", "resume", "stop")),
+        _field("run_id", "string", description="Run identifier", required=True),
+        _field("based_on_revision", "integer", description="Revision fence for transitions", required_for=("pause", "resume", "stop")),
+    ]},
+    "instrument": {"access": "read", "mode": "live", "summary": "Inspect an instrument or its observations", "parameters": [
+        _field("action", "string", description="Instrument action", enum=("show", "status", "sensor_read", "telemetry_latest", "telemetry_list")),
+        _field("instrument_id", "string", description="Registered instrument identifier",
+               required_for=("show", "status", "sensor_read", "telemetry_latest", "telemetry_list")),
+        _field("sensor", "string", description="Sensor name", required_for=("sensor_read",)),
+        _field("channel", "integer", description="Sensor channel", required_for=("sensor_read",), minimum=0),
+        _field("target_identity", "string", description="Optional provisioned device identity"),
+        _field("limit", "integer", description="Maximum cached records", default=100, minimum=1, maximum=1000,
+               required_for=("telemetry_list",), default_for=("telemetry_list",)),
+    ]},
+    "calibration": {"access": "read", "mode": "live", "summary": "Inspect calibration artifacts or preflight evidence", "parameters": [
+        _field("action", "string", description="Calibration action", required=True, enum=("artifacts", "preflight")),
+        _field("instrument_id", "string", description="Optional instrument filter"),
+        _field("references", "array", description="Calibration reference evidence", required_for=("preflight",)),
+        _field("requirements", "array", description="Calibration requirements", default=[]),
+    ]},
+    "calibration_run": {"access": "mutate", "mode": "live", "summary": "Record or activate calibration evidence",
+                        "confirmation": "requires manage_calibration permission", "parameters": [
+        _field("action", "string", description="Calibration-run action", required=True, enum=("create", "observation", "activate_artifact")),
+        _field("run_id", "string", description="Calibration run identifier", required=True),
+        _field("calibration_type", "string", description="Calibration type", required_for=("create",)),
+        _field("instrument_id", "string", description="Registered instrument identifier", required_for=("create",)),
+        _field("observation", "object", description="Recorded evidence", required_for=("observation",)),
+        _field("artifact", "object", description="Artifact to activate", required_for=("activate_artifact",)),
+        _field("based_on_revision", "integer", description="Revision fence", required_for=("activate_artifact",)),
+        _field("operator", "string", description="Audited operator subject"),
+    ]},
+    "hardware_lease": {"access": "mutate", "mode": "live", "summary": "Inspect or manage local commissioning lease",
+                       "confirmation": "requires authenticated operator for mutations", "parameters": [
+        _field("action", "string", description="Lease action", required=True, enum=("status", "acquire", "release")),
+        _field("operator", "string", description="Audited operator subject", required_for=("acquire", "release")),
+        _field("ttl_seconds", "integer", description="Lease duration", default=900, minimum=1, required_for=("acquire",)),
+    ]},
+    "hardware_layout": {"access": "mutate", "mode": "live", "summary": "Record physical layout evidence",
+                         "confirmation": "records operator evidence; does not bypass controller authority", "parameters": [
+        _field("target_identity", "string", description="Provisioned hardware identity", required=True),
+        _field("instrument_id", "string", description="Optional registered instrument"),
+        _field("operator", "string", description="Audited operator subject"),
+        _field("positions", "object", description="Channel layout evidence", required=True),
+    ]},
+    "hardware_provision_identity": {"access": "mutate", "mode": "live", "summary": "Request explicit identity provisioning",
+                                    "confirmation": "requires physical=true and hardware delegation", "parameters": [
+        _field("device_id", "string", description="Device identity", required=True),
+        _field("owner_id", "string", description="Owning controller identity", required=True),
+        _field("operator", "string", description="Audited operator subject", required=True),
+        _field("physical", "boolean", description="Explicit physical-operation opt-in", required=True),
+    ]},
 }
 ALLOWED_OPERATIONS = frozenset(OPERATION_METADATA)
 

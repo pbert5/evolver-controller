@@ -22,6 +22,7 @@ from .doctor import doctor_report
 from .operator import (DEFAULT_SOCKET as DEFAULT_OPERATOR_SOCKET, OperatorClient,
                        OperatorError, OperatorProtocolError, OperatorUnavailable,
                        request as operator_request)
+from .api_workbench import build_request, operation_descriptors
 from .workflow_cli import WorkflowCLI, ScenarioRegistry, parse_parameters, production_host, ScenarioHost
 from .workflow_host import (ActionAvailability, Availability, HostContext,
                              ProcedureActionInvoker, TargetKind, operator_safe_stop_authority,
@@ -105,6 +106,7 @@ _COMMAND_REGISTRY: dict[str, CommandSpec] = {
     "recovery": CommandSpec(CommandMode.LOCAL),
     "sync": CommandSpec(CommandMode.LOCAL),
     "tui": CommandSpec(CommandMode.LOCAL),
+    "api": CommandSpec(CommandMode.LOCAL),
     "simulator": CommandSpec(CommandMode.LOCAL),
     "firmware": CommandSpec(CommandMode.MAINTENANCE, "delegated", "hardware-service"),
     "validation": CommandSpec(CommandMode.LOCAL),
@@ -333,6 +335,48 @@ def _emit(value: Any) -> None:
     print(json.dumps(_redact(value), indent=2, sort_keys=True, default=str))
 
 
+def _api_cli(args: argparse.Namespace) -> int:
+    """Expose the controller operator metadata and transport without a new router."""
+    capabilities = operator_request("capabilities", args.operator_socket, params={})
+    descriptors = operation_descriptors(capabilities)
+    if args.api_command == "list":
+        _emit({"protocol_version": capabilities.get("protocol_version"),
+               "transport": capabilities.get("transport"), "operations": descriptors})
+        return 0
+    if args.api_command == "show":
+        for descriptor in descriptors:
+            if descriptor["name"] == args.operation:
+                _emit(descriptor)
+                return 0
+        _emit({"error": {"kind": "unsupported_operation",
+                          "message": f"controller does not advertise operation: {args.operation}"}})
+        return 64
+    if args.api_command == "call":
+        descriptor = next((item for item in descriptors if item["name"] == args.operation), None)
+        if descriptor is None:
+            _emit({"error": {"kind": "unsupported_operation",
+                              "message": f"controller does not advertise operation: {args.operation}"}})
+            return 64
+        try:
+            raw_params = json.loads(args.params)
+            if not isinstance(raw_params, dict):
+                raise ValueError("--params must be a JSON object")
+            _emit(operator_request(args.operation, args.operator_socket,
+                                    params=build_request(descriptor, raw_params)))
+            return 0
+        except (ValueError, json.JSONDecodeError) as error:
+            _emit({"error": {"kind": "invalid_request", "message": str(error)}})
+            return 64
+    if args.api_command == "tui":
+        from .api_workbench import run
+        try:
+            return run(OperatorClient(args.operator_socket))
+        except RuntimeError as error:
+            print(str(error), file=sys.stderr)
+            return 2
+    raise CommandRegistryError(f"unknown API command: {args.api_command}")
+
+
 def _operator_exit_code(error: Exception) -> int:
     return 69 if isinstance(error, OperatorUnavailable) else 64
 
@@ -493,6 +537,15 @@ def build_parser() -> argparse.ArgumentParser:
     tui = commands.add_parser("tui", help="run the controller-native Textual operator UI")
     tui.add_argument("--page", choices=("overview", "controllers", "instruments", "runs", "recovery", "maintenance", "workflows"), default="overview")
     tui.add_argument("--workflow", action="store_true", help="open Workflows in the same native app")
+    api = commands.add_parser("api", help="inspect and call the live controller operator API")
+    api_sub = api.add_subparsers(dest="api_command", required=True)
+    api_sub.add_parser("list", help="list operations advertised by the controller")
+    api_show = api_sub.add_parser("show", help="show one controller operation descriptor")
+    api_show.add_argument("operation")
+    api_call = api_sub.add_parser("call", help="call one advertised controller operation")
+    api_call.add_argument("operation")
+    api_call.add_argument("--params", default="{}", help="JSON object of operation parameters")
+    api_sub.add_parser("tui", help="open the live API Workbench")
     update = commands.add_parser("update", help="inspect or apply a local controller software release")
     update_sub = update.add_subparsers(dest="update_command", required=True)
     update_sub.add_parser("status")
@@ -754,6 +807,12 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         except (EdgeStoreError, TypeError, ValueError, json.JSONDecodeError) as error:
             _emit({"error": str(error)}); return 2
+    if args.command == "api":
+        try:
+            return _api_cli(args)
+        except (OperatorUnavailable, OperatorProtocolError, OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+            print(f"{getattr(error, 'kind', 'operator_error')}: {error}", file=sys.stderr)
+            return _operator_exit_code(error) if isinstance(error, OperatorError) else 64
     if args.command == "tui" and not args.offline:
         from .tui import TUIUnavailableError, run
         try:

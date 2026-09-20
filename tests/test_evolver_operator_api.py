@@ -55,8 +55,11 @@ def test_operator_capabilities_expose_frozen_live_controller_operations(tmp_path
             "run", "instrument", "calibration", "hardware_lease",
             "hardware_layout", "hardware_provision_identity",
         ):
-            assert operations[name] == {"access": "mutate" if name.startswith("hardware_") or name == "run" else "read", "mode": "live"}
-        assert operations["hardware"] == {"access": "mutate", "mode": "live"}
+            assert operations[name]["access"] == ("mutate" if name.startswith("hardware_") or name == "run" else "read")
+            assert operations[name]["mode"] == "live"
+            assert operations[name]["parameters"]
+        assert operations["hardware"]["access"] == "mutate"
+        assert operations["hardware"]["mode"] == "live"
 
 
 def test_operator_live_inventory_and_calibration_operations_are_typed(tmp_path: Path) -> None:
