@@ -230,6 +230,8 @@ def create_app(source: ApiWorkbenchSource) -> Any:
         def on_input_changed(self, event: Input.Changed) -> None:
             if event.input.id == "search":
                 self._update_options(event.value)
+            elif event.input.id and event.input.id.startswith("param-"):
+                self._mutation_confirmed = False
 
         def on_select_changed(self, event: Select.Changed) -> None:
             if event.select.id == "operation-list" and isinstance(event.value, str):

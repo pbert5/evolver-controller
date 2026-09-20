@@ -153,3 +153,19 @@ def test_api_workbench_renders_typed_fields_from_selected_controller_operation()
             assert app.query_one("#param-limit").value == ""
 
     asyncio.run(exercise())
+
+
+def test_editing_a_request_field_clears_mutation_confirmation() -> None:
+    client = FakeOperatorClient({"capabilities": {"operations": OPERATION_METADATA, "transport": "unix"}})
+    app = create_app(ApiWorkbenchSource(client))
+
+    class Event:
+        class Input:
+            id = "param-run_id"
+        input = Input()
+        value = "changed-run"
+
+    app._mutation_confirmed = True
+    app.on_input_changed(Event())
+
+    assert app._mutation_confirmed is False
