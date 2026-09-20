@@ -92,6 +92,8 @@ OPERATION_METADATA: dict[str, dict[str, Any]] = {
         _field("run_id", "string", description="Calibration run identifier", required=True),
         _field("calibration_type", "string", description="Calibration type", required_for=("create",)),
         _field("instrument_id", "string", description="Registered instrument identifier", required_for=("create",)),
+        _field("component_id", "string", description="Optional calibration component", required_for=("create",)),
+        _field("vial_position_id", "string", description="Optional vial position", required_for=("create",)),
         _field("observation", "object", description="Recorded evidence", required_for=("observation",)),
         _field("artifact", "object", description="Artifact to activate", required_for=("activate_artifact",)),
         _field("based_on_revision", "integer", description="Revision fence", required_for=("activate_artifact",)),
@@ -118,6 +120,17 @@ OPERATION_METADATA: dict[str, dict[str, Any]] = {
         _field("physical", "boolean", description="Explicit physical-operation opt-in", required=True),
     ]},
 }
+
+for _name, _metadata in OPERATION_METADATA.items():
+    _mutating = _metadata["access"] == "mutate"
+    _metadata["safety"] = {
+        "requires_authenticated_operator": _mutating,
+        "requires_explicit_confirmation": _mutating,
+        "physical_opt_in": _name in {"hardware", "hardware_provision_identity"},
+        "permissions": (["hardware_maintenance"] if _name == "hardware" else
+                        ["manage_calibration"] if _name == "calibration_run" else []),
+    }
+    _metadata["response"] = {"shape": "controller-defined", "evidence": "controller-defined"}
 ALLOWED_OPERATIONS = frozenset(OPERATION_METADATA)
 
 

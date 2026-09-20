@@ -124,6 +124,12 @@ def format_response(value: Any) -> dict[str, Any]:
             "readable": _readable(safe)}
 
 
+def format_request(operation: str, params: Mapping[str, Any]) -> str:
+    """Render a request preview without exposing credentials or lease tokens."""
+    return json.dumps(_redact({"operation": operation, "params": dict(params)}),
+                      sort_keys=True, default=str)
+
+
 class ApiWorkbenchSource:
     """The workbench's only source: capabilities and requests via OperatorClient."""
 
@@ -179,6 +185,7 @@ def create_app(source: ApiWorkbenchSource) -> Any:
             self.descriptors: list[dict[str, Any]] = []
             self.current: dict[str, Any] | None = None
             self.error: str | None = None
+            self._mutation_confirmed = False
 
         def compose(self) -> ComposeResult:
             yield Header(show_clock=False)
@@ -227,6 +234,7 @@ def create_app(source: ApiWorkbenchSource) -> Any:
         def on_select_changed(self, event: Select.Changed) -> None:
             if event.select.id == "operation-list" and isinstance(event.value, str):
                 self.current = self.source.show(event.value)
+                self._mutation_confirmed = False
                 self._render_current()
 
         def _render_current(self) -> None:
@@ -236,9 +244,13 @@ def create_app(source: ApiWorkbenchSource) -> Any:
             availability_text = ""
             if isinstance(availability, Mapping) and availability.get("available") is False:
                 availability_text = f"\nUnavailable: {availability.get('reason', 'controller did not provide a reason')}"
+            safety = self.current.get("safety", {})
+            safety_text = ""
+            if isinstance(safety, Mapping) and safety.get("requires_explicit_confirmation"):
+                safety_text = "\nMutation: press Execute twice to confirm; controller permissions remain authoritative."
             self.query_one("#operation-summary", Static).update(
                 f"{self.current['name']} · {self.current.get('access', 'unknown')} · {self.current.get('summary', '')}\n"
-                f"{self.current.get('confirmation', 'No extra confirmation metadata reported.')}{availability_text}")
+                f"{self.current.get('confirmation', 'No extra confirmation metadata reported.')}{safety_text}{availability_text}")
             fields = self.query_one("#request-fields", VerticalScroll)
             fields.remove_children()
             for field in self.current.get("parameters", []):
@@ -262,8 +274,16 @@ def create_app(source: ApiWorkbenchSource) -> Any:
                 values[name] = self.query_one(f"#param-{name}", Input).value
             try:
                 params = build_request(self.current, values)
+                safety = self.current.get("safety", {})
+                if (isinstance(safety, Mapping) and safety.get("requires_explicit_confirmation")
+                        and not self._mutation_confirmed):
+                    self._mutation_confirmed = True
+                    self.query_one("#readable", Static).update(
+                        "Confirmation required for this controller mutation. Press Execute again to submit.")
+                    return
+                self._mutation_confirmed = False
                 self.query_one("#request-raw", Static).update(
-                    f"Request: {json.dumps({'operation': self.current['name'], 'params': params}, sort_keys=True)}")
+                    f"Request: {format_request(self.current['name'], params)}")
                 result = format_response(self.source.call(self.current["name"], params))
                 self.query_one("#readable", Static).update(result["readable"])
                 self.query_one("#structured", Static).update(json.dumps(result["structured"], indent=2, sort_keys=True))

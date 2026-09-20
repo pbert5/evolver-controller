@@ -12,6 +12,7 @@ from evolver_controller.api_workbench import (
     build_request,
     create_app,
     format_response,
+    format_request,
     operation_descriptors,
 )
 from evolver_controller.operator import OPERATION_METADATA
@@ -74,6 +75,7 @@ def test_format_response_preserves_structured_and_readable_evidence() -> None:
     assert rendered["structured"]["secret_token"] == "<redacted>"
     assert '"evidence_level": "protocol_verified"' in rendered["raw"]
     assert rendered["readable"] == "evidence_level: protocol_verified\nobserved: value: 42\nsecret_token: <redacted>"
+    assert '"lease_token": "<redacted>"' in format_request("hardware", {"lease_token": "secret"})
 
 
 def test_api_cli_list_and_call_use_the_live_operator_transport(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
@@ -97,6 +99,23 @@ def test_api_cli_list_and_call_use_the_live_operator_transport(monkeypatch: pyte
         ("capabilities", {}),
         ("instrument", {"action": "show", "instrument_id": "plate-1"}),
     ]
+
+
+def test_api_cli_requires_explicit_confirmation_for_controller_mutations(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls: list[str] = []
+
+    def operator(operation: str, _path: str, *, params: dict[str, object]) -> object:
+        calls.append(operation)
+        if operation == "capabilities":
+            return {"operations": OPERATION_METADATA, "transport": "unix"}
+        return {"operation": operation, "params": params}
+
+    monkeypatch.setattr(cli, "operator_request", operator)
+    assert cli.main(["api", "call", "run", "--params", '{"action":"show","run_id":"run-1"}']) == 64
+    assert calls == ["capabilities"]
+    assert "requires --confirm" in capsys.readouterr().out
 
 
 def test_api_cli_parser_has_live_workbench_surface() -> None:

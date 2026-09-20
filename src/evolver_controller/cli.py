@@ -361,6 +361,10 @@ def _api_cli(args: argparse.Namespace) -> int:
             raw_params = json.loads(args.params)
             if not isinstance(raw_params, dict):
                 raise ValueError("--params must be a JSON object")
+            safety = descriptor.get("safety", {})
+            if (isinstance(safety, dict) and safety.get("requires_explicit_confirmation")
+                    and not args.confirm):
+                raise ValueError("this mutation requires --confirm")
             _emit(operator_request(args.operation, args.operator_socket,
                                     params=build_request(descriptor, raw_params)))
             return 0
@@ -545,6 +549,7 @@ def build_parser() -> argparse.ArgumentParser:
     api_call = api_sub.add_parser("call", help="call one advertised controller operation")
     api_call.add_argument("operation")
     api_call.add_argument("--params", default="{}", help="JSON object of operation parameters")
+    api_call.add_argument("--confirm", action="store_true", help="confirm a controller mutation")
     api_sub.add_parser("tui", help="open the live API Workbench")
     update = commands.add_parser("update", help="inspect or apply a local controller software release")
     update_sub = update.add_subparsers(dest="update_command", required=True)
