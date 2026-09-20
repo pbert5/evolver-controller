@@ -20,6 +20,14 @@ def build_hardware_broker(store: EdgeStore, socket_path: str | None = None) -> H
     return HardwareBroker(store, socket_path=socket_path)
 
 
+def build_operator_identity(subject: str | None = None) -> OperatorIdentity:
+    return OperatorIdentity(
+        subject=subject or os.environ.get("EVOLVER_OPERATOR", "local-operator"),
+        source="unix_operator_socket",
+        permissions=frozenset({"hardware_maintenance", "manage_calibration", "operate_run"}),
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="evolver-controller")
     parser.add_argument("--state-root", default=os.environ.get("EVOLVER_STATE_ROOT", "/var/lib/evolver-controller"))
@@ -33,9 +41,7 @@ def main(argv: list[str] | None = None) -> int:
     # StateDirectory, so service restarts cannot recreate identity or bindings.
     with EdgeStore(Path(args.state_root)) as store:
         stop_event = threading.Event()
-        local_operator = OperatorIdentity(
-            subject=os.environ.get("EVOLVER_OPERATOR", "local-operator"),
-            source="unix_operator_socket", permissions=frozenset({"hardware_maintenance"}))
+        local_operator = build_operator_identity()
         operator = OperatorServer(
             store, args.operator_socket, operator=local_operator,
             hardware_broker=build_hardware_broker(store)).start()

@@ -62,6 +62,24 @@ def test_operator_capabilities_expose_frozen_live_controller_operations(tmp_path
         assert operations["hardware"]["mode"] == "live"
 
 
+def test_operator_run_mutations_require_operate_run_permission(tmp_path: Path) -> None:
+    class FakeStore:
+        def transition_run(self, **kwargs):
+            return {"run_id": kwargs["run_id"], "state": kwargs["state"]}
+
+    params = {"action": "pause", "run_id": "run-1", "based_on_revision": 0}
+    denied_path = tmp_path / "denied.sock"
+    with OperatorServer(FakeStore(), denied_path, operator=OperatorIdentity("alice", "test", frozenset())):
+        denied = _wire(denied_path, {"operation": "run", "params": params})
+    assert denied["error"]["kind"] == "forbidden"
+
+    allowed_path = tmp_path / "allowed.sock"
+    with OperatorServer(FakeStore(), allowed_path,
+                        operator=OperatorIdentity("alice", "test", frozenset({"operate_run"}))):
+        allowed = _wire(allowed_path, {"operation": "run", "params": params})
+    assert allowed == {"ok": True, "result": {"run_id": "run-1", "state": "paused"}}
+
+
 def test_operator_live_inventory_and_calibration_operations_are_typed(tmp_path: Path) -> None:
     path = tmp_path / "operator.sock"
     with EdgeStore(tmp_path / "state") as store, OperatorServer(path=path, store=store):

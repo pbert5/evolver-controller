@@ -128,7 +128,8 @@ for _name, _metadata in OPERATION_METADATA.items():
         "requires_explicit_confirmation": _mutating,
         "physical_opt_in": _name in {"hardware", "hardware_provision_identity"},
         "permissions": (["hardware_maintenance"] if _name == "hardware" else
-                        ["manage_calibration"] if _name == "calibration_run" else []),
+                        ["manage_calibration"] if _name == "calibration_run" else
+                        ["operate_run"] if _name == "run" else []),
     }
     _metadata["response"] = {"shape": "controller-defined", "evidence": "controller-defined"}
 ALLOWED_OPERATIONS = frozenset(OPERATION_METADATA)
@@ -332,6 +333,10 @@ def _dispatch(store: EdgeStore, operation: str, params: dict[str, Any], *,
         if action == "telemetry":
             return [item for stream in store.telemetry_streams() if run_id in stream for item in store.telemetry_after(stream)]
         if action in {"pause", "resume", "stop"}:
+            if operator is None:
+                raise OperatorProtocolError("authenticated operator attribution is required", kind="unauthorized")
+            if "operate_run" not in operator.permissions:
+                raise OperatorProtocolError("operate_run permission is required", kind="forbidden")
             revision = params.get("based_on_revision")
             if isinstance(revision, bool) or not isinstance(revision, int):
                 raise OperatorProtocolError("based_on_revision must be an integer", kind="invalid_request")
