@@ -212,7 +212,8 @@ def _live_request(args: argparse.Namespace) -> tuple[str, dict[str, Any]] | None
                 raise OperatorProtocolError("current local commissioning lease generation is invalid",
                                              kind="lease_error")
             params = {"operation": RAW_TEMPERATURE_HOLD_OPERATION, "action": args.hold_action,
-                      "target_identity": args.target, "channel": args.channel,
+                      "target_identity": args.target, "vial_position_id": args.vial_position_id,
+                      "channel": args.channel,
                       "session_id": args.session_id, "physical": args.physical,
                       "operator": args.operator, "lease_owner": args.operator,
                       "lease_token": args.lease_token, "controller_generation": generation}
@@ -572,6 +573,7 @@ def build_parser() -> argparse.ArgumentParser:
                                        help="commissioning-only raw-ADC PID hold")
     raw_hold.add_argument("hold_action", choices=("start", "status", "disable"))
     raw_hold.add_argument("--target", required=True)
+    raw_hold.add_argument("--vial-position-id", required=True)
     raw_hold.add_argument("--channel", type=int, required=True)
     raw_hold.add_argument("--raw-target-adc", type=int)
     raw_hold.add_argument("--session-id", required=True,

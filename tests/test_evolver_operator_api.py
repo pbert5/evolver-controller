@@ -469,21 +469,21 @@ def test_operator_raw_temperature_hold_is_typed_and_fenced(tmp_path: Path) -> No
                             hardware_broker=HardwareBroker(store, request=fake_hardware_ipc)):
             result = request("hardware", path, params={
                 "operation": "temperature_calibration_hold_raw", "action": "start",
-                "target_identity": "MEV-1", "channel": 0, "raw_target_adc": 34416,
+                "target_identity": "MEV-1", "vial_position_id": "vial-1", "channel": 0, "raw_target_adc": 34416,
                 "session_id": "hold-1", "physical": True, "operator": "alice",
                 "lease_owner": "alice", "lease_token": "lease-7", "controller_generation": 7,
             })
             assert result["request_accepted"] is True
             denied = _wire(path, {"operation": "hardware", "params": {
                 "operation": "temperature_calibration_hold_raw", "action": "start",
-                "target_identity": "MEV-1", "channel": 0, "raw_target_adc": 34416,
+                "target_identity": "MEV-1", "vial_position_id": "vial-1", "channel": 0, "raw_target_adc": 34416,
                 "session_id": "hold-1", "physical": True, "operator": "alice",
                 "lease_owner": "alice", "lease_token": "wrong", "controller_generation": 7,
             }})
             assert denied["ok"] is False
     assert calls[0] == {
         "operation": "temperature_calibration_hold_raw", "target_identity": "MEV-1",
-        "parameters": {"action": "start", "channel": 0, "raw_target_adc": 34416,
+        "parameters": {"action": "start", "vial_position_id": "vial-1", "channel": 0, "raw_target_adc": 34416,
                         "session_id": "hold-1"},
         "physical": True, "operator": "alice", "lease_token": "lease-7",
         "controller_generation": 7, "command_id": calls[0]["command_id"],
@@ -516,7 +516,7 @@ def test_operator_raw_temperature_hold_uses_active_local_authority_over_stale_bi
                             hardware_broker=HardwareBroker(store, request=fake_hardware_ipc)):
             result = request("hardware", path, params={
                 "operation": "temperature_calibration_hold_raw", "action": "disable",
-                "target_identity": "MEV-1", "channel": 0, "session_id": "hold-1",
+                "target_identity": "MEV-1", "vial_position_id": "vial-1", "channel": 0, "session_id": "hold-1",
                 "physical": True, "operator": "alice", "lease_owner": "alice",
                 "lease_token": "lease-12", "controller_generation": 12,
             })

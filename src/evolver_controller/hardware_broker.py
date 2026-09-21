@@ -218,6 +218,7 @@ class HardwareBroker:
 
     def temperature_calibration_hold_raw(self, action: str, *, operator: str,
                                          target_identity: str, channel: int,
+                                         vial_position_id: str,
                                          physical: bool, lease_token: str,
                                          controller_generation: int,
                                          session_id: str, raw_target_adc: int | None = None,
@@ -237,6 +238,19 @@ class HardwareBroker:
         if (isinstance(channel, bool) or not isinstance(channel, int)
                 or not 0 <= channel <= 1):
             raise ValueError("raw temperature hold channel must be 0 or 1")
+        if not isinstance(vial_position_id, str) or not vial_position_id:
+            raise ValueError("raw temperature hold vial_position_id is required")
+        instrument = self._instrument_for_target(target_identity)
+        positions = instrument.get("vial_positions")
+        if not isinstance(positions, list) or not any(
+                isinstance(position, Mapping) and position.get("id") == vial_position_id
+                for position in positions):
+            raise ValueError("vial_position_id is not registered for target identity")
+        selected = next(position for position in positions
+                        if isinstance(position, Mapping) and position.get("id") == vial_position_id)
+        position_index = selected.get("position_index")
+        if position_index is not None and position_index != channel:
+            raise ValueError("vial_position_id does not match the raw calibration channel")
         if not isinstance(session_id, str) or not session_id:
             raise ValueError("raw temperature hold session_id is required")
         if (isinstance(controller_generation, bool) or not isinstance(controller_generation, int)
@@ -252,7 +266,8 @@ class HardwareBroker:
         self.store.validate_control_lease(lease_token=lease_token, owner=operator,
                                           generation=controller_generation,
                                           authority_domain=authority_domain)
-        parameters: dict[str, Any] = {"action": action, "channel": channel,
+        parameters: dict[str, Any] = {"action": action, "vial_position_id": vial_position_id,
+                                      "channel": channel,
                                       "session_id": session_id}
         if action == "start":
             if (isinstance(raw_target_adc, bool) or not isinstance(raw_target_adc, int)

@@ -149,6 +149,7 @@ def _dispatch(store: EdgeStore, operation: str, params: dict[str, Any], *,
                     lambda: hardware_broker.temperature_calibration_hold_raw(
                         body["action"], operator=operator.subject,
                         target_identity=body["target_identity"], channel=body["channel"],
+                        vial_position_id=body["vial_position_id"],
                         raw_target_adc=body.get("raw_target_adc"),
                         session_id=body["session_id"], physical=body["physical"],
                         lease_token=body["lease_token"],
@@ -495,10 +496,10 @@ def _hardware_request(params: dict[str, Any], subject: str) -> dict[str, Any]:
         if "operator" in params and params["operator"] != subject:
             raise OperatorProtocolError("operator does not match authenticated operator", kind="unauthorized")
     elif operation == "temperature_calibration_hold_raw":
-        allowed = {"operation", "action", "target_identity", "channel", "raw_target_adc",
+        allowed = {"operation", "action", "target_identity", "vial_position_id", "channel", "raw_target_adc",
                    "session_id", "controller_generation", "lease_token", "lease_owner",
                    "physical", "command_id", "operator"}
-        required = {"operation", "action", "target_identity", "channel", "session_id",
+        required = {"operation", "action", "target_identity", "vial_position_id", "channel", "session_id",
                     "controller_generation", "lease_token", "physical"}
         missing = sorted(required - params.keys())
         if missing:
@@ -508,6 +509,8 @@ def _hardware_request(params: dict[str, Any], subject: str) -> dict[str, Any]:
             raise OperatorProtocolError("raw temperature hold action is unsupported", kind="invalid_request")
         if not isinstance(params["target_identity"], str) or not params["target_identity"]:
             raise OperatorProtocolError("target_identity must be a non-empty string", kind="invalid_request")
+        if not isinstance(params["vial_position_id"], str) or not params["vial_position_id"]:
+            raise OperatorProtocolError("vial_position_id must be a non-empty string", kind="invalid_request")
         channel = params["channel"]
         if isinstance(channel, bool) or not isinstance(channel, int) or not 0 <= channel <= 1:
             raise OperatorProtocolError("channel must be 0 or 1", kind="invalid_request")

@@ -175,7 +175,7 @@ def test_cli_raw_temperature_hold_reads_current_local_generation_and_forwards_le
 
     monkeypatch.setattr(cli_module, "operator_request", operator)
     monkeypatch.setattr(sys, "argv", ["evoctl", "hardware", "temperature-calibration-hold-raw", "start",
-                                        "--target", "MEV-1", "--channel", "0", "--raw-target-adc", "34416",
+                                        "--target", "MEV-1", "--vial-position-id", "vial-1", "--channel", "0", "--raw-target-adc", "34416",
                                         "--session-id", "hold-1", "--lease-token", "lease-12",
                                         "--physical", "--operator", "alice"])
 
@@ -183,7 +183,7 @@ def test_cli_raw_temperature_hold_reads_current_local_generation_and_forwards_le
     assert calls == [
         ("hardware_lease", {"action": "status", "operator": "alice"}),
         ("hardware", {"operation": "temperature_calibration_hold_raw", "action": "start",
-                       "target_identity": "MEV-1", "channel": 0, "session_id": "hold-1",
+                       "target_identity": "MEV-1", "vial_position_id": "vial-1", "channel": 0, "session_id": "hold-1",
                        "physical": True, "operator": "alice", "lease_owner": "alice",
                        "lease_token": "lease-12", "controller_generation": 12,
                        "raw_target_adc": 34416}),
@@ -197,7 +197,7 @@ def test_cli_raw_temperature_hold_fails_closed_without_current_owned_lease(monke
     monkeypatch.setattr(cli_module, "operator_request", lambda name, _path, params=None:
                         calls.append((name, params)) or {"status": "released", "owner": "alice", "generation": 12})
     monkeypatch.setattr(sys, "argv", ["evoctl", "hardware", "temperature-calibration-hold-raw", "disable",
-                                        "--target", "MEV-1", "--channel", "0", "--session-id", "hold-1",
+                                        "--target", "MEV-1", "--vial-position-id", "vial-1", "--channel", "0", "--session-id", "hold-1",
                                         "--lease-token", "lease-12", "--physical", "--operator", "alice"])
     assert cli_module.main() == 64
     assert calls and calls[0][0] == "hardware_lease"
@@ -390,4 +390,3 @@ def test_server_identity_replacement_is_not_silently_accepted(tmp_path):
         client = SyncClient(edge, transport=transport); client.enroll(server="https://same", token="t")
         with pytest.raises(StaleGenerationError): client.sync_once()
         assert edge.identity()["connection_state"] == "recovery_required"
-

@@ -10,7 +10,7 @@ from evolver_controller.store import EdgeStore, LeaseValidationError
 
 def _store(tmp_path):
     store = EdgeStore(tmp_path); store.bind(webui_controller_id="central", server_url="https://central", credential="secret", generation=7)
-    store.register_instruments([{"id": "instrument-1", "instrument_type": "minievolver", "device_identity": "MEV-1", "vial_positions": [], "capabilities": {}}])
+    store.register_instruments([{"id": "instrument-1", "instrument_type": "minievolver", "device_identity": "MEV-1", "vial_positions": [{"id": "vial-1"}], "capabilities": {}}])
     store.set_control_lease(lease_token="lease-7", owner="ash", generation=7, expires_at="2030-01-01T01:00:00+00:00")
     return store
 
@@ -202,14 +202,14 @@ def test_raw_temperature_hold_forwards_typed_commissioning_request_and_lease_gen
         broker = HardwareBroker(store, request=lambda _path, payload, _timeout:
                                 calls.append(payload) or {"request_accepted": True})
         result = broker.temperature_calibration_hold_raw(
-            "start", operator="ash", target_identity="MEV-1", channel=0,
+            "start", operator="ash", target_identity="MEV-1", vial_position_id="vial-1", channel=0,
             raw_target_adc=34416, session_id="hold-1", physical=True,
             lease_token="lease-7", controller_generation=7, command_id="cmd-1")
 
     assert result["request_accepted"] is True
     assert calls == [{
         "operation": "temperature_calibration_hold_raw", "target_identity": "MEV-1",
-        "parameters": {"action": "start", "channel": 0, "raw_target_adc": 34416,
+        "parameters": {"action": "start", "vial_position_id": "vial-1", "channel": 0, "raw_target_adc": 34416,
                         "session_id": "hold-1"},
         "physical": True, "operator": "ash", "lease_token": "lease-7",
         "controller_generation": 7, "command_id": "cmd-1",
@@ -223,11 +223,11 @@ def test_raw_temperature_hold_status_and_disable_are_explicit_actions(tmp_path, 
         broker = HardwareBroker(store, request=lambda _path, payload, _timeout:
                                 calls.append(payload) or {"request_accepted": True})
         broker.temperature_calibration_hold_raw(
-            action, operator="ash", target_identity="MEV-1", channel=1,
+            action, operator="ash", target_identity="MEV-1", vial_position_id="vial-1", channel=0,
             session_id="hold-1", physical=True, lease_token="lease-7",
             controller_generation=7)
     assert calls[0]["operation"] == "temperature_calibration_hold_raw"
-    assert calls[0]["parameters"] == {"action": action, "channel": 1, "session_id": "hold-1"}
+    assert calls[0]["parameters"] == {"action": action, "vial_position_id": "vial-1", "channel": 0, "session_id": "hold-1"}
 
 
 def test_raw_temperature_hold_rejects_bad_authority_and_target_before_ipc(tmp_path):
@@ -236,12 +236,12 @@ def test_raw_temperature_hold_rejects_bad_authority_and_target_before_ipc(tmp_pa
         broker = HardwareBroker(store, request=lambda *_: calls.append(True) or {})
         with pytest.raises(ValueError, match="stale"):
             broker.temperature_calibration_hold_raw(
-                "start", operator="ash", target_identity="MEV-1", channel=0,
+                "start", operator="ash", target_identity="MEV-1", vial_position_id="vial-1", channel=0,
                 raw_target_adc=1, session_id="hold-1", physical=True,
                 lease_token="lease-7", controller_generation=6)
         with pytest.raises(ValueError, match="between"):
             broker.temperature_calibration_hold_raw(
-                "start", operator="ash", target_identity="MEV-1", channel=0,
+                "start", operator="ash", target_identity="MEV-1", vial_position_id="vial-1", channel=0,
                 raw_target_adc=65536, session_id="hold-1", physical=True,
                 lease_token="lease-7", controller_generation=7)
     assert calls == []
