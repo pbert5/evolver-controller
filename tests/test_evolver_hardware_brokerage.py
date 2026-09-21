@@ -28,6 +28,22 @@ def test_discover_and_protocol_test_are_controller_mediated(tmp_path):
     assert calls[1][1]["target_identity"] == "MEV-1"
 
 
+def test_local_lease_lifecycle_is_delegated_without_controller_token(tmp_path):
+    calls = []
+    with EdgeStore(tmp_path) as store:
+        broker = HardwareBroker(store, request=lambda _path, payload, _timeout:
+                                calls.append(payload) or {"status": "active", "token": "hardware-token",
+                                                          "generation": payload.get("controller_generation", 1)})
+        generation = store.allocate_local_commissioning_generation()
+        lease = broker.lease_acquire(operator="ash", ttl_seconds=60, controller_generation=generation)
+        assert lease["token"] == "hardware-token"
+        assert store.meta("control_lease") is None
+        assert broker.lease_status()["status"] == "active"
+        broker.lease_release(operator="ash")
+    assert [call["operation"] for call in calls] == ["lease_acquire", "lease_status", "lease_release"]
+    assert calls[0]["controller_generation"] == 1
+
+
 def test_discover_registers_provisioned_hardware_in_controller_inventory(tmp_path):
     discovered = {
         "id": "instrument-1", "controller_id": "hardware-daemon-controller",
