@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Mapping
 
 
 from .doctor import doctor_report
+from .hardware_broker import RAW_TEMPERATURE_HOLD_OPERATION
 from .hardware_ipc import PROVISIONING_IPC_TIMEOUT_SECONDS
 from .store import EdgeStore
 
@@ -101,7 +102,8 @@ def _dispatch(store: EdgeStore, operation: str, params: dict[str, Any], *,
               operator: "OperatorIdentity | None" = None, hardware_broker: Any | None = None) -> Any:
     if operation == "hardware":
         hardware_operation = params.get("operation")
-        if hardware_operation not in {"discover", "protocol_test", "hardware_command", "safe_stop"}:
+        if hardware_operation not in {"discover", "protocol_test", "hardware_command", "safe_stop",
+                                      RAW_TEMPERATURE_HOLD_OPERATION}:
             raise OperatorProtocolError("unsupported hardware operation", kind="unsupported_operation")
         if operator is None:
             if hardware_operation in {"discover", "protocol_test"}:
@@ -127,6 +129,32 @@ def _dispatch(store: EdgeStore, operation: str, params: dict[str, Any], *,
                     lambda: hardware_broker.safe_stop(operator=operator.subject,
                                                       physical=body.get("physical", False),
                                                       command_id=command_id))
+            except Exception as error:
+                raise OperatorProtocolError(str(error),
+                                            kind=getattr(error, "kind", "hardware_error")) from error
+        if hardware_operation == RAW_TEMPERATURE_HOLD_OPERATION:
+            if "hardware_maintenance" not in operator.permissions:
+                raise OperatorProtocolError("hardware_maintenance permission is required", kind="forbidden")
+            if hardware_broker is None:
+                raise OperatorProtocolError("raw temperature hold must be delegated to the hardware service",
+                                            kind="maintenance_delegated")
+            command_id = body.get("command_id") or f"raw-hold-{uuid4()}"
+            command = {"command_id": command_id,
+                       "controller_generation": body["controller_generation"],
+                       "operation": RAW_TEMPERATURE_HOLD_OPERATION,
+                       "lease_token": body["lease_token"], "lease_holder": operator.subject}
+            try:
+                return store.execute_command(
+                    command,
+                    lambda: hardware_broker.temperature_calibration_hold_raw(
+                        body["action"], operator=operator.subject,
+                        target_identity=body["target_identity"], channel=body["channel"],
+                        vial_position_id=body["vial_position_id"],
+                        raw_target_adc=body.get("raw_target_adc"),
+                        session_id=body["session_id"], physical=body["physical"],
+                        lease_token=body["lease_token"],
+                        controller_generation=body["controller_generation"],
+                        command_id=command_id))
             except Exception as error:
                 raise OperatorProtocolError(str(error),
                                             kind=getattr(error, "kind", "hardware_error")) from error
@@ -467,6 +495,43 @@ def _hardware_request(params: dict[str, Any], subject: str) -> dict[str, Any]:
             raise OperatorProtocolError("physical opt-in is required", kind="unsafe")
         if "operator" in params and params["operator"] != subject:
             raise OperatorProtocolError("operator does not match authenticated operator", kind="unauthorized")
+    elif operation == "temperature_calibration_hold_raw":
+        allowed = {"operation", "action", "target_identity", "vial_position_id", "channel", "raw_target_adc",
+                   "session_id", "controller_generation", "lease_token", "lease_owner",
+                   "physical", "command_id", "operator"}
+        required = {"operation", "action", "target_identity", "vial_position_id", "channel", "session_id",
+                    "controller_generation", "lease_token", "physical"}
+        missing = sorted(required - params.keys())
+        if missing:
+            raise OperatorProtocolError(f"missing raw temperature hold fields: {', '.join(missing)}",
+                                         kind="invalid_request")
+        if params["action"] not in {"start", "status", "disable"}:
+            raise OperatorProtocolError("raw temperature hold action is unsupported", kind="invalid_request")
+        if not isinstance(params["target_identity"], str) or not params["target_identity"]:
+            raise OperatorProtocolError("target_identity must be a non-empty string", kind="invalid_request")
+        if not isinstance(params["vial_position_id"], str) or not params["vial_position_id"]:
+            raise OperatorProtocolError("vial_position_id must be a non-empty string", kind="invalid_request")
+        channel = params["channel"]
+        if isinstance(channel, bool) or not isinstance(channel, int) or not 0 <= channel <= 1:
+            raise OperatorProtocolError("channel must be 0 or 1", kind="invalid_request")
+        if not isinstance(params["session_id"], str) or not params["session_id"]:
+            raise OperatorProtocolError("session_id must be a non-empty string", kind="invalid_request")
+        raw = params.get("raw_target_adc")
+        if params["action"] == "start":
+            if isinstance(raw, bool) or not isinstance(raw, int) or not 1 <= raw <= 65535:
+                raise OperatorProtocolError("raw_target_adc must be between 1 and 65535", kind="invalid_request")
+        elif raw is not None:
+            raise OperatorProtocolError("raw_target_adc is only valid when starting a raw hold", kind="invalid_request")
+        generation = params["controller_generation"]
+        if isinstance(generation, bool) or not isinstance(generation, int) or generation <= 0:
+            raise OperatorProtocolError("controller_generation must be a positive integer", kind="invalid_request")
+        if not isinstance(params["lease_token"], str) or not params["lease_token"]:
+            raise OperatorProtocolError("lease_token must be a non-empty string", kind="invalid_request")
+        if params["physical"] is not True:
+            raise OperatorProtocolError("physical opt-in is required", kind="unsafe")
+        for field in ("operator", "lease_owner"):
+            if field in params and params[field] != subject:
+                raise OperatorProtocolError(f"{field} does not match authenticated operator", kind="unauthorized")
     elif operation == "hardware_command":
         allowed = {"operation", "operation_name", "target_identity", "parameters",
                    "controller_generation", "lease_token", "lease_owner", "physical", "command_id", "operator"}
@@ -497,6 +562,10 @@ def _hardware_request(params: dict[str, Any], subject: str) -> dict[str, Any]:
         raise OperatorProtocolError(f"unknown hardware request fields: {', '.join(unknown)}", kind="invalid_request")
     if operation == "hardware_command":
         result = {key: params[key] for key in allowed if key in params and key not in {"operator"}}
+        result["lease_owner"] = subject
+        return result
+    if operation == "temperature_calibration_hold_raw":
+        result = {key: params[key] for key in allowed if key in params and key != "operator"}
         result["lease_owner"] = subject
         return result
     if operation == "safe_stop":

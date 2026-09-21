@@ -448,6 +448,82 @@ def test_operator_hardware_command_keeps_controller_fences(tmp_path: Path) -> No
     assert calls[0]["operator"] == "alice"
 
 
+def test_operator_raw_temperature_hold_is_typed_and_fenced(tmp_path: Path) -> None:
+    path = tmp_path / "operator.sock"
+    calls = []
+
+    def fake_hardware_ipc(_path, payload, _timeout):
+        calls.append(payload)
+        return {"request_accepted": True, "verification": "protocol_verified"}
+
+    operator = OperatorIdentity("alice", "local_operator", frozenset({"hardware_maintenance"}))
+    with EdgeStore(tmp_path / "state") as store:
+        store.bind(webui_controller_id="central", server_url="https://central",
+                   credential="secret", generation=7)
+        store.register_instruments([{"id": "instrument-1", "instrument_type": "minievolver",
+                                     "device_identity": "MEV-1", "vial_positions": [{"id": "vial-1"}],
+                                     "capabilities": {}}])
+        store.set_control_lease(lease_token="lease-7", owner="alice", generation=7,
+                                expires_at="2030-01-01T01:00:00+00:00")
+        with OperatorServer(store, path, operator=operator,
+                            hardware_broker=HardwareBroker(store, request=fake_hardware_ipc)):
+            result = request("hardware", path, params={
+                "operation": "temperature_calibration_hold_raw", "action": "start",
+                "target_identity": "MEV-1", "vial_position_id": "vial-1", "channel": 0, "raw_target_adc": 34416,
+                "session_id": "hold-1", "physical": True, "operator": "alice",
+                "lease_owner": "alice", "lease_token": "lease-7", "controller_generation": 7,
+            })
+            assert result["request_accepted"] is True
+            denied = _wire(path, {"operation": "hardware", "params": {
+                "operation": "temperature_calibration_hold_raw", "action": "start",
+                "target_identity": "MEV-1", "vial_position_id": "vial-1", "channel": 0, "raw_target_adc": 34416,
+                "session_id": "hold-1", "physical": True, "operator": "alice",
+                "lease_owner": "alice", "lease_token": "wrong", "controller_generation": 7,
+            }})
+            assert denied["ok"] is False
+    assert calls[0] == {
+        "operation": "temperature_calibration_hold_raw", "target_identity": "MEV-1",
+        "parameters": {"action": "start", "vial_position_id": "vial-1", "channel": 0, "raw_target_adc": 34416,
+                        "session_id": "hold-1"},
+        "physical": True, "operator": "alice", "lease_token": "lease-7",
+        "controller_generation": 7, "command_id": calls[0]["command_id"],
+    }
+    assert len(calls) == 1
+
+
+def test_operator_raw_temperature_hold_uses_active_local_authority_over_stale_binding(tmp_path: Path) -> None:
+    path = tmp_path / "operator.sock"
+    calls = []
+
+    def fake_hardware_ipc(_path, payload, _timeout):
+        calls.append(payload)
+        return {"request_accepted": True, "verification": "protocol_verified"}
+
+    operator = OperatorIdentity("alice", "local_operator", frozenset({"hardware_maintenance"}))
+    with EdgeStore(tmp_path / "state") as store:
+        store.bind(webui_controller_id="central", server_url="https://central",
+                   credential="secret", generation=7)
+        store.register_instruments([{"id": "instrument-1", "instrument_type": "minievolver",
+                                     "device_identity": "MEV-1", "vial_positions": [{"id": "vial-1"}],
+                                     "capabilities": {}}])
+        store.set_meta("commissioning_lease", {"status": "active", "owner": "alice",
+                                                "generation": 12, "authority_domain": "local_commissioning",
+                                                "expires_at": "2030-01-01T01:00:00+00:00"})
+        store.set_control_lease(lease_token="lease-12", owner="alice", generation=12,
+                                expires_at="2030-01-01T01:00:00+00:00",
+                                authority_domain="local_commissioning")
+        with OperatorServer(store, path, operator=operator,
+                            hardware_broker=HardwareBroker(store, request=fake_hardware_ipc)):
+            result = request("hardware", path, params={
+                "operation": "temperature_calibration_hold_raw", "action": "disable",
+                "target_identity": "MEV-1", "vial_position_id": "vial-1", "channel": 0, "session_id": "hold-1",
+                "physical": True, "operator": "alice", "lease_owner": "alice",
+                "lease_token": "lease-12", "controller_generation": 12,
+            })
+    assert result["request_accepted"] is True
+    assert calls[0]["controller_generation"] == 12
+
+
 @pytest.mark.parametrize("change", [
     {"physical": False},
     {"controller_generation": 6},
