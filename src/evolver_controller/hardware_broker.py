@@ -1,6 +1,7 @@
 """Controller-owned brokerage boundary for the private hardware socket."""
 from __future__ import annotations
 
+import math
 import os
 from datetime import UTC, datetime
 from typing import Any, Callable, Mapping
@@ -100,10 +101,31 @@ class HardwareBroker:
     def _numeric(value: Any) -> Any:
         if isinstance(value, str):
             try:
-                return float(value) if "." in value else int(value)
+                try:
+                    return int(value)
+                except ValueError:
+                    return float(value)
             except ValueError:
                 return value
         return value
+
+    @staticmethod
+    def _normalize_response(response: Mapping[str, Any]) -> tuple[dict[str, Any], Mapping[str, Any]]:
+        """Adapt a typed hardware result into its observation payload.
+
+        Hardware IPC deliberately returns transport/protocol metadata alongside
+        the observation.  Keep that envelope available for metadata lookups,
+        but make ``observed_evidence`` the canonical domain payload.  The flat
+        fallback is bounded compatibility for older in-process callers.
+        """
+        evidence = response.get("observed_evidence")
+        if isinstance(evidence, Mapping):
+            return dict(evidence), response
+        return dict(response), response
+
+    @staticmethod
+    def _response_value(evidence: Mapping[str, Any], response: Mapping[str, Any], key: str, default: Any = None) -> Any:
+        return evidence[key] if key in evidence else response.get(key, default)
 
     def status(self, *, operator: str, target_identity: str) -> dict[str, Any]:
         """Read current device status through the private hardware IPC."""
@@ -111,15 +133,16 @@ class HardwareBroker:
         instrument = self._instrument_for_target(target_identity)
         response = self._call({"operation": "get_status", "target_identity": target_identity,
                                "operator": operator})
-        reported_identity = response.get("device_identity")
+        evidence, metadata = self._normalize_response(response)
+        reported_identity = self._response_value(evidence, metadata, "device_identity")
         if reported_identity is not None and reported_identity != target_identity:
             raise HardwareBrokerProtocolError("hardware status identity does not match target identity")
-        observed_at = response.get("observed_at") or datetime.now(UTC).isoformat()
+        observed_at = self._response_value(evidence, metadata, "observed_at") or datetime.now(UTC).isoformat()
         return {"instrument_id": instrument.get("id"), "controller_id": instrument.get("controller_id"),
-                "device_identity": target_identity, "status": dict(response),
+                "device_identity": target_identity, "status": evidence,
                 "observed_at": observed_at, "freshness": "fresh", "source": "hardware_ipc",
-                "evidence_level": response.get("verification", "protocol_verified"),
-                "calibration": self._calibration(response)}
+                "evidence_level": metadata.get("verification", "protocol_verified"),
+                "calibration": self._calibration({**metadata, **evidence})}
 
     def read_sensor(self, *, operator: str, target_identity: str, sensor: str, channel: int) -> dict[str, Any]:
         """Acquire one raw temperature/OD observation without actuating."""
@@ -135,27 +158,29 @@ class HardwareBroker:
         response = self._call({"operation": "read_sensor", "target_identity": target_identity,
                                "parameters": {"sensor": sensor, "channel": channel},
                                "operator": operator})
-        reported_identity = response.get("device_identity")
+        evidence, metadata = self._normalize_response(response)
+        reported_identity = self._response_value(evidence, metadata, "device_identity")
         if reported_identity is not None and reported_identity != target_identity:
             raise HardwareBrokerProtocolError("sensor identity does not match target identity")
-        if "value" not in response and "raw_value" not in response:
+        if "value" not in evidence and "raw_value" not in evidence:
             raise HardwareBrokerProtocolError("sensor response is missing raw value")
-        calibration = self._calibration(response)
+        calibration = self._calibration({**metadata, **evidence})
         calibrated = calibration.get("state") in {"calibrated", "valid", "verified"} and bool(
             calibration.get("artifact_id") or calibration.get("artifact_digest"))
-        raw_value = self._numeric(response.get("value", response.get("raw_value")))
-        if isinstance(raw_value, bool) or not isinstance(raw_value, (int, float)):
+        raw_value = self._numeric(evidence.get("value", evidence.get("raw_value")))
+        if (isinstance(raw_value, bool) or not isinstance(raw_value, (int, float))
+                or not math.isfinite(float(raw_value))):
             raise HardwareBrokerProtocolError("sensor response raw value is malformed")
-        derived = response.get("derived_value") if calibrated else None
+        derived = self._response_value(evidence, metadata, "derived_value") if calibrated else None
         vial = positions[channel] if isinstance(positions[channel], Mapping) else {}
         return {"instrument_id": instrument.get("id"), "device_identity": target_identity,
                 "controller_id": instrument.get("controller_id"),
                 "vial_position_id": vial.get("id"), "sensor": sensor, "channel": channel,
-                "raw_metric": response.get("metric") or f"{sensor}_raw", "raw_value": raw_value,
-                "derived_value": derived, "unit": response.get("unit", "ADC"),
-                "observed_at": response.get("observed_at") or datetime.now(UTC).isoformat(),
+                "raw_metric": self._response_value(evidence, metadata, "metric") or f"{sensor}_raw", "raw_value": raw_value,
+                "derived_value": derived, "unit": self._response_value(evidence, metadata, "unit", "ADC"),
+                "observed_at": self._response_value(evidence, metadata, "observed_at") or datetime.now(UTC).isoformat(),
                 "freshness": "fresh", "source": "hardware_ipc", "calibration": calibration,
-                "evidence_level": response.get("verification", "protocol_verified")}
+                "evidence_level": metadata.get("verification", "protocol_verified")}
 
     def command(self, operation: str, *, operator: str, target_identity: str,
                 parameters: Mapping[str, Any], lease_token: str | None = None,

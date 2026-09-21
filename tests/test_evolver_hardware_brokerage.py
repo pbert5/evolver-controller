@@ -93,11 +93,18 @@ def test_hardware_ipc_failures_map_to_typed_errors(tmp_path):
 def test_read_only_broker_exposes_fresh_status_and_sensor_evidence(tmp_path):
     calls = []
 
+    def envelope(command_id, protocol_response, evidence):
+        return {"command_id": command_id, "request_accepted": True,
+                "protocol_response": protocol_response, "observed_evidence": evidence,
+                "verification": "protocol_verified", "retryable": True}
+
     def request(_path, payload, _timeout):
         calls.append(payload)
         if payload["operation"] == "get_status":
-            return {"device_identity": "MEV-1", "sleeves": "1", "temperature_state": "idle"}
-        return {"device_identity": "MEV-1", "value": "123", "metric": "thermistor_raw"}
+            return envelope("status-1", "HW|1|OK|STATUS|sleeves=1,temperature_state=idle",
+                            {"sleeves": "1", "temperature_state": "idle"})
+        return envelope("sensor-1", "HW|1|OK|THERMISTOR|channel=0,value=34416",
+                        {"channel": "0", "value": "34416", "metric": "thermistor_raw"})
 
     with EdgeStore(tmp_path) as store:
         store.bind(webui_controller_id="central", server_url="https://central", credential="secret", generation=7)
@@ -112,9 +119,10 @@ def test_read_only_broker_exposes_fresh_status_and_sensor_evidence(tmp_path):
     assert status["source"] == "hardware_ipc"
     assert status["device_identity"] == "MEV-1"
     assert status["status"]["sleeves"] == "1"
+    assert status["status"] == {"sleeves": "1", "temperature_state": "idle"}
     assert sensor["sensor"] == "temperature"
     assert sensor["channel"] == 0
-    assert sensor["raw_value"] == 123
+    assert sensor["raw_value"] == 34416
     assert sensor["derived_value"] is None
     assert sensor["calibration"]["state"] == "not_calibrated"
     assert sensor["evidence_level"] == "protocol_verified"
@@ -135,18 +143,44 @@ def test_read_sensor_rejects_unregistered_channel_before_hardware_io(tmp_path):
     assert calls == []
 
 
-def test_read_sensor_rejects_malformed_or_mismatched_hardware_reply(tmp_path):
+@pytest.mark.parametrize(
+    "response, message",
+    [
+        ({"command_id": "sensor-1", "request_accepted": True,
+          "observed_evidence": {}, "verification": "protocol_verified"}, "missing raw value"),
+        ({"command_id": "sensor-1", "request_accepted": True,
+          "observed_evidence": {"value": "not-a-number"}, "verification": "protocol_verified"}, "malformed"),
+        ({"command_id": "sensor-1", "request_accepted": True,
+          "observed_evidence": {"value": "1", "device_identity": "MEV-2"},
+          "verification": "protocol_verified"}, "identity"),
+    ],
+)
+def test_read_sensor_rejects_malformed_or_mismatched_hardware_reply(tmp_path, response, message):
     with EdgeStore(tmp_path) as store:
         store.bind(webui_controller_id="central", server_url="https://central", credential="secret", generation=7)
         store.register_instruments([{"id": "instrument-1", "instrument_type": "minievolver",
                                      "device_identity": "MEV-1", "vial_positions": [{"id": "vial-1"}],
                                      "capabilities": {}}])
-        missing_value = HardwareBroker(store, request=lambda *_: {"device_identity": "MEV-1"})
-        with pytest.raises(HardwareBrokerProtocolError, match="value"):
-            missing_value.read_sensor(operator="ash", target_identity="MEV-1", sensor="od", channel=0)
-        mismatched = HardwareBroker(store, request=lambda *_: {"device_identity": "MEV-2", "value": 1})
-        with pytest.raises(HardwareBrokerProtocolError, match="identity"):
-            mismatched.read_sensor(operator="ash", target_identity="MEV-1", sensor="od", channel=0)
+        broker = HardwareBroker(store, request=lambda *_: response)
+        with pytest.raises(HardwareBrokerProtocolError, match=message):
+            broker.read_sensor(operator="ash", target_identity="MEV-1", sensor="od", channel=0)
+
+
+def test_read_sensor_normalizes_od_envelope_and_preserves_protocol_verification(tmp_path):
+    with EdgeStore(tmp_path) as store:
+        store.bind(webui_controller_id="central", server_url="https://central", credential="secret", generation=7)
+        store.register_instruments([{"id": "instrument-1", "instrument_type": "minievolver",
+                                     "device_identity": "MEV-1", "vial_positions": [{"id": "vial-1"}],
+                                     "capabilities": {}}])
+        response = {"command_id": "od-1", "request_accepted": True,
+                    "protocol_response": "HW|1|OK|PHOTODIODE|channel=0,value=65520",
+                    "observed_evidence": {"channel": "0", "value": "65520", "unit": "ADC"},
+                    "verification": "protocol_verified", "retryable": True}
+        sensor = HardwareBroker(store, request=lambda *_: response).read_sensor(
+            operator="ash", target_identity="MEV-1", sensor="od", channel=0)
+    assert sensor["raw_value"] == 65520
+    assert isinstance(sensor["raw_value"], int)
+    assert sensor["evidence_level"] == "protocol_verified"
 
 
 def test_mutating_broker_fences_safety_and_bounds(tmp_path):
@@ -218,4 +252,3 @@ def test_stale_local_lease_is_rejected_after_reacquire(tmp_path):
                            physical=True)
         assert second["generation"] == 2
     assert calls == []
-
