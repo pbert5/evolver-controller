@@ -161,6 +161,50 @@ def test_cli_live_hardware_actuation_sends_typed_fenced_request(tmp_path, monkey
     assert json.loads(capsys.readouterr().out)["request_accepted"] is True
 
 
+def test_cli_raw_temperature_hold_reads_current_local_generation_and_forwards_lease(
+    monkeypatch, capsys
+):
+    import evolver_controller.cli as cli_module
+    calls = []
+
+    def operator(name, _path, params=None):
+        calls.append((name, params))
+        if name == "hardware_lease":
+            return {"status": "active", "owner": "alice", "generation": 12}
+        return {"request_accepted": True}
+
+    monkeypatch.setattr(cli_module, "operator_request", operator)
+    monkeypatch.setattr(sys, "argv", ["evoctl", "hardware", "temperature-calibration-hold-raw", "start",
+                                        "--target", "MEV-1", "--channel", "0", "--raw-target-adc", "34416",
+                                        "--session-id", "hold-1", "--lease-token", "lease-12",
+                                        "--physical", "--operator", "alice"])
+
+    assert cli_module.main() == 0
+    assert calls == [
+        ("hardware_lease", {"action": "status", "operator": "alice"}),
+        ("hardware", {"operation": "temperature_calibration_hold_raw", "action": "start",
+                       "target_identity": "MEV-1", "channel": 0, "session_id": "hold-1",
+                       "physical": True, "operator": "alice", "lease_owner": "alice",
+                       "lease_token": "lease-12", "controller_generation": 12,
+                       "raw_target_adc": 34416}),
+    ]
+    assert json.loads(capsys.readouterr().out)["request_accepted"] is True
+
+
+def test_cli_raw_temperature_hold_fails_closed_without_current_owned_lease(monkeypatch, capsys):
+    import evolver_controller.cli as cli_module
+    calls = []
+    monkeypatch.setattr(cli_module, "operator_request", lambda name, _path, params=None:
+                        calls.append((name, params)) or {"status": "released", "owner": "alice", "generation": 12})
+    monkeypatch.setattr(sys, "argv", ["evoctl", "hardware", "temperature-calibration-hold-raw", "disable",
+                                        "--target", "MEV-1", "--channel", "0", "--session-id", "hold-1",
+                                        "--lease-token", "lease-12", "--physical", "--operator", "alice"])
+    assert cli_module.main() == 64
+    assert calls and calls[0][0] == "hardware_lease"
+    assert len(calls) == 1
+    assert "current local commissioning lease" in capsys.readouterr().err
+
+
 def test_cli_safe_stop_returns_nonzero_for_partial_unverified_result(monkeypatch, capsys):
     import evolver_controller.cli as cli_module
     monkeypatch.setattr(cli_module, "operator_request", lambda *_args, **_kwargs: {
@@ -346,5 +390,4 @@ def test_server_identity_replacement_is_not_silently_accepted(tmp_path):
         client = SyncClient(edge, transport=transport); client.enroll(server="https://same", token="t")
         with pytest.raises(StaleGenerationError): client.sync_once()
         assert edge.identity()["connection_state"] == "recovery_required"
-
 

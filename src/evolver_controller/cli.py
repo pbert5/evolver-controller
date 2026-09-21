@@ -22,6 +22,7 @@ from .doctor import doctor_report
 from .operator import (DEFAULT_SOCKET as DEFAULT_OPERATOR_SOCKET, OperatorClient,
                        OperatorError, OperatorProtocolError, OperatorUnavailable,
                        request as operator_request)
+from .hardware_broker import RAW_TEMPERATURE_HOLD_OPERATION
 from .workflow_cli import WorkflowCLI, ScenarioRegistry, parse_parameters, production_host, ScenarioHost
 from .workflow_host import (ActionAvailability, Availability, HostContext,
                              ProcedureActionInvoker, TargetKind, operator_safe_stop_authority,
@@ -84,6 +85,7 @@ _COMMAND_REGISTRY: dict[str, CommandSpec] = {
     "hardware.discover": CommandSpec(CommandMode.LIVE),
     "hardware.protocol-test": CommandSpec(CommandMode.LIVE),
     "hardware.safe-stop": CommandSpec(CommandMode.LIVE),
+    "hardware.temperature-calibration-hold-raw": CommandSpec(CommandMode.LIVE),
     "hardware.actuate": CommandSpec(CommandMode.LIVE),
     "hardware.quarantine-command": CommandSpec(CommandMode.MAINTENANCE, "rejected"),
     "update.status": CommandSpec(CommandMode.MAINTENANCE, "delegated", "controller-service"),
@@ -199,6 +201,24 @@ def _live_request(args: argparse.Namespace) -> tuple[str, dict[str, Any]] | None
         if args.hardware_command == "safe-stop":
             return "hardware", {"operation": "safe_stop", "physical": args.physical,
                                  "operator": args.operator}
+        if args.hardware_command == "temperature-calibration-hold-raw":
+            lease = operator_request("hardware_lease", args.operator_socket,
+                                     params={"action": "status", "operator": args.operator})
+            if lease.get("status") != "active" or lease.get("owner") != args.operator:
+                raise OperatorProtocolError("current local commissioning lease is not owned by the operator",
+                                             kind="lease_error")
+            generation = lease.get("generation")
+            if isinstance(generation, bool) or not isinstance(generation, int) or generation <= 0:
+                raise OperatorProtocolError("current local commissioning lease generation is invalid",
+                                             kind="lease_error")
+            params = {"operation": RAW_TEMPERATURE_HOLD_OPERATION, "action": args.hold_action,
+                      "target_identity": args.target, "channel": args.channel,
+                      "session_id": args.session_id, "physical": args.physical,
+                      "operator": args.operator, "lease_owner": args.operator,
+                      "lease_token": args.lease_token, "controller_generation": generation}
+            if args.raw_target_adc is not None:
+                params["raw_target_adc"] = args.raw_target_adc
+            return "hardware", params
         if args.hardware_command == "actuate":
             parameters = {"channel": args.channel}
             if args.operation == "set_output":
@@ -548,6 +568,18 @@ def build_parser() -> argparse.ArgumentParser:
     safe_stop = hardware_sub.add_parser("safe-stop", help="stop all registered physical outputs")
     safe_stop.add_argument("--physical", action="store_true", required=True)
     safe_stop.add_argument("--operator", required=True, help="audited operator attribution")
+    raw_hold = hardware_sub.add_parser("temperature-calibration-hold-raw",
+                                       help="commissioning-only raw-ADC PID hold")
+    raw_hold.add_argument("hold_action", choices=("start", "status", "disable"))
+    raw_hold.add_argument("--target", required=True)
+    raw_hold.add_argument("--channel", type=int, required=True)
+    raw_hold.add_argument("--raw-target-adc", type=int)
+    raw_hold.add_argument("--session-id", required=True,
+                          help="bounded attended commissioning hold session identity")
+    raw_hold.add_argument("--lease-token", required=True,
+                          help="current local commissioning lease token")
+    raw_hold.add_argument("--physical", action="store_true", required=True)
+    raw_hold.add_argument("--operator", required=True, help="audited operator attribution")
     lease = hardware_sub.add_parser("lease", help="bounded local commissioning lease")
     lease_sub = lease.add_subparsers(dest="lease_command", required=True)
     acquire = lease_sub.add_parser("acquire"); acquire.add_argument("--operator", required=True); acquire.add_argument("--ttl-seconds", type=int, default=900)
@@ -619,7 +651,11 @@ def main(argv: list[str] | None = None) -> int:
                "services": ["evolver-controller", "evolver-hardware"],
                "disposition": "delegated", "delegate": "host-runtime-adapter", "executed": False})
         return 0
-    live_request = None if args.offline or args.command in {"runtime", "upgrade"} else _live_request(args)
+    try:
+        live_request = None if args.offline or args.command in {"runtime", "upgrade"} else _live_request(args)
+    except (OperatorUnavailable, OperatorProtocolError) as error:
+        print(f"{error.kind}: {error}", file=sys.stderr)
+        return _operator_exit_code(error)
     if live_request is not None:
         operation, params = live_request
         try:
@@ -670,6 +706,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2 if spec.disposition == "rejected" else 0
     live_operations = {"status", "binding", "runs", "instruments", "doctor"}
     offline_read = args.offline
+    if args.offline and args.command == "hardware" and args.hardware_command == "temperature-calibration-hold-raw":
+        print("raw temperature calibration hold is live-only and cannot use --offline", file=sys.stderr)
+        return 64
     # Live read models have one control plane. A failed socket is reported to
     # the operator; it is never converted into a direct SQLite read.
     if not args.offline and args.command in live_operations:

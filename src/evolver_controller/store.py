@@ -858,8 +858,11 @@ class EdgeStore:
         command_id = command.get("command_id") or command.get("id")
         if not command_id: raise EdgeStoreError("Command requires command_id")
         binding = self.binding()
-        if binding and command.get("controller_generation") != binding["generation"]:
-            raise StaleGenerationError("command generation is not the active binding generation")
+        authority = (self.hardware_authority()
+                     if command.get("operation") in {"safe_stop", "temperature_calibration_hold_raw"}
+                     else binding)
+        if authority and command.get("controller_generation") != authority.get("generation"):
+            raise StaleGenerationError("command generation is not the active hardware authority generation")
         with self._transaction() as cursor:
             existing = cursor.execute("SELECT status, acknowledgement FROM commands WHERE command_id=?", (command_id,)).fetchone()
             if existing and existing["status"] == "completed": return _decode(existing["acknowledgement"])

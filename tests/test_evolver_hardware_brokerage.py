@@ -196,6 +196,57 @@ def test_mutating_broker_fences_safety_and_bounds(tmp_path):
             broker.command("set_stir", parameters={"channel": 0, "duration_ms": 100, "level": 5}, **{**common, "lease_token": "wrong"})
 
 
+def test_raw_temperature_hold_forwards_typed_commissioning_request_and_lease_generation(tmp_path):
+    calls = []
+    with _store(tmp_path) as store:
+        broker = HardwareBroker(store, request=lambda _path, payload, _timeout:
+                                calls.append(payload) or {"request_accepted": True})
+        result = broker.temperature_calibration_hold_raw(
+            "start", operator="ash", target_identity="MEV-1", channel=0,
+            raw_target_adc=34416, session_id="hold-1", physical=True,
+            lease_token="lease-7", controller_generation=7, command_id="cmd-1")
+
+    assert result["request_accepted"] is True
+    assert calls == [{
+        "operation": "temperature_calibration_hold_raw", "target_identity": "MEV-1",
+        "parameters": {"action": "start", "channel": 0, "raw_target_adc": 34416,
+                        "session_id": "hold-1"},
+        "physical": True, "operator": "ash", "lease_token": "lease-7",
+        "controller_generation": 7, "command_id": "cmd-1",
+    }]
+
+
+@pytest.mark.parametrize("action", ["status", "disable"])
+def test_raw_temperature_hold_status_and_disable_are_explicit_actions(tmp_path, action):
+    calls = []
+    with _store(tmp_path) as store:
+        broker = HardwareBroker(store, request=lambda _path, payload, _timeout:
+                                calls.append(payload) or {"request_accepted": True})
+        broker.temperature_calibration_hold_raw(
+            action, operator="ash", target_identity="MEV-1", channel=1,
+            session_id="hold-1", physical=True, lease_token="lease-7",
+            controller_generation=7)
+    assert calls[0]["operation"] == "temperature_calibration_hold_raw"
+    assert calls[0]["parameters"] == {"action": action, "channel": 1, "session_id": "hold-1"}
+
+
+def test_raw_temperature_hold_rejects_bad_authority_and_target_before_ipc(tmp_path):
+    calls = []
+    with _store(tmp_path) as store:
+        broker = HardwareBroker(store, request=lambda *_: calls.append(True) or {})
+        with pytest.raises(ValueError, match="stale"):
+            broker.temperature_calibration_hold_raw(
+                "start", operator="ash", target_identity="MEV-1", channel=0,
+                raw_target_adc=1, session_id="hold-1", physical=True,
+                lease_token="lease-7", controller_generation=6)
+        with pytest.raises(ValueError, match="between"):
+            broker.temperature_calibration_hold_raw(
+                "start", operator="ash", target_identity="MEV-1", channel=0,
+                raw_target_adc=65536, session_id="hold-1", physical=True,
+                lease_token="lease-7", controller_generation=7)
+    assert calls == []
+
+
 def test_safe_stop_is_lease_free_all_inventory_and_preserves_operator(tmp_path):
     calls = []
     with _store(tmp_path) as store:

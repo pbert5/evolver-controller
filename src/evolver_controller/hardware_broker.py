@@ -25,6 +25,8 @@ class HardwareBrokerProtocolError(HardwareBrokerError):
 
 
 _ACTUATORS = frozenset({"safe_stop", "set_output", "pulse_pump", "set_stir", "pulse_heater"})
+RAW_TEMPERATURE_HOLD_OPERATION = "temperature_calibration_hold_raw"
+_RAW_TEMPERATURE_HOLD_ACTIONS = frozenset({"start", "status", "disable"})
 # Controller-side default for the isolated hardware-service boundary.
 DEFAULT_HARDWARE_SOCKET = "/run/evolver-hardware/hardware.sock"
 
@@ -212,6 +214,60 @@ class HardwareBroker:
                    "physical": True, "operator": operator, "lease_token": lease_token,
                    "controller_generation": controller_generation}
         if command_id is not None: payload["command_id"] = command_id
+        return self._call(payload)
+
+    def temperature_calibration_hold_raw(self, action: str, *, operator: str,
+                                         target_identity: str, channel: int,
+                                         physical: bool, lease_token: str,
+                                         controller_generation: int,
+                                         session_id: str, raw_target_adc: int | None = None,
+                                         command_id: str | None = None) -> dict[str, Any]:
+        """Forward the attended commissioning-only raw-ADC PID hold.
+
+        The hardware service owns PID, refresh, deadman, and volatile hold
+        state. The controller owns the operator, physical, lease, and
+        generation fences before forwarding this distinct maintenance request.
+        """
+        self._require_operator(operator)
+        self._require_target(target_identity)
+        if action not in _RAW_TEMPERATURE_HOLD_ACTIONS:
+            raise ValueError("raw temperature hold action must be start, status, or disable")
+        if physical is not True:
+            raise PermissionError("physical opt-in is required")
+        if (isinstance(channel, bool) or not isinstance(channel, int)
+                or not 0 <= channel <= 1):
+            raise ValueError("raw temperature hold channel must be 0 or 1")
+        if not isinstance(session_id, str) or not session_id:
+            raise ValueError("raw temperature hold session_id is required")
+        if (isinstance(controller_generation, bool) or not isinstance(controller_generation, int)
+                or controller_generation <= 0):
+            raise ValueError("controller generation is stale or missing")
+        authority = self.store.hardware_authority()
+        current_generation = authority.get("generation") if authority else None
+        authority_domain = authority.get("domain") if authority else None
+        if controller_generation != current_generation:
+            raise ValueError("controller generation is stale or missing")
+        if not isinstance(lease_token, str) or not lease_token:
+            raise ValueError("active lease is required")
+        self.store.validate_control_lease(lease_token=lease_token, owner=operator,
+                                          generation=controller_generation,
+                                          authority_domain=authority_domain)
+        parameters: dict[str, Any] = {"action": action, "channel": channel,
+                                      "session_id": session_id}
+        if action == "start":
+            if (isinstance(raw_target_adc, bool) or not isinstance(raw_target_adc, int)
+                    or not 1 <= raw_target_adc <= 65535):
+                raise ValueError("raw_target_adc must be between 1 and 65535")
+            parameters["raw_target_adc"] = raw_target_adc
+        elif raw_target_adc is not None:
+            raise ValueError("raw_target_adc is only valid when starting a raw hold")
+        payload = {"operation": RAW_TEMPERATURE_HOLD_OPERATION,
+                   "target_identity": target_identity, "parameters": parameters,
+                   "physical": True, "operator": operator,
+                   "lease_token": lease_token,
+                   "controller_generation": controller_generation}
+        if command_id is not None:
+            payload["command_id"] = command_id
         return self._call(payload)
 
     def safe_stop(self, *, operator: str, physical: bool = False,
