@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from meta_webui_application_backend.evolver_edge.hardware_broker import (HardwareBroker,
+from evolver_controller.hardware_broker import (HardwareBroker,
                                                                            HardwareBrokerProtocolError,
                                                                            HardwareBrokerUnavailable)
-from meta_webui_application_backend.evolver_edge.store import EdgeStore, LeaseValidationError
+from evolver_controller.store import EdgeStore, LeaseValidationError
 
 
 def _store(tmp_path):
@@ -90,6 +90,99 @@ def test_hardware_ipc_failures_map_to_typed_errors(tmp_path):
             HardwareBroker(store, request=lambda *_: (_ for _ in ()).throw(RuntimeError("invalid reply"))).protocol_test(operator="ash")
 
 
+def test_read_only_broker_exposes_fresh_status_and_sensor_evidence(tmp_path):
+    calls = []
+
+    def envelope(command_id, protocol_response, evidence):
+        return {"command_id": command_id, "request_accepted": True,
+                "protocol_response": protocol_response, "observed_evidence": evidence,
+                "verification": "protocol_verified", "retryable": True}
+
+    def request(_path, payload, _timeout):
+        calls.append(payload)
+        if payload["operation"] == "get_status":
+            return envelope("status-1", "HW|1|OK|STATUS|sleeves=1,temperature_state=idle",
+                            {"sleeves": "1", "temperature_state": "idle"})
+        return envelope("sensor-1", "HW|1|OK|THERMISTOR|channel=0,value=34416",
+                        {"channel": "0", "value": "34416", "metric": "thermistor_raw"})
+
+    with EdgeStore(tmp_path) as store:
+        store.bind(webui_controller_id="central", server_url="https://central", credential="secret", generation=7)
+        store.register_instruments([{"id": "instrument-1", "instrument_type": "minievolver",
+                                     "device_identity": "MEV-1", "vial_positions": [{"id": "vial-1"}],
+                                     "capabilities": {}}])
+        broker = HardwareBroker(store, request=request)
+        status = broker.status(operator="ash", target_identity="MEV-1")
+        sensor = broker.read_sensor(operator="ash", target_identity="MEV-1", sensor="temperature", channel=0)
+
+    assert status["freshness"] == "fresh"
+    assert status["source"] == "hardware_ipc"
+    assert status["device_identity"] == "MEV-1"
+    assert status["status"]["sleeves"] == "1"
+    assert status["status"] == {"sleeves": "1", "temperature_state": "idle"}
+    assert sensor["sensor"] == "temperature"
+    assert sensor["channel"] == 0
+    assert sensor["raw_value"] == 34416
+    assert sensor["derived_value"] is None
+    assert sensor["calibration"]["state"] == "not_calibrated"
+    assert sensor["evidence_level"] == "protocol_verified"
+    assert [call["operation"] for call in calls] == ["get_status", "read_sensor"]
+    assert all("physical" not in call for call in calls)
+
+
+def test_read_sensor_rejects_unregistered_channel_before_hardware_io(tmp_path):
+    calls = []
+    with EdgeStore(tmp_path) as store:
+        store.bind(webui_controller_id="central", server_url="https://central", credential="secret", generation=7)
+        store.register_instruments([{"id": "instrument-1", "instrument_type": "minievolver",
+                                     "device_identity": "MEV-1", "vial_positions": [{"id": "vial-1"}],
+                                     "capabilities": {}}])
+        broker = HardwareBroker(store, request=lambda *_: calls.append(True) or {})
+        with pytest.raises(ValueError, match="channel"):
+            broker.read_sensor(operator="ash", target_identity="MEV-1", sensor="od", channel=1)
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "response, message",
+    [
+        ({"command_id": "sensor-1", "request_accepted": True,
+          "observed_evidence": {}, "verification": "protocol_verified"}, "missing raw value"),
+        ({"command_id": "sensor-1", "request_accepted": True,
+          "observed_evidence": {"value": "not-a-number"}, "verification": "protocol_verified"}, "malformed"),
+        ({"command_id": "sensor-1", "request_accepted": True,
+          "observed_evidence": {"value": "1", "device_identity": "MEV-2"},
+          "verification": "protocol_verified"}, "identity"),
+    ],
+)
+def test_read_sensor_rejects_malformed_or_mismatched_hardware_reply(tmp_path, response, message):
+    with EdgeStore(tmp_path) as store:
+        store.bind(webui_controller_id="central", server_url="https://central", credential="secret", generation=7)
+        store.register_instruments([{"id": "instrument-1", "instrument_type": "minievolver",
+                                     "device_identity": "MEV-1", "vial_positions": [{"id": "vial-1"}],
+                                     "capabilities": {}}])
+        broker = HardwareBroker(store, request=lambda *_: response)
+        with pytest.raises(HardwareBrokerProtocolError, match=message):
+            broker.read_sensor(operator="ash", target_identity="MEV-1", sensor="od", channel=0)
+
+
+def test_read_sensor_normalizes_od_envelope_and_preserves_protocol_verification(tmp_path):
+    with EdgeStore(tmp_path) as store:
+        store.bind(webui_controller_id="central", server_url="https://central", credential="secret", generation=7)
+        store.register_instruments([{"id": "instrument-1", "instrument_type": "minievolver",
+                                     "device_identity": "MEV-1", "vial_positions": [{"id": "vial-1"}],
+                                     "capabilities": {}}])
+        response = {"command_id": "od-1", "request_accepted": True,
+                    "protocol_response": "HW|1|OK|PHOTODIODE|channel=0,value=65520",
+                    "observed_evidence": {"channel": "0", "value": "65520", "unit": "ADC"},
+                    "verification": "protocol_verified", "retryable": True}
+        sensor = HardwareBroker(store, request=lambda *_: response).read_sensor(
+            operator="ash", target_identity="MEV-1", sensor="od", channel=0)
+    assert sensor["raw_value"] == 65520
+    assert isinstance(sensor["raw_value"], int)
+    assert sensor["evidence_level"] == "protocol_verified"
+
+
 def test_mutating_broker_fences_safety_and_bounds(tmp_path):
     with _store(tmp_path) as store:
         broker = HardwareBroker(store, request=lambda *_: {"request_accepted": True})
@@ -101,3 +194,61 @@ def test_mutating_broker_fences_safety_and_bounds(tmp_path):
             broker.command("set_stir", parameters={"channel": 0, "duration_ms": 1001, "level": 5}, **common)
         with pytest.raises(LeaseValidationError):
             broker.command("set_stir", parameters={"channel": 0, "duration_ms": 100, "level": 5}, **{**common, "lease_token": "wrong"})
+
+
+def test_safe_stop_is_lease_free_all_inventory_and_preserves_operator(tmp_path):
+    calls = []
+    with _store(tmp_path) as store:
+        store.register_instruments([{"id": "instrument-2", "instrument_type": "minievolver",
+                                     "device_identity": "MEV-2", "vial_positions": [], "capabilities": {}}])
+        broker = HardwareBroker(store, request=lambda _path, payload, _timeout: calls.append(payload) or {
+            "command_id": payload["command_id"], "request_accepted": True,
+            "verification": "protocol_verified"})
+        result = broker.safe_stop(operator="operator", physical=True)
+        repeated = broker.safe_stop(operator="operator", physical=True)
+
+    assert {call["target_identity"] for call in calls} == {"MEV-1", "MEV-2"}
+    assert all(call["operator"] == "operator" for call in calls)
+    assert all(call["controller_generation"] == 7 for call in calls)
+    assert all("lease_token" not in call and "lease_owner" not in call for call in calls)
+    assert result["request_accepted"] is True
+    assert repeated["command_id"] != result["command_id"]
+
+
+def test_unbound_local_commissioning_authorizes_bounded_command_and_safe_stop(tmp_path):
+    calls = []
+    with EdgeStore(tmp_path) as store:
+        store.register_instruments([{"id": "instrument-1", "instrument_type": "minievolver",
+                                     "device_identity": "MEV-1", "vial_positions": [], "capabilities": {}}])
+        lease = store.acquire_local_commissioning_lease("operator")
+        broker = HardwareBroker(store, request=lambda _path, payload, _timeout:
+                                calls.append(payload) or {"request_accepted": True})
+        result = broker.command("set_stir", operator="operator", target_identity="MEV-1",
+                                parameters={"channel": 0, "duration_ms": 100, "level": 5},
+                                lease_token=lease["token"], controller_generation=lease["generation"],
+                                physical=True)
+        assert result["request_accepted"] is True
+        store.release_local_commissioning_lease("operator")
+        stopped = broker.safe_stop(operator="operator", physical=True)
+
+    assert stopped["request_accepted"] is True
+    assert calls[0]["controller_generation"] == 1
+    assert calls[1]["controller_generation"] == 1
+
+
+def test_stale_local_lease_is_rejected_after_reacquire(tmp_path):
+    calls = []
+    with EdgeStore(tmp_path) as store:
+        store.register_instruments([{"id": "instrument-1", "instrument_type": "minievolver",
+                                     "device_identity": "MEV-1", "vial_positions": [], "capabilities": {}}])
+        first = store.acquire_local_commissioning_lease("operator")
+        store.release_local_commissioning_lease("operator")
+        second = store.acquire_local_commissioning_lease("operator")
+        broker = HardwareBroker(store, request=lambda *_: calls.append(True) or {"request_accepted": True})
+        with pytest.raises(ValueError, match="stale"):
+            broker.command("set_stir", operator="operator", target_identity="MEV-1",
+                           parameters={"channel": 0, "duration_ms": 100, "level": 5},
+                           lease_token=first["token"], controller_generation=first["generation"],
+                           physical=True)
+        assert second["generation"] == 2
+    assert calls == []

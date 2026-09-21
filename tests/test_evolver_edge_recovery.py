@@ -7,9 +7,9 @@ import tarfile
 import pytest
 import zstandard
 
-from meta_webui_application_backend.evolver_edge import EdgeStore, canonical_digest
-from meta_webui_application_backend.evolver_edge.recovery import export_state, import_state
-from meta_webui_application_backend.evolver_edge.store import EdgeStoreError
+from evolver_controller import EdgeStore, canonical_digest
+from evolver_controller.recovery import export_state, import_state
+from evolver_controller.store import EdgeStoreError
 
 
 def _bundle() -> dict[str, object]:

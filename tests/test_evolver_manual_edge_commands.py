@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from meta_webui_application_backend.evolver_edge import (
+from evolver_controller import (
     EdgeStore, HardwareIPCDeviceCommandSink, ManualCommandExecutor, SimulatorDeviceCommandSink, SyncClient,
 )
 
@@ -62,6 +62,7 @@ def test_heater_is_bounded_and_safe_stop_clears_outputs(tmp_path):
         assert sink.state("instrument")["heater"]["effective_state"] == "active"
         stopped = executor.execute({"command_id": "stop", "controller_generation": 4,
                                     "operation": "safe_stop", "instrument_id": "instrument",
+                                    "requested_by": "operator",
                                     "expires_at": "2030-01-01T00:00:30+00:00", "parameters": {}})
         assert stopped["disposition"] == "completed"
         assert not sink.outputs
@@ -79,6 +80,31 @@ def test_manual_command_rejects_stale_generation_and_run_without_ownership(tmp_p
         unowned = _command("stir_pulse", command_id="unowned", channel=0, duration_ms=1, level=1)
         unowned["run_id"] = "missing-run"
         assert executor.execute(unowned)["disposition"] == "rejected_run_ownership"
+    finally:
+        store.close()
+
+
+def test_safe_stop_stale_generation_is_rejected_before_sink(tmp_path):
+    store, _clock, sink, executor = _setup(tmp_path)
+    try:
+        command = {"command_id": "stale-stop", "controller_generation": 3,
+                   "operation": "safe_stop", "requested_by": "operator",
+                   "expires_at": "2030-01-01T00:00:30+00:00", "parameters": {}}
+        assert executor.execute(command)["disposition"] == "rejected_stale_generation"
+        assert sink.commands == []
+    finally:
+        store.close()
+
+
+def test_manual_stir_and_heater_remain_lease_bound(tmp_path):
+    store, _clock, _sink, executor = _setup(tmp_path)
+    try:
+        for operation, values in (("stir_pulse", {"channel": 0, "duration_ms": 10, "level": 1}),
+                                  ("heater_pulse", {"channel": 0, "duration_ms": 10, "level": 1})):
+            command = _command(operation, command_id=f"no-lease-{operation}", **values)
+            command.pop("lease_token")
+            command.pop("lease_holder")
+            assert executor.execute(command)["disposition"] == "rejected_lease"
     finally:
         store.close()
 
@@ -129,6 +155,61 @@ def test_ipc_sink_preserves_typed_command_evidence_and_fencing(tmp_path):
         assert requests[0][1]["controller_generation"] == 4
         assert requests[0][1]["lease_token"] == "lease"
         assert store.command_acknowledgements()[-1]["command_id"] == "manual-1"
+    finally:
+        store.close()
+
+
+def test_manual_safe_stop_carries_requested_by_without_lease_context(tmp_path):
+    store, _clock, _sink, _executor = _setup(tmp_path)
+    requests = []
+
+    def ipc_request(_socket_path, payload, _timeout):
+        requests.append(payload)
+        return {"command_id": payload["command_id"], "request_accepted": True,
+                "verification": "protocol_verified", "results": []}
+
+    try:
+        executor = ManualCommandExecutor(store, HardwareIPCDeviceCommandSink(
+            store, "/run/test-hardware.sock", request=ipc_request))
+        command = {"command_id": "safe-stop", "controller_generation": 4,
+                   "command_kind": "emergency_safe_stop", "operation": "safe_stop",
+                   "requested_by": "central-operator", "instrument_id": "instrument",
+                   "expires_at": "2030-01-01T00:00:30+00:00", "parameters": {}}
+        assert executor.execute(command)["disposition"] == "completed"
+        assert requests[0]["operator"] == "central-operator"
+        assert requests[0]["controller_generation"] == 4
+        assert "lease_token" not in requests[0]
+        assert "lease_owner" not in requests[0]
+    finally:
+        store.close()
+
+
+def test_ipc_safe_stop_attempts_every_registered_instrument_and_reports_partial_failure(tmp_path):
+    store, _clock, _sink, _executor = _setup(tmp_path)
+    store.register_instruments([{"id": "instrument-2", "instrument_type": "minievolver",
+                                 "vial_positions": [], "capabilities": {}, "device_identity": "device-2"}])
+    requests = []
+
+    def ipc_request(_socket_path, payload, _timeout):
+        requests.append(payload)
+        if payload["target_identity"] == "device-2":
+            raise OSError("device unavailable")
+        return {"command_id": payload["command_id"], "request_accepted": True,
+                "verification": "protocol_verified"}
+
+    try:
+        executor = ManualCommandExecutor(store, HardwareIPCDeviceCommandSink(
+            store, "/run/test-hardware.sock", request=ipc_request), _clock)
+        result = executor.execute({"schema_version": "evolver.device.v2", "command_id": "safe-stop",
+                                   "operation": "safe_stop", "requested_by": "alice",
+                                   "controller_generation": 4, "expires_at": "2030-01-01T00:00:30+00:00",
+                                   "parameters": {}})
+        assert {item["target_identity"] for item in requests} == {"device", "device-2"}
+        assert result["disposition"] == "partial"
+        assert result["result"]["request_accepted"] is False
+        assert result["result"]["verification"] == "unverified"
+        assert len(result["result"]["results"]) == 2
+        assert any(item.get("error") for item in result["result"]["results"])
     finally:
         store.close()
 

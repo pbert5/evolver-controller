@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from meta_webui_application_backend.evolver_edge import (
+from evolver_controller import (
     CalibrationPreflightError,
     CommandInProgressError,
     EdgeStore,
@@ -12,8 +12,8 @@ from meta_webui_application_backend.evolver_edge import (
     calibration_artifact_digest,
     canonical_digest,
 )
-from meta_webui_application_backend.evolver_edge.store import EdgeStoreError
-from meta_webui_application_backend.evolver_edge.identity import (
+from evolver_controller.store import EdgeStoreError, LeaseValidationError
+from evolver_controller.identity import (
     canonical_samd21_usb_serial, firmware_alias_for_usb_serial,
     samd21_hardware_fingerprint, validate_usb_match,
 )
@@ -152,6 +152,32 @@ def test_binding_identity_and_command_generation_are_fenced(tmp_path):
 def test_store_configures_bounded_sqlite_busy_timeout(tmp_path):
     with EdgeStore(tmp_path) as edge:
         assert edge._connection.execute("PRAGMA busy_timeout").fetchone()[0] == 5000
+
+
+def test_unbound_commissioning_generation_is_positive_monotonic_and_durable(tmp_path):
+    with EdgeStore(tmp_path) as edge:
+        first = edge.acquire_local_commissioning_lease("operator")
+        assert first["generation"] == 1
+        assert edge.binding() is None
+        assert edge.hardware_authority() == {"generation": 1, "domain": "local_commissioning"}
+        edge.release_local_commissioning_lease("operator")
+        second = edge.acquire_local_commissioning_lease("operator")
+        assert second["generation"] == 2
+
+    with EdgeStore(tmp_path) as restarted:
+        assert restarted.hardware_authority() == {"generation": 2, "domain": "local_commissioning"}
+        restarted.release_local_commissioning_lease("operator")
+        assert restarted.binding() is None
+
+
+def test_central_binding_supersedes_local_commissioning_authority(tmp_path):
+    with EdgeStore(tmp_path) as edge:
+        lease = edge.acquire_local_commissioning_lease("operator")
+        edge.bind(webui_controller_id="central", server_url="https://central", credential="secret", generation=9)
+        assert edge.hardware_authority() == {"generation": 9, "domain": "central"}
+        with pytest.raises(LeaseValidationError, match="authority domain"):
+            edge.validate_control_lease(lease_token=lease["token"], owner="operator",
+                                        generation=lease["generation"], authority_domain="central")
 
 
 def test_command_inspection_and_identity_reconciliation_are_durable_and_read_only(tmp_path):

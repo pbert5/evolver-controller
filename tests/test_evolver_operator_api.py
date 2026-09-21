@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from meta_webui_application_backend.evolver_edge import EdgeStore
-from meta_webui_application_backend.evolver_edge.hardware_broker import HardwareBroker
-from meta_webui_application_backend.evolver_edge.hardware_ipc import PROVISIONING_IPC_TIMEOUT_SECONDS
-from meta_webui_application_backend.evolver_controller import OperatorIdentity
-from meta_webui_application_backend.evolver_edge.operator import (
+from evolver_controller import EdgeStore
+from evolver_controller.hardware_broker import HardwareBroker
+from evolver_controller.hardware_ipc import PROVISIONING_IPC_TIMEOUT_SECONDS
+from evolver_controller import OperatorIdentity
+from evolver_controller.operator import (
     OPERATION_METADATA,
     PROTOCOL_VERSION,
     OperatorProtocolError,
@@ -68,6 +68,107 @@ def test_operator_live_inventory_and_calibration_operations_are_typed(tmp_path: 
         assert request("calibration", path, params={"action": "artifacts", "instrument_id": "instrument-1"}) == []
         invalid = _wire(path, {"operation": "instrument", "params": {"unexpected": True}})
         assert invalid["error"]["kind"] == "invalid_request"
+
+
+def test_operator_instrument_reads_preserve_fresh_vs_cached_evidence(tmp_path: Path) -> None:
+    path = tmp_path / "operator.sock"
+    calls = []
+
+    def hardware_request(_path, payload, _timeout):
+        calls.append(payload)
+        if payload["operation"] == "get_status":
+            return {"device_identity": "MEV-1", "temperature_state": "idle"}
+        return {"device_identity": "MEV-1", "value": "77", "metric": "photodiode_raw"}
+
+    operator = OperatorIdentity("alice", "local_operator", frozenset({"hardware_maintenance"}))
+    with EdgeStore(tmp_path / "state") as store:
+        store.register_instruments([{"id": "instrument-1", "instrument_type": "minievolver",
+                                     "device_identity": "MEV-1", "vial_positions": [{"id": "vial-1"}],
+                                     "capabilities": {}}])
+        store.spool_telemetry(stream_id="instrument:instrument-1:read_only_sensors", sequence=1,
+                              payload={"instrument_id": "instrument-1", "vial_position_ids": ["vial-1"],
+                                       "photodiode_adc_0": 66,
+                                       "calibration": {"temperature": "not_calibrated", "od": "not_calibrated"}},
+                              captured_at="2026-01-01T00:00:00+00:00")
+        broker = HardwareBroker(store, request=hardware_request)
+        with OperatorServer(store, path, operator=operator, hardware_broker=broker):
+            status = request("instrument", path, params={"action": "status", "instrument_id": "instrument-1"})
+            fresh = request("instrument", path, params={"action": "sensor_read", "instrument_id": "instrument-1",
+                                                         "sensor": "od", "channel": 0})
+            cached = request("instrument", path, params={"action": "telemetry_latest", "instrument_id": "instrument-1"})
+            cached_list = request("instrument", path, params={"action": "telemetry_list", "instrument_id": "instrument-1"})
+
+    assert status["freshness"] == "fresh"
+    assert fresh["freshness"] == "fresh"
+    assert fresh["raw_value"] == 77
+    assert fresh["derived_value"] is None
+    assert cached["freshness"] == "cached"
+    assert cached["source"] == "telemetry_store"
+    assert cached["observations"][0]["raw_value"] == 66
+    assert cached["observations"][0]["derived_value"] is None
+    assert len(cached_list) == 1
+    assert cached_list[0]["sequence"] == cached["sequence"]
+    assert [call["operation"] for call in calls] == ["get_status", "read_sensor"]
+
+
+def test_operator_instrument_read_rejects_mismatched_target_identity(tmp_path: Path) -> None:
+    path = tmp_path / "operator.sock"
+    operator = OperatorIdentity("alice", "local_operator", frozenset({"hardware_maintenance"}))
+    calls = []
+
+    with EdgeStore(tmp_path / "state") as store:
+        store.register_instruments([{"id": "instrument-1", "instrument_type": "minievolver",
+                                     "device_identity": "MEV-1", "vial_positions": [{"id": "vial-1"}],
+                                     "capabilities": {}}])
+        broker = HardwareBroker(store, request=lambda *_: calls.append(True) or {"value": 1})
+        with OperatorServer(store, path, operator=operator, hardware_broker=broker):
+            invalid = _wire(path, {"operation": "instrument", "params": {
+                "action": "sensor_read", "instrument_id": "instrument-1", "target_identity": "MEV-2",
+                "sensor": "od", "channel": 0}})
+
+    assert invalid["error"]["kind"] == "invalid_request"
+    assert calls == []
+
+
+def test_operator_safe_stop_is_authenticated_physical_and_lease_free(tmp_path: Path) -> None:
+    path = tmp_path / "operator.sock"
+    operator = OperatorIdentity("alice", "local_operator", frozenset({"hardware_maintenance"}))
+    calls = []
+
+    def ipc_request(_path, payload, _timeout):
+        calls.append(payload)
+        return {"command_id": payload["command_id"], "request_accepted": True,
+                "verification": "protocol_verified"}
+
+    with EdgeStore(tmp_path / "state") as store:
+        store.bind(webui_controller_id="central", server_url="https://central",
+                   credential="secret", generation=7)
+        store.register_instruments([{"id": "instrument-1", "instrument_type": "minievolver",
+                                     "device_identity": "MEV-1", "vial_positions": [], "capabilities": {}}])
+        store.set_control_lease(lease_token="foreign", owner="other", generation=7,
+                                expires_at="2030-01-01T01:00:00+00:00")
+        broker = HardwareBroker(store, request=ipc_request)
+        with OperatorServer(store, path, operator=operator, hardware_broker=broker):
+            result = request("hardware", path, params={"operation": "safe_stop",
+                                                         "physical": True, "operator": "alice"})
+            assert result["request_accepted"] is True
+            denied = _wire(path, {"operation": "hardware", "params": {
+                "operation": "safe_stop", "physical": False, "operator": "alice"}})
+            assert denied["error"]["kind"] == "unsafe"
+            assert store.command_acknowledgements()[-1]["request_accepted"] is True
+
+    assert calls and calls[0]["operator"] == "alice"
+    assert calls[0]["controller_generation"] == 7
+    assert "lease_token" not in calls[0]
+    assert "target_identity" in calls[0]
+def test_operator_safe_stop_requires_hardware_permission(tmp_path: Path) -> None:
+    path = tmp_path / "operator.sock"
+    operator = OperatorIdentity("alice", "local_operator", frozenset())
+    with EdgeStore(tmp_path / "state") as store, OperatorServer(store, path, operator=operator,
+                                                                  hardware_broker=HardwareBroker(store)):
+        denied = _wire(path, {"operation": "hardware", "params": {
+            "operation": "safe_stop", "physical": True, "operator": "alice"}})
+        assert denied["error"]["kind"] == "forbidden"
 
 
 def test_operator_calibration_run_is_authenticated_typed_and_transport_neutral(tmp_path: Path) -> None:
