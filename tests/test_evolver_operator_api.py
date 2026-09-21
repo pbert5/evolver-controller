@@ -14,6 +14,8 @@ from evolver_controller import OperatorIdentity
 from evolver_controller.operator import (
     OPERATION_METADATA,
     PROTOCOL_VERSION,
+    _OperatorHandler,
+    OperatorError,
     OperatorProtocolError,
     OperatorServer,
     OperatorUnavailable,
@@ -57,6 +59,23 @@ def test_operator_capabilities_expose_frozen_live_controller_operations(tmp_path
         ):
             assert operations[name] == {"access": "mutate" if name.startswith("hardware_") or name == "run" else "read", "mode": "live"}
         assert operations["hardware"] == {"access": "mutate", "mode": "live"}
+
+
+def test_operator_capabilities_are_a_protocol_valid_liveness_probe(tmp_path: Path) -> None:
+    path = tmp_path / "operator.sock"
+    with EdgeStore(tmp_path / "state") as store, OperatorServer(path=path, store=store):
+        healthcheck = request("capabilities", path, timeout=0.2)
+        assert healthcheck["protocol_version"] == PROTOCOL_VERSION
+        assert healthcheck["transport"] == "unix"
+        assert "capabilities" in healthcheck["operations"]
+
+
+def test_operator_start_uses_capabilities_to_detect_a_live_socket_owner(tmp_path: Path) -> None:
+    path = tmp_path / "operator.sock"
+    with EdgeStore(tmp_path / "state") as store, OperatorServer(path=path, store=store):
+        with pytest.raises(OperatorError, match="already in use"):
+            OperatorServer(path=path, store=store).start()
+        assert request("capabilities", path)["protocol_version"] == PROTOCOL_VERSION
 
 
 def test_operator_live_inventory_and_calibration_operations_are_typed(tmp_path: Path) -> None:
@@ -291,6 +310,36 @@ def test_operator_protocol_requires_object_params_and_reports_typed_errors(tmp_p
         }}
         unsupported = _wire(path, {"operation": "hardware", "params": {}})
         assert unsupported["error"]["kind"] == "unsupported_operation"
+
+
+def test_operator_disconnect_and_malformed_input_do_not_kill_service(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    path = tmp_path / "operator.sock"
+    with EdgeStore(tmp_path / "state") as store, OperatorServer(store, path):
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+            connection.connect(str(path))
+            connection.shutdown(socket.SHUT_RDWR)
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+            connection.settimeout(2)
+            connection.connect(str(path))
+            connection.sendall(b"not-newline-delimited")
+            connection.shutdown(socket.SHUT_WR)
+            malformed = json.loads(connection.recv(4096).decode())
+        assert malformed["error"]["kind"] == "invalid_request"
+        assert request("capabilities", path)["protocol_version"] == PROTOCOL_VERSION
+    assert "BrokenPipeError" not in capsys.readouterr().err
+
+
+def test_operator_response_writer_ignores_only_peer_disconnects() -> None:
+    class DisconnectingWriter:
+        def write(self, _value: bytes) -> None:
+            raise BrokenPipeError()
+
+        def flush(self) -> None:
+            raise AssertionError("flush must not follow a failed write")
+
+    handler = object.__new__(_OperatorHandler)
+    handler.wfile = DisconnectingWriter()
+    handler._write_response({"ok": False})
 
 
 def test_operator_client_rejects_malformed_typed_response(tmp_path: Path) -> None:
