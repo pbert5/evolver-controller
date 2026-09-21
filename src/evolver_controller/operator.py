@@ -1,6 +1,7 @@
 """Bounded typed Unix operator protocol for the controller-owned read model."""
 from __future__ import annotations
 
+import errno
 import json
 import os
 import socket
@@ -520,6 +521,18 @@ class _OperatorServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer
 
 
 class _OperatorHandler(socketserver.StreamRequestHandler):
+    def _write_response(self, response: dict[str, Any]) -> None:
+        """Write one response, tolerating only a peer that has gone away."""
+        try:
+            self.wfile.write(_encode(response))
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            return
+        except OSError as error:
+            if error.errno in {errno.ECONNABORTED, errno.ECONNRESET, errno.ENOTCONN, errno.EPIPE}:
+                return
+            raise
+
     def handle(self) -> None:
         try:
             try:
@@ -529,11 +542,11 @@ class _OperatorHandler(socketserver.StreamRequestHandler):
             operation, params = _request_value(payload)
             result = _dispatch(self.server.store, operation, params,  # type: ignore[attr-defined]
                                operator=self.server.operator, hardware_broker=self.server.hardware_broker)
-            self.wfile.write(_encode({"ok": True, "result": result}))
+            self._write_response({"ok": True, "result": result})
         except OperatorError as error:
-            self.wfile.write(_encode(_error(error)))
+            self._write_response(_error(error))
         except (UnicodeDecodeError, OSError, KeyError, ValueError):
-            self.wfile.write(_encode(_error(OperatorError("operator request failed", kind="internal_error"))))
+            self._write_response(_error(OperatorError("operator request failed", kind="internal_error")))
 
 
 class OperatorServer:
@@ -552,11 +565,16 @@ class OperatorServer:
             if not stat.S_ISSOCK(self.path.stat().st_mode):
                 raise OperatorError(f"operator socket path is not a socket: {self.path}")
             try:
-                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
-                    probe.settimeout(0.2); probe.connect(str(self.path))
+                capabilities = request("capabilities", self.path, timeout=0.2)
+                if not isinstance(capabilities, Mapping) or capabilities.get("protocol_version") != PROTOCOL_VERSION:
+                    raise OperatorProtocolError("existing operator socket returned invalid capabilities",
+                                                kind="invalid_response")
                 raise OperatorError(f"operator socket is already in use: {self.path}")
-            except (ConnectionRefusedError, FileNotFoundError, socket.timeout):
-                self.path.unlink()
+            except OperatorUnavailable as error:
+                if isinstance(error.__cause__, (ConnectionRefusedError, FileNotFoundError, socket.timeout)):
+                    self.path.unlink()
+                else:
+                    raise OperatorError(f"operator socket could not be validated: {self.path}") from error
         self._server = _OperatorServer(str(self.path), self.store,
                                        operator=self.operator, hardware_broker=self.hardware_broker)
         os.chmod(self.path, 0o660)
