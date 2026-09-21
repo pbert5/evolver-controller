@@ -64,6 +64,18 @@ class HardwareBroker:
             self.store.register_instruments([registered])
         return result
 
+    def lease_acquire(self, *, operator: str, ttl_seconds: int, controller_generation: int) -> dict[str, Any]:
+        self._require_operator(operator)
+        return self._call({"operation": "lease_acquire", "operator": operator,
+                           "ttl_seconds": ttl_seconds, "controller_generation": controller_generation})
+
+    def lease_status(self) -> dict[str, Any]:
+        return self._call({"operation": "lease_status"})
+
+    def lease_release(self, *, operator: str) -> dict[str, Any]:
+        self._require_operator(operator)
+        return self._call({"operation": "lease_release", "operator": operator})
+
     def protocol_test(self, *, operator: str, target_identity: str | None = None) -> dict[str, Any]:
         self._require_operator(operator)
         payload = {"operation": "protocol_test", "operator": operator}

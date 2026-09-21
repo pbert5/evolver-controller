@@ -252,15 +252,23 @@ def _dispatch(store: EdgeStore, operation: str, params: dict[str, Any], *,
         _only(params, {"action", "operator", "ttl_seconds"}, operation)
         action = params.get("action")
         if action == "status":
-            return store.local_commissioning_lease_status()
+            if hardware_broker is None:
+                raise OperatorProtocolError("physical lease requires the hardware service", kind="lease_error")
+            return hardware_broker.lease_status()
         subject = _operator_subject(operator)
         if params.get("operator") not in {None, subject}:
             raise OperatorProtocolError("operator does not match authenticated operator", kind="unauthorized")
         try:
             if action == "acquire":
-                return store.acquire_local_commissioning_lease(subject, params.get("ttl_seconds", 900))
+                if hardware_broker is None:
+                    raise OperatorProtocolError("physical lease requires the hardware service", kind="lease_error")
+                generation = store.allocate_local_commissioning_generation()
+                return hardware_broker.lease_acquire(operator=subject, ttl_seconds=params.get("ttl_seconds", 900),
+                                                     controller_generation=generation)
             if action == "release":
-                return store.release_local_commissioning_lease(subject)
+                if hardware_broker is None:
+                    raise OperatorProtocolError("physical lease requires the hardware service", kind="lease_error")
+                return hardware_broker.lease_release(operator=subject)
         except Exception as error:
             raise OperatorProtocolError(str(error), kind="lease_error") from error
         raise OperatorProtocolError("lease action is unsupported", kind="unsupported_operation")

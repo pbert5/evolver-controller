@@ -298,6 +298,22 @@ class EdgeStore:
             return {"generation": local, "domain": "local_commissioning"}
         return None
 
+    def allocate_local_commissioning_generation(self) -> int:
+        """Advance local authority without minting a physical lease token."""
+        active = [run for run in self.list_runs() if run.get("state") in {"running", "paused", "stopping"}]
+        if active:
+            raise LeaseValidationError("commissioning lease is unavailable while a run owns hardware")
+        binding = self.binding()
+        central_generation = binding.get("generation") if isinstance(binding, Mapping) else None
+        if isinstance(central_generation, int) and not isinstance(central_generation, bool) and central_generation > 0:
+            return central_generation
+        current = self.meta("local_commissioning_generation", 0)
+        if isinstance(current, bool) or not isinstance(current, int) or current < 0:
+            current = 0
+        generation = current + 1
+        self.set_meta("local_commissioning_generation", generation)
+        return generation
+
     # Hardware observation --------------------------------------------------
     def record_hardware_observation(self, observation: Mapping[str, Any]) -> Json:
         """Persist the latest edge-local hardware discovery evidence.
