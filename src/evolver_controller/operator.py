@@ -143,7 +143,7 @@ def _dispatch(store: EdgeStore, operation: str, params: dict[str, Any], *,
                 body["operation_name"], operator=operator.subject,
                 target_identity=body["target_identity"], parameters=body["parameters"],
                 lease_token=body.get("lease_token"),
-                controller_generation=body.get("controller_generation"),
+                controller_generation=body.get("controller_generation"), lease_expires_at=body.get("lease_expires_at"),
                 physical=body.get("physical", False), command_id=body.get("command_id"))
         except Exception as error:
             kind = getattr(error, "kind", "HardwareError")
@@ -468,7 +468,7 @@ def _hardware_request(params: dict[str, Any], subject: str) -> dict[str, Any]:
             raise OperatorProtocolError("operator does not match authenticated operator", kind="unauthorized")
     elif operation == "hardware_command":
         allowed = {"operation", "operation_name", "target_identity", "parameters",
-                   "controller_generation", "lease_token", "lease_owner", "physical", "command_id", "operator"}
+                   "controller_generation", "lease_token", "lease_owner", "lease_expires_at", "physical", "command_id", "operator"}
         required = {"operation_name", "target_identity", "parameters", "controller_generation", "lease_token", "physical"}
         missing = sorted(required - params.keys())
         if missing:

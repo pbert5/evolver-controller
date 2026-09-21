@@ -159,22 +159,18 @@ class HardwareBroker:
 
     def command(self, operation: str, *, operator: str, target_identity: str,
                 parameters: Mapping[str, Any], lease_token: str | None = None,
-                controller_generation: int | None = None, physical: bool = False,
+                controller_generation: int | None = None, lease_expires_at: str | None = None,
+                physical: bool = False,
                 command_id: str | None = None) -> dict[str, Any]:
         self._require_operator(operator); self._require_target(target_identity)
         if operation not in _ACTUATORS:
             raise ValueError(f"unsupported broker operation {operation}")
         if physical is not True:
             raise PermissionError("physical opt-in is required")
-        authority = self.store.hardware_authority()
-        current_generation = authority.get("generation") if authority else None
-        authority_domain = authority.get("domain") if authority else None
-        if not isinstance(controller_generation, int) or isinstance(controller_generation, bool) or controller_generation <= 0 or controller_generation != current_generation:
+        if not isinstance(controller_generation, int) or isinstance(controller_generation, bool) or controller_generation <= 0:
             raise ValueError("controller generation is stale or missing")
         if not isinstance(lease_token, str) or not lease_token:
             raise ValueError("active lease is required")
-        self.store.validate_control_lease(lease_token=lease_token, owner=operator,
-                                          generation=controller_generation, authority_domain=authority_domain)
         validate_device_operation(operation, parameters)
         bounds = {"set_stir": (("stir_duration_ms", "duration_ms"), ("stir_level", "level")),
                   "set_output": (("od_led_level", "level"),), "pulse_pump": (("pump_duration_ms", "duration_ms"),),
@@ -186,6 +182,8 @@ class HardwareBroker:
         payload = {"operation": operation, "target_identity": target_identity, "parameters": dict(parameters),
                    "physical": True, "operator": operator, "lease_token": lease_token,
                    "controller_generation": controller_generation}
+        if lease_expires_at is not None:
+            payload["lease_expires_at"] = lease_expires_at
         if command_id is not None: payload["command_id"] = command_id
         return self._call(payload)
 

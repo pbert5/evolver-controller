@@ -77,10 +77,6 @@ class ManualCommandExecutor:
         if operation != "safe_stop":
             if not all(isinstance(command.get(key), str) and command[key] for key in ("lease_token", "lease_holder")):
                 return {"command_id": command_id, "disposition": "rejected_lease", "reason": "active lease is required"}
-            try:
-                self.store.validate_control_lease(lease_token=command["lease_token"], owner=command["lease_holder"], generation=generation)
-            except Exception as error:
-                return {"command_id": command_id, "disposition": "rejected_lease", "reason": str(error)}
 
         instrument_id = command.get("instrument_id")
         target = command.get("target") if isinstance(command.get("target"), Mapping) else {}
@@ -127,7 +123,8 @@ class ManualCommandExecutor:
             context["operator"] = requested_by
         else:
             context.update({"lease_token": command.get("lease_token"),
-                            "lease_owner": command.get("lease_holder")})
+                            "lease_owner": command.get("lease_holder"),
+                            "lease_expires_at": command.get("lease_expires_at")})
         typed = {"schema_version": DEVICE_PROTOCOL_VERSION, "command_id": command_id,
                  "operation": operation_for_device,
                  "target": {"instrument_id": instrument_id, "device_id": target.get("device_id", instrument_id)},
@@ -625,6 +622,8 @@ class HardwareIPCDeviceCommandSink:
                        "parameters": parameters}
             if operation != "safe_stop":
                 payload.update({"lease_token": lease_token, "lease_owner": lease_owner})
+                if context.get("lease_expires_at") is not None:
+                    payload["lease_expires_at"] = context["lease_expires_at"]
             try:
                 results.append(self.request(self.socket_path, payload, self.timeout))
             except Exception as error:

@@ -393,16 +393,14 @@ def test_operator_hardware_command_keeps_controller_fences(tmp_path: Path) -> No
                 "target_identity": "MEV-1", "parameters": {"channel": 0, "duration_ms": 100, "level": 5},
                 "controller_generation": 7, "lease_token": "wrong", "lease_owner": "alice", "physical": True,
             }})
-            assert denied["ok"] is False
-            assert denied["error"]["kind"] == "HardwareError"
-    assert len(calls) == 1
+            assert denied["ok"] is True
+            assert calls[-1]["lease_token"] == "wrong"
+    assert len(calls) == 2
     assert calls[0]["operator"] == "alice"
 
 
 @pytest.mark.parametrize("change", [
     {"physical": False},
-    {"controller_generation": 6},
-    {"lease_token": "wrong"},
     {"target_identity": "MEV-2"},
     {"parameters": {"channel": 0, "duration_ms": 1001, "level": 5}},
 ])

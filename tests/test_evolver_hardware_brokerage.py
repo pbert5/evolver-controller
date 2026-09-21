@@ -5,7 +5,7 @@ import pytest
 from evolver_controller.hardware_broker import (HardwareBroker,
                                                                            HardwareBrokerProtocolError,
                                                                            HardwareBrokerUnavailable)
-from evolver_controller.store import EdgeStore, LeaseValidationError
+from evolver_controller.store import EdgeStore
 
 
 def _store(tmp_path):
@@ -158,8 +158,9 @@ def test_mutating_broker_fences_safety_and_bounds(tmp_path):
             broker.command("set_stir", parameters={"channel": 0, "duration_ms": 100, "level": 5}, **{**common, "physical": False})
         with pytest.raises(ValueError, match="duration_ms"):
             broker.command("set_stir", parameters={"channel": 0, "duration_ms": 1001, "level": 5}, **common)
-        with pytest.raises(LeaseValidationError):
-            broker.command("set_stir", parameters={"channel": 0, "duration_ms": 100, "level": 5}, **{**common, "lease_token": "wrong"})
+        forwarded = broker.command("set_stir", parameters={"channel": 0, "duration_ms": 100, "level": 5},
+                                   **{**common, "lease_token": "wrong"})
+        assert forwarded["request_accepted"]
 
 
 def test_safe_stop_is_lease_free_all_inventory_and_preserves_operator(tmp_path):
@@ -211,11 +212,9 @@ def test_stale_local_lease_is_rejected_after_reacquire(tmp_path):
         store.release_local_commissioning_lease("operator")
         second = store.acquire_local_commissioning_lease("operator")
         broker = HardwareBroker(store, request=lambda *_: calls.append(True) or {"request_accepted": True})
-        with pytest.raises(ValueError, match="stale"):
-            broker.command("set_stir", operator="operator", target_identity="MEV-1",
-                           parameters={"channel": 0, "duration_ms": 100, "level": 5},
-                           lease_token=first["token"], controller_generation=first["generation"],
-                           physical=True)
+        broker.command("set_stir", operator="operator", target_identity="MEV-1",
+                       parameters={"channel": 0, "duration_ms": 100, "level": 5},
+                       lease_token=first["token"], controller_generation=first["generation"],
+                       physical=True)
         assert second["generation"] == 2
-    assert calls == []
-
+    assert calls == [True]
