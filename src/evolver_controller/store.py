@@ -284,11 +284,20 @@ class EdgeStore:
     def hardware_authority(self) -> Json | None:
         """Return the currently effective positive hardware authority.
 
-        Central binding is authoritative whenever it contains a positive
-        generation.  An unbound edge may instead have a durable local
-        commissioning generation; this is deliberately a separate domain and
-        is never projected as binding/enrollment state.
+        An active local commissioning lease is the authority for its bounded
+        lifetime, even when an older central binding remains present.  This is
+        the single generation projection consumed by operator and hardware
+        command paths; it prevents a stale binding generation from being
+        forwarded while local commissioning owns the lease.  A released or
+        expired lease is never projected as active authority.
         """
+        commissioning_lease = self.local_commissioning_lease_status()
+        lease_generation = commissioning_lease.get("generation")
+        if (commissioning_lease.get("status") == "active" and
+                isinstance(lease_generation, int) and not isinstance(lease_generation, bool) and
+                lease_generation > 0):
+            return {"generation": lease_generation,
+                    "domain": commissioning_lease.get("authority_domain", "local_commissioning")}
         binding = self.binding()
         generation = binding.get("generation") if isinstance(binding, Mapping) else None
         if isinstance(generation, int) and not isinstance(generation, bool) and generation > 0:

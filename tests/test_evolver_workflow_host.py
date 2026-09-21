@@ -22,7 +22,8 @@ class FakeOperator:
     def __init__(self):
         self.requests = []
         self.responses = {"hardware": {"request_accepted": True, "evidence": "protocol_ack"},
-                          "instrument": {"id": "MEV-1", "capabilities": {}}}
+                          "instrument": {"id": "MEV-1", "capabilities": {}},
+                          "hardware_lease": {"status": "none"}}
 
     def request(self, operation, params=None):
         self.requests.append((operation, params or {}))
@@ -208,12 +209,30 @@ def test_target_resolution_uses_only_operator_read_models():
     client = FakeOperator()
     client.responses.update({"status": {"controller": {"id": "c1", "generation": 3}},
                               "binding": {"generation": 3},
+                              "hardware_lease": {"status": "none"},
                               "instrument": {"id": "instrument-1", "device_identity": "MEV-1",
                                               "capabilities": {"temperature_setpoint": {"supported": False}}}})
     resolved = resolve_target(client, "MEV-1")
     assert resolved.generation == 3
     assert resolved.capabilities["temperature_setpoint"]["supported"] is False
-    assert [item[0] for item in client.requests] == ["status", "binding", "instrument"]
+    assert [item[0] for item in client.requests] == ["status", "binding", "hardware_lease", "instrument"]
+
+
+def test_target_resolution_forwards_active_local_lease_generation_to_operator_commands():
+    client = FakeOperator()
+    client.responses.update({"status": {"controller": {"id": "c1", "generation": 11}},
+                              "binding": {"generation": 11},
+                              "hardware_lease": {"status": "active", "generation": 12,
+                                                  "authority_domain": "local_commissioning"},
+                              "instrument": {"id": "instrument-1", "device_identity": "MEV-1",
+                                              "capabilities": {"pump_control": {"supported": True}}}})
+    resolved = resolve_target(client, "MEV-1")
+    invoker = ProcedureActionInvoker(client, resolved, context=HostContext(
+        operator="alice", lease_token="lease-12", lease_owner="alice", physical=True,
+        controller_generation=resolved.generation))
+    result = invoker.poll(invoker.invoke(ActionRef("pulse_pump", 1), {"channel": 0, "duration_ms": 20}))
+    assert result.succeeded
+    assert client.requests[-1][1]["controller_generation"] == 12
 
 
 def test_repeatable_stage_projection_and_add_are_shared_and_non_actuating():

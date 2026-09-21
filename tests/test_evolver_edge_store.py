@@ -170,14 +170,33 @@ def test_unbound_commissioning_generation_is_positive_monotonic_and_durable(tmp_
         assert restarted.binding() is None
 
 
-def test_central_binding_supersedes_local_commissioning_authority(tmp_path):
+def test_released_local_commissioning_authority_yields_to_central_binding(tmp_path):
     with EdgeStore(tmp_path) as edge:
         lease = edge.acquire_local_commissioning_lease("operator")
         edge.bind(webui_controller_id="central", server_url="https://central", credential="secret", generation=9)
+        assert edge.hardware_authority() == {"generation": lease["generation"], "domain": "local_commissioning"}
+        edge.validate_control_lease(lease_token=lease["token"], owner="operator",
+                                    generation=lease["generation"], authority_domain="local_commissioning")
+        edge.release_local_commissioning_lease("operator")
         assert edge.hardware_authority() == {"generation": 9, "domain": "central"}
-        with pytest.raises(LeaseValidationError, match="authority domain"):
-            edge.validate_control_lease(lease_token=lease["token"], owner="operator",
-                                        generation=lease["generation"], authority_domain="central")
+
+
+def test_active_local_commissioning_lease_supersedes_stale_binding_authority(tmp_path):
+    with EdgeStore(tmp_path) as edge:
+        lease = edge.acquire_local_commissioning_lease("operator")
+        edge.bind(webui_controller_id="central", server_url="https://central", credential="secret", generation=11)
+        assert lease["generation"] == 1
+        assert edge.hardware_authority() == {"generation": 1, "domain": "local_commissioning"}
+        edge.release_local_commissioning_lease("operator")
+        assert edge.hardware_authority() == {"generation": 11, "domain": "central"}
+
+
+def test_active_local_commissioning_generation_wins_over_newer_stale_binding(tmp_path):
+    with EdgeStore(tmp_path) as edge:
+        lease = edge.acquire_local_commissioning_lease("operator")
+        edge.bind(webui_controller_id="central", server_url="https://central", credential="secret", generation=12,
+                  force_adoption=True)
+        assert edge.hardware_authority() == {"generation": lease["generation"], "domain": "local_commissioning"}
 
 
 def test_command_inspection_and_identity_reconciliation_are_durable_and_read_only(tmp_path):

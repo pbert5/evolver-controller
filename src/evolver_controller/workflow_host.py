@@ -64,6 +64,10 @@ class TargetProjection:
 
     @property
     def generation(self) -> int | None:
+        lease = self.lease
+        if (lease.get("status") == "active" and type(lease.get("generation")) is int
+                and lease["generation"] > 0):
+            return lease["generation"]
         value = self.binding.get("generation", self.controller.get("generation"))
         return value if type(value) is int else None
 
@@ -707,6 +711,7 @@ def resolve_target(client: OperatorClient, identity: str, *, kind: TargetKind = 
     try:
         status = client.request("status")
         binding = client.request("binding")
+        lease = client.request("hardware_lease", {"action": "status"})
         instrument = client.request("instrument", {"instrument_id": identity})
     except OperatorError as error:
         raise ValueError(f"target resolution failed: {error}") from error
@@ -716,12 +721,14 @@ def resolve_target(client: OperatorClient, identity: str, *, kind: TargetKind = 
     if not isinstance(capabilities, Mapping):
         capabilities = {}
     controller = status.get("controller", {}) if isinstance(status, Mapping) else {}
+    if not isinstance(lease, Mapping):
+        lease = {}
     device_identity = instrument.get("device_identity")
     return TargetProjection(device_identity if isinstance(device_identity, str) and device_identity else identity, kind,
                             controller if isinstance(controller, Mapping) else {},
                             instrument=instrument, binding=binding if isinstance(binding, Mapping) else {},
                             capabilities=capabilities, connection={"state": "operator_reachable"},
-                            lease={}, telemetry={"source": "operator_read_model"}, instrument_id=identity)
+                            lease=lease, telemetry={"source": "operator_read_model"}, instrument_id=identity)
 
 
 def _action_parts(action: ActionRef | str) -> tuple[str, str | int]:
