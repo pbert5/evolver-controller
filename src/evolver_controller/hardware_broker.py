@@ -166,12 +166,15 @@ class HardwareBroker:
             raise ValueError(f"unsupported broker operation {operation}")
         if physical is not True:
             raise PermissionError("physical opt-in is required")
-        binding = self.store.binding(); current_generation = binding.get("generation") if isinstance(binding, Mapping) else None
+        authority = self.store.hardware_authority()
+        current_generation = authority.get("generation") if authority else None
+        authority_domain = authority.get("domain") if authority else None
         if not isinstance(controller_generation, int) or isinstance(controller_generation, bool) or controller_generation <= 0 or controller_generation != current_generation:
             raise ValueError("controller generation is stale or missing")
         if not isinstance(lease_token, str) or not lease_token:
             raise ValueError("active lease is required")
-        self.store.validate_control_lease(lease_token=lease_token, owner=operator, generation=controller_generation)
+        self.store.validate_control_lease(lease_token=lease_token, owner=operator,
+                                          generation=controller_generation, authority_domain=authority_domain)
         validate_device_operation(operation, parameters)
         bounds = {"set_stir": (("stir_duration_ms", "duration_ms"), ("stir_level", "level")),
                   "set_output": (("od_led_level", "level"),), "pulse_pump": (("pump_duration_ms", "duration_ms"),),
@@ -191,8 +194,8 @@ class HardwareBroker:
         self._require_operator(operator)
         if physical is not True:
             raise PermissionError("physical opt-in is required")
-        binding = self.store.binding()
-        generation = binding.get("generation") if isinstance(binding, Mapping) else None
+        authority = self.store.hardware_authority()
+        generation = authority.get("generation") if authority else None
         if not isinstance(generation, int) or isinstance(generation, bool) or generation <= 0:
             raise ValueError("controller generation is stale or missing")
         command_id = command_id or f"safe-stop-{uuid4()}"

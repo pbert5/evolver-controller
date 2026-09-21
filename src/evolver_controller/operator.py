@@ -116,8 +116,9 @@ def _dispatch(store: EdgeStore, operation: str, params: dict[str, Any], *,
                 raise OperatorProtocolError("safe-stop must be delegated to the hardware service",
                                             kind="maintenance_delegated")
             command_id = body.get("command_id") or f"safe-stop-{uuid4()}"
+            authority = store.hardware_authority()
             command = {"command_id": command_id,
-                       "controller_generation": store.binding().get("generation"),
+                       "controller_generation": authority.get("generation") if authority else None,
                        "operation": "safe_stop", "operator": operator.subject}
             try:
                 return store.execute_command(

@@ -181,3 +181,41 @@ def test_safe_stop_is_lease_free_all_inventory_and_preserves_operator(tmp_path):
     assert repeated["command_id"] != result["command_id"]
 
 
+def test_unbound_local_commissioning_authorizes_bounded_command_and_safe_stop(tmp_path):
+    calls = []
+    with EdgeStore(tmp_path) as store:
+        store.register_instruments([{"id": "instrument-1", "instrument_type": "minievolver",
+                                     "device_identity": "MEV-1", "vial_positions": [], "capabilities": {}}])
+        lease = store.acquire_local_commissioning_lease("operator")
+        broker = HardwareBroker(store, request=lambda _path, payload, _timeout:
+                                calls.append(payload) or {"request_accepted": True})
+        result = broker.command("set_stir", operator="operator", target_identity="MEV-1",
+                                parameters={"channel": 0, "duration_ms": 100, "level": 5},
+                                lease_token=lease["token"], controller_generation=lease["generation"],
+                                physical=True)
+        assert result["request_accepted"] is True
+        store.release_local_commissioning_lease("operator")
+        stopped = broker.safe_stop(operator="operator", physical=True)
+
+    assert stopped["request_accepted"] is True
+    assert calls[0]["controller_generation"] == 1
+    assert calls[1]["controller_generation"] == 1
+
+
+def test_stale_local_lease_is_rejected_after_reacquire(tmp_path):
+    calls = []
+    with EdgeStore(tmp_path) as store:
+        store.register_instruments([{"id": "instrument-1", "instrument_type": "minievolver",
+                                     "device_identity": "MEV-1", "vial_positions": [], "capabilities": {}}])
+        first = store.acquire_local_commissioning_lease("operator")
+        store.release_local_commissioning_lease("operator")
+        second = store.acquire_local_commissioning_lease("operator")
+        broker = HardwareBroker(store, request=lambda *_: calls.append(True) or {"request_accepted": True})
+        with pytest.raises(ValueError, match="stale"):
+            broker.command("set_stir", operator="operator", target_identity="MEV-1",
+                           parameters={"channel": 0, "duration_ms": 100, "level": 5},
+                           lease_token=first["token"], controller_generation=first["generation"],
+                           physical=True)
+        assert second["generation"] == 2
+    assert calls == []
+

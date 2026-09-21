@@ -902,10 +902,10 @@ def main(argv: list[str] | None = None) -> int:
                                             "physical": args.physical}, args.timeout)); return 0
             if args.hardware_command == "lease":
                 if args.lease_command == "acquire":
-                    binding = store.binding() or {}
+                    authority = store.hardware_authority() or {}
                     payload = {"operation": "lease_acquire", "operator": args.operator,
                                "ttl_seconds": args.ttl_seconds,
-                               "controller_generation": int(binding.get("generation", 0))}
+                               "controller_generation": int(authority.get("generation", 0))}
                 elif args.lease_command == "status": payload = {"operation": "lease_status"}
                 else: payload = {"operation": "lease_release", "operator": args.operator}
                 _emit(request(socket_path, payload, args.timeout)); return 0
@@ -917,7 +917,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.operation == "set_output": params.update(output="od_led", level=args.level)
             elif args.operation == "pulse_pump": params.update(duration_ms=args.duration_ms)
             elif args.operation in {"set_stir", "pulse_heater"}: params.update(duration_ms=args.duration_ms, level=args.level)
-            generation = int((store.binding() or {}).get("generation", 0))
+            authority = store.hardware_authority() or {}
+            generation = int(authority.get("generation", 0))
             _emit(request(socket_path, {"operation": args.operation, "target_identity": args.target,
                                         "parameters": params, "physical": args.physical, "operator": args.operator,
                                         "lease_token": args.lease_token, "controller_generation": generation}, args.timeout)); return 0

@@ -281,6 +281,23 @@ class EdgeStore:
         row = self._connection.execute("SELECT * FROM binding WHERE singleton = 1").fetchone()
         return dict(row) if row else None
 
+    def hardware_authority(self) -> Json | None:
+        """Return the currently effective positive hardware authority.
+
+        Central binding is authoritative whenever it contains a positive
+        generation.  An unbound edge may instead have a durable local
+        commissioning generation; this is deliberately a separate domain and
+        is never projected as binding/enrollment state.
+        """
+        binding = self.binding()
+        generation = binding.get("generation") if isinstance(binding, Mapping) else None
+        if isinstance(generation, int) and not isinstance(generation, bool) and generation > 0:
+            return {"generation": generation, "domain": "central"}
+        local = self.meta("local_commissioning_generation", 0)
+        if isinstance(local, int) and not isinstance(local, bool) and local > 0:
+            return {"generation": local, "domain": "local_commissioning"}
+        return None
+
     # Hardware observation --------------------------------------------------
     def record_hardware_observation(self, observation: Mapping[str, Any]) -> Json:
         """Persist the latest edge-local hardware discovery evidence.
@@ -1158,12 +1175,15 @@ class EdgeStore:
         return _decode(row["value"]) if row else default
 
     def set_control_lease(self, *, lease_token: str, owner: str, generation: int,
-                          expires_at: str) -> None:
+                          expires_at: str, authority_domain: str = "central") -> None:
         """Persist the edge copy of a central lease without storing its token."""
         if not all(isinstance(value, str) and value for value in (lease_token, owner, expires_at)):
             raise LeaseValidationError("lease token, owner, and expiry are required")
+        if authority_domain not in {"central", "local_commissioning"}:
+            raise LeaseValidationError("lease authority domain is invalid")
         value = {"token_digest": hashlib.sha256(lease_token.encode()).hexdigest(),
-                 "owner": owner, "generation": generation, "expires_at": expires_at}
+                 "owner": owner, "generation": generation, "expires_at": expires_at,
+                 "authority_domain": authority_domain}
         self.set_meta("control_lease", value)
 
     def acquire_local_commissioning_lease(self, owner: str, ttl_seconds: int = 900) -> Json:
@@ -1182,15 +1202,33 @@ class EdgeStore:
                     raise LeaseValidationError("hardware lease is already held")
             except (KeyError, ValueError, TypeError):
                 pass
-        binding = self.binding() or {}
-        generation = int(binding.get("generation", 0))
+        binding = self.binding()
+        central_generation = binding.get("generation") if isinstance(binding, Mapping) else None
+        if isinstance(central_generation, int) and not isinstance(central_generation, bool) and central_generation > 0:
+            generation, authority_domain = central_generation, "central"
+        else:
+            current_local = self.meta("local_commissioning_generation", 0)
+            if isinstance(current_local, bool) or not isinstance(current_local, int) or current_local < 0:
+                current_local = 0
+            generation, authority_domain = current_local + 1, "local_commissioning"
         token = secrets.token_urlsafe(32)
         expires = (datetime.now(UTC).timestamp() + ttl_seconds)
         expires_at = datetime.fromtimestamp(expires, UTC).isoformat()
-        self.set_control_lease(lease_token=token, owner=owner, generation=generation, expires_at=expires_at)
         lease = {"lease_id": str(uuid.uuid4()), "owner": owner, "purpose": "commissioning/manual_maintenance",
-                 "generation": generation, "expires_at": expires_at, "status": "active", "token": token}
-        self.set_meta("commissioning_lease", {key: value for key, value in lease.items() if key != "token"})
+                 "generation": generation, "expires_at": expires_at, "status": "active", "token": token,
+                 "authority_domain": authority_domain}
+        control_lease = {"token_digest": hashlib.sha256(token.encode()).hexdigest(), "owner": owner,
+                         "generation": generation, "expires_at": expires_at,
+                         "authority_domain": authority_domain}
+        with self._transaction() as cursor:
+            if authority_domain == "local_commissioning":
+                cursor.execute("INSERT INTO meta(key, value) VALUES ('local_commissioning_generation', ?) "
+                               "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (_canonical(generation),))
+            cursor.execute("INSERT INTO meta(key, value) VALUES ('control_lease', ?) "
+                           "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (_canonical(control_lease),))
+            cursor.execute("INSERT INTO meta(key, value) VALUES ('commissioning_lease', ?) "
+                           "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                           (_canonical({key: value for key, value in lease.items() if key != "token"}),))
         return lease
 
     def local_commissioning_lease_status(self) -> Json:
@@ -1212,7 +1250,7 @@ class EdgeStore:
         return {**lease, "status": "released"}
 
     def validate_control_lease(self, *, lease_token: str | None, owner: str | None,
-                               generation: int) -> None:
+                               generation: int, authority_domain: str | None = None) -> None:
         lease = self.meta("control_lease")
         if lease is None:
             raise LeaseValidationError("active commissioning lease is required")
@@ -1222,6 +1260,8 @@ class EdgeStore:
             raise LeaseValidationError("lease token does not own the hardware command")
         if owner != lease.get("owner") or generation != lease.get("generation"):
             raise LeaseValidationError("lease owner or controller generation is stale")
+        if authority_domain is not None and lease.get("authority_domain", "central") != authority_domain:
+            raise LeaseValidationError("lease authority domain is stale")
         try:
             if datetime.fromisoformat(str(lease["expires_at"]).replace("Z", "+00:00")) <= datetime.now(UTC):
                 raise LeaseValidationError("hardware lease has expired")
